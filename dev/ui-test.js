@@ -78,6 +78,7 @@ const ok = (c, label) => { if (c) { pass++; console.log('  ✓ ' + label); } els
   await page.locator('.rec-row.st-none button[data-v="done"]').first().click();
   await page.click('[data-act="rec-confirm"]'); await page.click('[data-act="rec-save"]'); await page.waitForTimeout(900);
   ok(await count('.rec-row.changed') === 0, '過去の日付の記録を保存できる');
+  await go('#record'); ok(await count('[data-act="rec-del"]') === 0, 'マネージャーには「記録を消す」が出ない');
   await go('#menus'); ok(await count('[data-act="menu-new"]') === 0, 'メニューの作成ボタンは出ない');
   await go('#members'); ok(await count('[data-act="member-new"]') === 0, '部員の追加ボタンは出ない');
   await logout();
@@ -119,6 +120,9 @@ const ok = (c, label) => { if (c) { pass++; console.log('  ✓ ' + label); } els
   await page.click('[data-act="member-edit"]'); await page.click('[data-act="member-del"]'); await page.waitForTimeout(1000);
   ok((await text('.main')).includes('削除した部員'), '部員を削除できる（削除した部員の欄に移る）');
   await go('#record'); ok(await count('.rec-row.locked') === 0 && await count('.rec-row') >= 19, '管理者はだれの記録でも修正できる（鍵が付かない）');
+  const savedBefore = await count('.rec-row.st-done, .rec-row.st-not');
+  await page.locator('[data-act="rec-del"]').first().click(); await page.waitForTimeout(900);
+  ok(await count('.rec-row.st-done, .rec-row.st-not') === savedBefore - 1, '管理者は記録を消して未記録に戻せる');
   await go('#logs'); await page.waitForTimeout(800); ok(await count('.logs li') > 10, '操作履歴を見られる');
   ok((await text('.logs')).includes('記録を修正') && (await text('.logs')).includes('部員を削除'), '記録の修正・部員の削除が履歴に残っている');
   await page.setViewportSize({ width: 320, height: 640 }); await go('#record');

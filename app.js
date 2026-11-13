@@ -3,7 +3,7 @@
   'use strict';
   const L = window.KLogic;
   const API = window.KINTORE_API;
-  const VERSION = '1.0.0';
+  const VERSION = '1.0.1';
   const WD = ['日', '月', '火', '水', '木', '金', '土'];
   const ROLE = { admin: '管理者', manager: 'マネージャー', leader: 'FWリーダー', member: '一般部員' };
   const MODE = { leader: 'メニュー参加', self: '自主トレ' };
@@ -535,7 +535,8 @@
     const m = row.m;
     return '<li class="rec-row st-' + (cur || 'none') + (changed ? ' changed' : '') + (row.locked ? ' locked' : '') + '" data-id="' + m.id + '">' +
       '<div class="rec-n"><b>' + esc(m.name) + '</b><small>' + esc(m.group) +
-      (changed ? '・<em>未保存</em>' : (row.saved ? '・記録：' + esc(nameOf(row.by)) : '')) + '</small></div>' +
+      (changed ? '・<em>未保存</em>' : (row.saved ? '・記録：' + esc(nameOf(row.by)) : '')) +
+      (can('admin') && row.saved && !changed ? '・<button class="textbtn" data-act="rec-del" data-id="' + m.id + '">記録を消す</button>' : '') + '</small></div>' +
       (row.locked
         ? '<div class="rec-lock">' + icon('lock') + '<span>' + STATUS[row.saved] + '</span></div>'
         : '<div class="rec-b"><button data-act="rec-set" data-id="' + m.id + '" data-v="done" aria-pressed="' + (cur === 'done') + '"><i aria-hidden="true">○</i>実施した</button>' +
@@ -903,6 +904,17 @@
       else if (v === row.saved) delete S.rec.edits[id];
       else S.rec.edits[id] = v;
       recRefreshRow(id);
+    },
+    'rec-del': async (el) => {
+      const m = memberById(el.dataset.id), date = S.rec.date;
+      if (!m || !confirm(m.name + ' さんの ' + mdw(date) + ' の記録を消して、未記録に戻しますか？')) return;
+      await busy(el, async () => {
+        try {
+          const r = await api('deleteRecord', { memberId: m.id, date: date });
+          S.data.records = S.data.records.filter((x) => x[1] !== date).concat(r.records);
+          setData(S.data); render(); toast('記録を消しました（未記録に戻りました）');
+        } catch (e) { toast(e.message, 'err'); }
+      });
     },
     'rec-all': () => {
       let n = 0;

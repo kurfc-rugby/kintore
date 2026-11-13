@@ -290,6 +290,7 @@ button { cursor: pointer; -webkit-tap-highlight-color: transparent; }
 .rec-n b { display: block; font-size: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .rec-n small { font-size: 11px; color: var(--sub); }
 .rec-n em { font-style: normal; font-weight: 700; color: var(--enji); }
+.textbtn { border: 0; background: none; padding: 4px 0; font-size: 11px; color: var(--not); text-decoration: underline; }
 .rec-b { display: flex; gap: 6px; flex: none; }
 .rec-b button { min-width: 82px; height: 44px; border-radius: 8px; border: 1.5px solid #9aa0a8; background: #fff; font-size: 12px; font-weight: 700; display: flex; align-items: center; justify-content: center; gap: 3px; padding: 0 6px; color: #3c4046; }
 .rec-b button i { font-style: normal; font-size: 17px; font-weight: 900; line-height: 1; }
