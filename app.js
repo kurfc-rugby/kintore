@@ -3,7 +3,7 @@
   'use strict';
   const L = window.KLogic;
   const API = window.KINTORE_API;
-  const VERSION = '2.2.0';
+  const VERSION = '2.2.1';
   const WD = ['日', '月', '火', '水', '木', '金', '土'];
   const PERM = { admin: '管理者', manager: 'マネージャー', leader: 'FWリーダー', member: '一般部員' };
   const MODE = { leader: 'メニュー参加', self: '自主トレ' };
@@ -66,7 +66,7 @@
     return '<svg class="jersey j-' + kind + (opt.cls ? ' ' + opt.cls : '') + '" viewBox="' + JK_VB + '" aria-hidden="true">' +
       '<use href="#jk-' + (front ? 'front' : 'back') + '"/>' +
       (!front && opt.name ? '<text x="66.6" y="27" class="jn-name" text-anchor="middle">' + esc(opt.name) + '</text>' : '') +
-      (!front && num ? '<text x="66.6" y="' + (opt.name ? 64 : 60) + '" class="jn-num" text-anchor="middle" font-size="' + fs + '">' + esc(num) + '</text>' : '') +
+      (!front && num ? '<text x="66.6" y="' + (opt.name ? 64 : 60) + '" class="jn-num" text-anchor="middle" font-size="' + fs + '">' + esc(num) + (opt.suffix ? '<tspan class="jn-suf" font-size="' + Math.round(fs * 0.42) + '" dx="1">' + esc(opt.suffix) + '</tspan>' : '') + '</text>' : '') +
       '</svg>';
   }
 
@@ -305,8 +305,8 @@
     const order = top.length === 3 ? [top[1], top[0], top[2]] : top;
     return '<ol class="podium n' + top.length + '">' + order.map((r) =>
       '<li class="pod r' + r.rank + (r === top[0] ? ' lead' : '') + '"><a href="#member/' + r.id + '" aria-label="' + r.rank + '位 ' + esc(r.name) + ' ' + r.done + '回">' +
-      jersey({ num: r.rank, name: r.name.split(/\s+/)[0] }) +
-      '<span class="pod-rank">' + r.rank + '位</span><span class="pod-name">' + esc(r.name) + '</span>' +
+      jersey({ num: r.rank, suffix: '位', name: r.name.split(/\s+/)[0] }) +
+      '<span class="pod-name">' + esc(r.name) + '</span>' +
       '<span class="pod-val"><span class="num">' + r.done + '</span>回' + (r.rate !== null ? '<small>' + Math.round(r.rate * 100) + '%</small>' : '') + '</span>' +
       '</a></li>').join('') + '</ol>';
   }

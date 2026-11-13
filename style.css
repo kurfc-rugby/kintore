@@ -45,6 +45,7 @@ button { cursor: pointer; -webkit-tap-highlight-color: transparent; }
   --jk-line: rgba(0, 0, 0, .7); --jk-lw: 1px; --jk-dash: none; }
 .jk-line { stroke: var(--jk-line); stroke-width: var(--jk-lw); stroke-dasharray: var(--jk-dash); stroke-linejoin: round; vector-effect: non-scaling-stroke; }
 .jersey .jn-num { font-family: var(--jersey-num); font-weight: 700; fill: #fff; letter-spacing: .06em; }
+.jersey .jn-suf { letter-spacing: 0; font-weight: 700; }
 .jersey .jn-name { font-family: var(--jersey-num); font-size: 10px; font-weight: 500; fill: #fff; letter-spacing: .1em; }
 /* 濃さ（フォーメーション）：実施が少ないポジションほど白っぽく。数字は縁取りで読めるように */
 .j-heat { --jk-base: color-mix(in srgb, #77021f calc(var(--heat, .3) * 100%), #f2e6e8);
@@ -187,9 +188,7 @@ button { cursor: pointer; -webkit-tap-highlight-color: transparent; }
 .pod a { display: flex; flex-direction: column; align-items: center; text-align: center; }
 .pod .jersey { width: 88%; filter: drop-shadow(0 3px 0 rgba(0,0,0,.12)); }
 .pod.lead .jersey { width: 100%; }
-.pod-rank { font-family: var(--jersey-num); font-weight: 700; font-size: 13px; color: #fff; background: #77021f; border-radius: 99px; padding: 1px 10px; margin-top: 6px; line-height: 1.5; }
-.pod.lead .pod-rank { font-size: 15px; padding: 1px 14px; }
-.pod-name { font-weight: 800; font-size: 13px; line-height: 1.3; margin: 4px 0 0; overflow-wrap: anywhere; }
+.pod-name { font-weight: 800; font-size: 13px; line-height: 1.3; margin: 6px 0 0; overflow-wrap: anywhere; }
 .pod.lead .pod-name { font-size: 15px; }
 .pod-val { font-size: 12px; font-weight: 700; color: var(--sub); }
 .pod-val .num { font-size: 24px; margin-right: 1px; color: var(--enji); }
