@@ -3,7 +3,7 @@
   'use strict';
   const L = window.KLogic;
   const API = window.KINTORE_API;
-  const VERSION = '2.4.0';
+  const VERSION = '2.5.0';
   const WD = ['日', '月', '火', '水', '木', '金', '土'];
   const PERM = { admin: '管理者', manager: 'マネージャー', leader: 'FWリーダー', member: '一般部員' };
   const MODE = { leader: 'メニュー参加', self: '自主トレ' };
@@ -39,8 +39,42 @@
   const ymLabel = (s) => s.slice(0, 4) + '年' + +s.slice(5, 7) + '月';
   const reduceMotion = () => window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
+  // ---------- 表示の設定（端末ごと） ----------
+  const PREF = { theme: store.get('theme', 'auto'), size: store.get('size', 'm'), self: store.get('self', '') };
+  const SIZES = [['s', '小'], ['m', '標準'], ['l', '大'], ['xl', '特大']];
+  const darkMQ = window.matchMedia ? window.matchMedia('(prefers-color-scheme: dark)') : null;
+  function applyPrefs() {
+    const dark = PREF.theme === 'dark' || (PREF.theme === 'auto' && darkMQ && darkMQ.matches);
+    const root = document.documentElement;
+    root.dataset.theme = dark ? 'dark' : 'light';
+    root.dataset.size = PREF.size;
+    const meta = document.querySelector('meta[name="theme-color"]');
+    if (meta) meta.setAttribute('content', dark ? '#2a1215' : '#6f3036');
+  }
+  if (darkMQ && darkMQ.addEventListener) darkMQ.addEventListener('change', () => { if (PREF.theme === 'auto') applyPrefs(); });
+  applyPrefs();
+  // 応援スタンプ用の端末の番号（ランダム。個人は特定しない）
+  let DEVICE = store.get('device', '');
+  if (!/^[0-9a-f]{24}$/.test(DEVICE)) {
+    const a = new Uint8Array(12);
+    (window.crypto || window.msCrypto).getRandomValues(a);
+    DEVICE = Array.from(a).map((b) => ('0' + b.toString(16)).slice(-2)).join('');
+    store.set('device', DEVICE);
+  }
+  /** ログインの一覧に出す端末の名前（例：iPhone・Safari） */
+  function deviceName() {
+    const u = navigator.userAgent || '';
+    const os = /iPhone/.test(u) ? 'iPhone' : /iPad/.test(u) || (/Macintosh/.test(u) && navigator.maxTouchPoints > 1) ? 'iPad' : /Android/.test(u) ? 'Android' : /Windows/.test(u) ? 'Windows' : /Mac OS X/.test(u) ? 'Mac' : /CrOS/.test(u) ? 'Chromebook' : 'その他';
+    const br = / Line\//.test(u) ? 'LINE' : /EdgA?\//.test(u) ? 'Edge' : /CriOS|Chrome\//.test(u) ? 'Chrome' : /FxiOS|Firefox\//.test(u) ? 'Firefox' : /Safari\//.test(u) ? 'Safari' : 'ブラウザ';
+    return os + '・' + br;
+  }
+
   const ICON = {
     copy: '<path d="M9 9h10v12H9zM5 3h10v3H8v11H5z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>',
+    star: '<path d="m12 3 2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1-4.4-4.3 6.1-.9z"/>',
+    play: '<path d="M8 5v14l11-7z"/>',
+    scale: '<path d="M5 4h14a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2zm7 3a5 5 0 0 0-4.6 3h3.1l1.5-2 .5.4-1 1.6H16.6A5 5 0 0 0 12 7z" fill-rule="evenodd"/>',
+    trash: '<path d="M5 7h14M10 7V4h4v3M7 7l1 13h8l1-13" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>',
     image: '<path d="M4 5h16v14H4z M4 16l5-5 4 4 2-2 5 5" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><circle cx="15.5" cy="9" r="1.6"/>',
     home: '<path d="M3 11.5 12 4l9 7.5V20a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/>',
     rank: '<path d="M4 20V10h4v10zm6 0V4h4v16zm6 0v-7h4v7z"/>',
@@ -80,7 +114,8 @@
     group: 'ALL', position: '', sort: 'count',
     menuTab: 'upcoming', menuGroup: 'ALL',
     rec: { date: null, edits: {}, group: 'ALL', position: '' },
-    memberMonth: null, logs: null, route: { name: 'home', arg: '' }, counted: false
+    memberMonth: null, logs: null, route: { name: 'home', arg: '' }, counted: false,
+    hist: {}, archive: null, recSort: store.get('recSort', 'pos')
   };
   const me = () => (S.data && S.data.me) || null;
   const can = (what) => {
@@ -89,6 +124,8 @@
     if (what === 'record') return m.perm === 'admin' || m.perm === 'manager';
     if (what === 'menu') return m.perm === 'admin' || m.perm === 'leader';
     if (what === 'admin') return m.perm === 'admin';
+    if (what === 'body') return m.perm === 'admin' || m.perm === 'manager' || m.perm === 'leader';
+    if (what === 'archive') return m.perm === 'admin' || m.perm === 'manager' || m.perm === 'leader';
     return false;
   };
   const goal = () => L.goalOf(S.data && S.data.weekGoal);
@@ -101,7 +138,7 @@
 
   // ---------- 通信 ----------
   async function api(op, payload) {
-    const body = Object.assign({ op: op }, payload || {});
+    const body = Object.assign({ op: op, device: DEVICE }, payload || {});
     if (S.token) body.token = S.token;
     if (S.viewToken) body.viewToken = S.viewToken;
     let res;
@@ -120,6 +157,8 @@
     S.data = d;
     S.idx = d.locked ? null : L.buildIndex(d);
     S.lastLoad = Date.now();
+    S.stampMap = {};
+    (d.stamps || []).forEach((x) => { S.stampMap[x.t + '|' + x.e] = x; });
     if (S.token && !d.me) { S.token = ''; store.del('token'); }
     if (!d.locked) store.set('state2', d);
   }
@@ -230,7 +269,7 @@
     const isNow = today >= p.from && today <= p.to;
     const prevWord = S.kind === 'week' ? '前の週' : '前の月';
     const t = cur.team;
-    let h = periodBar();
+    let h = pinReqBanner() + selfCard() + periodBar();
     h += '<section class="board" aria-label="部全体の状況"><svg class="board-streaks" viewBox="25 40 85 66" preserveAspectRatio="xMidYMid slice" aria-hidden="true"><use href="#jk-streaks"/></svg>' +
       '<div class="board-main"><div class="board-k">部全体の実施回数</div>' +
       '<div class="board-v"><span class="num" data-count="' + t.done + '">' + t.done + '</span><span class="unit">回</span></div>' +
@@ -243,6 +282,7 @@
       '</div></section>';
     if (isNow) h += todayCard();
     if (S.kind === 'week') h += goalBlock(cur.rows, isNow, p);
+    if (S.kind === 'week' && isNow) h += pinchBlock();
     h += '<section class="block"><div class="block-h"><h2>ランキング</h2><a class="more" href="#rank">すべて見る</a></div>';
     if (!ranked.length) h += '<p class="empty">この期間の実施記録はまだありません。' + (can('record') ? '<br><a href="#record">記録をつける</a>' : '') + '</p>';
     else {
@@ -251,6 +291,7 @@
       if (rest.length) h += '<ol class="rlist">' + rest.map(rankRow).join('') + '</ol>';
     }
     h += '</section>';
+    if (isNow) h += feedBlock();
     h += formationBlock(p);
     if (S.kind === 'month') h += awardsBlock(cur.rows, pre.rows, p, isNow) + continuityBlock(cur.rows);
     return h;
@@ -532,6 +573,85 @@
     return h + '</ul><p class="note">月曜始まりの週ごとに、' + g + '回以上「実施した」なら ■（達成）、足りなければ赤枠、終わっていない週は点線、灰色は免除の週。月曜がその月にある週を、その月に数えます。</p></section>';
   }
 
+  // ---------- 応援スタンプ・おめでとう・ピンチ ----------
+  const STAMPS = [['clap', '👏', 'すごい'], ['fire', '🔥', '燃えてる'], ['muscle', '💪', 'ナイス筋トレ'], ['party', '🎉', 'おめでとう'], ['hundred', '💯', '完璧']];
+  const stampOf = (t, e) => (S.stampMap && S.stampMap[t + '|' + e]) || { t: t, e: e, c: {}, f: [], mine: [] };
+  function stampBar(target, event, opt) {
+    const x = stampOf(target, event);
+    const own = PREF.self && PREF.self === target;
+    return '<div class="stamps' + (opt && opt.small ? ' small' : '') + '" data-t="' + esc(target) + '" data-e="' + esc(event) + '">' + STAMPS.map((k) => {
+      const n = x.c[k[0]] || 0, on = x.mine.indexOf(k[0]) >= 0;
+      return '<button class="stamp' + (on ? ' on' : '') + (n ? '' : ' zero') + '" data-act="stamp" data-k="' + k[0] + '" aria-pressed="' + on + '" aria-label="' + k[2] + (n ? ' ' + n : '') + '"' + (own ? ' disabled' : '') + '><span aria-hidden="true">' + k[1] + '</span>' + (n ? '<b class="num">' + n + '</b>' : '') + '</button>';
+    }).join('') + '</div>';
+  }
+  function stampSum(list) {
+    const c = {};
+    list.forEach((x) => { Object.keys(x.c).forEach((k) => { c[k] = (c[k] || 0) + x.c[k]; }); });
+    const total = Object.keys(c).reduce((a, k) => a + c[k], 0);
+    return { c: c, total: total, html: STAMPS.filter((k) => c[k[0]]).map((k) => '<span class="ssum">' + k[1] + '<b class="num">' + c[k[0]] + '</b></span>').join('') };
+  }
+  /** その人あての応援（新しい順） */
+  function cheersFor(id) {
+    return (S.data.stamps || []).filter((x) => x.t === id && Object.keys(x.c).length).sort((a, b) => (a.at < b.at ? 1 : -1));
+  }
+  function eventLabel(e) {
+    const k = e.split(':');
+    if (k[0] === 'g') return mdw(k[1]) + 'の週 週' + goal() + '回達成';
+    if (k[0] === 'c') return '通算' + k[1] + '回';
+    if (k[0] === 'f') return '初めての記録';
+    if (k[0] === 'b') { const b = L.badgeList(goal()).find((x) => x.key === k[1]); return '称号「' + (b ? b.name : k[1]) + '」'; }
+    return '';
+  }
+  function fromNames(list) {
+    const ids = [];
+    list.forEach((x) => (x.f || []).forEach((id) => { if (ids.indexOf(id) < 0) ids.push(id); }));
+    const names = ids.map(nameOf).filter(Boolean);
+    return names.length ? names.slice(0, 3).join('、') + (names.length > 3 ? 'ほか' : '') + ' から' : '';
+  }
+
+  /** 「わたし」：設定で自分の名前を選んだ人だけに出す */
+  function selfCard() {
+    const m = PREF.self && memberById(PREF.self);
+    if (!m || !m.player || !m.active) return '';
+    const today = S.data.today, ws = L.weekStart(today), g = goal();
+    const c = L.weekCount(S.idx, m, ws), nd = L.weekNeed(S.idx, m, ws, g);
+    const streak = L.streakWeeks(S.idx, m, today, S.data.range.from, g);
+    const recent = cheersFor(m.id).filter((x) => x.at.slice(0, 10) >= L.addDays(today, -14));
+    const sum = stampSum(recent);
+    const state = nd.need === 0 ? '今週は免除' : c >= nd.need ? '今週の週' + nd.need + '回 達成' : 'あと' + (nd.need - c) + '回で今週の達成';
+    return '<a class="selfcard" href="#member/' + m.id + '"><span class="self-j">' + jersey({ num: c, name: m.name.split(/\s+/)[0] }) + '</span>' +
+      '<span class="self-t"><small>わたし</small><b>' + esc(m.name) + '</b><span class="self-s' + (nd.need && c >= nd.need ? ' ok' : '') + '">' + state + (streak ? '・' + streak + '週連続' : '') + '</span>' +
+      (sum.total ? '<span class="self-c">' + fromNames(recent) + 'おめでとうが届いています ' + sum.html + '</span>' : '') + '</span>' + icon('next') + '</a>';
+  }
+  function pinchBlock() {
+    const list = L.pinchList(S.data, S.idx, S.data.today, goal(), S.data.range.from);
+    if (!list.length) return '';
+    const g = goal();
+    return '<section class="block pinch"><div class="block-h"><h2>連続記録がピンチ</h2><span class="count">' + list.length + '人</span></div>' +
+      '<ul class="pinch-list">' + list.map((r) => '<li class="' + (r.slack <= 0 ? 'hot' : r.slack <= 1 ? 'warm' : '') + '"><a href="#member/' + r.id + '">' +
+        '<span class="pinch-n">' + esc(r.name) + '<small>' + r.streak + '週連続中</small></span>' +
+        '<span class="pinch-v">あと<b class="num">' + r.left + '</b>回<small>' + (r.slack < 0 ? '今週は届かない' : '残り' + r.daysLeft + '日') + '</small></span></a></li>').join('') + '</ul>' +
+      '<p class="note">先週まで週' + g + '回を2週以上続けていて、今週まだ届いていない人です。声をかけて連続を守りましょう。</p></section>';
+  }
+  function feedBlock() {
+    const ev = L.feedEvents(S.data, S.idx, S.data.today, goal(), S.data.life || {}, 10);
+    if (!ev.length) return '';
+    const FIRST = 6;
+    const li = (e) => {
+      const what = e.kind === 'goal' ? '週' + goal() + '回を達成' + (e.streak >= 2 ? '<em>' + e.streak + '週連続</em>' : '')
+        : e.kind === 'total' ? '通算<em>' + e.n + '回</em>' : '初めての記録';
+      return '<li class="feed-i' + (e.mark || e.kind !== 'goal' ? ' big' : '') + '"><div class="feed-h"><a href="#member/' + e.id + '"><b>' + esc(e.name) + '</b></a><span>' + what + '</span><time>' + mdw(e.date) + '</time></div>' + stampBar(e.id, e.key, { small: true }) + '</li>';
+    };
+    let h = '<section class="block feed"><div class="block-h"><h2>おめでとう</h2><span class="count">最近10日</span></div><ul class="feed-list">' + ev.slice(0, FIRST).map(li).join('') + '</ul>';
+    if (ev.length > FIRST) h += '<details class="goal-more"><summary>ほか ' + (ev.length - FIRST) + '件を見る</summary><ul class="feed-list">' + ev.slice(FIRST).map(li).join('') + '</ul></details>';
+    return h + '<p class="note">スタンプを押すと、その人に「おめでとう」が届きます（ログイン不要。同じスタンプはもう一度押すと取り消し）。' + (PREF.self ? '' : '<a href="#settings">設定</a>で自分の名前を選ぶと、だれから届いたかも伝わります。') + '</p></section>';
+  }
+  function pinReqBanner() {
+    const list = can('admin') ? (S.data.pinRequests || []) : [];
+    if (!list.length) return '';
+    return '<a class="banner warn" href="#settings">' + icon('lock') + '<span>暗証番号の再発行の依頼が <b>' + list.length + '件</b>（' + list.map((x) => esc(x.name)).join('、') + '）</span>' + icon('next') + '</a>';
+  }
+
   // ---------- ランキング ----------
   function vRank() {
     const d = S.data, p = curPeriod();
@@ -637,6 +757,7 @@
     if (staff.length) h += '<section class="block"><div class="block-h"><h2>マネージャーなど</h2><span class="count">' + staff.length + '人</span></div><ul class="mlist">' + staff.map(row).join('') + '</ul></section>';
     const gone = d.members.filter((m) => !m.active).sort((a, b) => a.sort - b.sort);
     if (can('admin') && gone.length) h += '<details class="block gone-box"><summary><h2>在籍していない部員</h2><span class="count">' + gone.length + '人</span></summary><ul class="mlist gone">' + gone.map(row).join('') + '</ul></details>';
+    h += bodyOverview();
     h += '<p class="note">「メニュー参加」はFWリーダーのメニューに沿って取り組む人、「自主トレ」は自分でメニューを決める人です。変えたいときは管理者に伝えてください。</p>';
     return h;
   }
@@ -660,6 +781,7 @@
       (m.perm !== 'member' ? '<span class="chip role">' + PERM[m.perm] + '</span>' : '') + (!m.active ? '<span class="chip">在籍なし</span>' : '') + '</div></div>' +
       (can('admin') ? '<button class="btn small" data-act="member-edit" data-id="' + m.id + '">編集</button>' : '') + '</div>';
     if (!m.player) return h + '<p class="empty">選手ではないため、筋トレの記録はありません。</p>';
+    if (PREF.self === m.id) h += '<p class="self-note">' + icon('check') + 'あなたのページです（設定で選んだ名前）</p>';
     h += '<div class="tiles">' +
       (wn.need === 0
         ? '<div class="tile"><div class="tile-k">今週</div><div class="tile-v"><span class="num">' + sw.done + '</span>回</div><div class="tile-s">今週は免除</div></div>'
@@ -669,6 +791,8 @@
       '<div class="tile"><div class="tile-k">今月の実施率</div><div class="tile-v">' + (sm.rate === null ? '<span class="dash">－</span>' : '<span class="num">' + Math.round(sm.rate * 100) + '</span>%') + '</div>' +
       '<div class="tile-s">' + (sm.rate === null ? (m.mode === 'self' ? '自主トレは回数で見ます' : 'まだ対象日がありません') : sm.doneT + '/' + sm.targetDays + '日') + '</div></div>' +
       '<div class="tile"><div class="tile-k">週' + g + '回の連続達成</div><div class="tile-v"><span class="num">' + streak + '</span>週</div></div></div>';
+    const pers = personalOf(m);
+    h += cheerBlock(m) + bestsBlock(m, pers) + badgesBlock(m, pers) + bodyBlock(m);
     h += exemptBlock(m);
     const atNow = mo.from === tm.from;
     h += '<section class="block"><div class="mcal-nav"><button class="ibtn" data-act="mmonth" data-v="-1" aria-label="前の月">' + icon('back') + '</button>' +
@@ -692,6 +816,130 @@
       '<span class="hist-t">' + CELL[x.st][1] + (x.menus.length ? '<small>' + x.menus.map((w) => esc(w.title)).join('、') + '</small>' : '') + '</span>' +
       (x.r && x.r.by ? '<span class="hist-b">記録：' + esc(nameOf(x.r.by)) + '</span>' : '') + '</li>').join('') + '</ul>';
     return h + '</section>';
+  }
+
+  // ---------- 部員ページ：自己ベスト・称号・体組成・応援 ----------
+  async function loadHistory(id) {
+    if (S.hist[id] && (S.hist[id].loading || Date.now() - S.hist[id].at < 120000)) return;
+    S.hist[id] = Object.assign(S.hist[id] || {}, { loading: true });
+    try {
+      const r = await api('memberHistory', { memberId: id });
+      S.hist[id] = { at: Date.now(), records: r.records, exempts: r.exempts };
+    } catch (e) { S.hist[id] = { at: Date.now(), err: e.message }; }
+    if (S.route.name === 'member' && S.route.arg === id) render();
+  }
+  function personalOf(m) {
+    const h = S.hist[m.id];
+    if (!h || !h.records) return null;
+    const ix = L.buildIndex({ records: h.records, exempts: h.exempts });
+    return L.personal(ix, m, S.data.today, goal());
+  }
+  function bestsBlock(m, p) {
+    if (!p) return '<section class="block"><div class="block-h"><h2>自己ベスト</h2></div><p class="empty small">' + (S.hist[m.id] && S.hist[m.id].err ? esc(S.hist[m.id].err) : '読み込み中…') + '</p></section>';
+    if (!p.total) return '';
+    const ym = (k) => +k.slice(0, 4) + '年' + +k.slice(5, 7) + '月';
+    return '<section class="block"><div class="block-h"><h2>自己ベスト</h2><span class="count">' + (p.first ? md(p.first) + '（' + p.first.slice(0, 4) + '）から' : '') + '</span></div>' +
+      '<div class="bests">' +
+      '<div class="best"><span class="best-k">通算</span><span class="best-v"><b class="num">' + p.total + '</b>回</span></div>' +
+      '<div class="best"><span class="best-k">いちばん長い連続</span><span class="best-v"><b class="num">' + p.streakMax + '</b>週</span><small>週' + goal() + '回を続けた週数' + (p.streakNow ? '・いま' + p.streakNow + '週' : '') + '</small></div>' +
+      '<div class="best"><span class="best-k">いちばん多い月</span><span class="best-v"><b class="num">' + p.bestMonth.count + '</b>回</span><small>' + ym(p.bestMonth.month) + '</small></div>' +
+      '<div class="best"><span class="best-k">いちばん多い週</span><span class="best-v"><b class="num">' + p.bestWeek.count + '</b>回</span><small>' + mdw(p.bestWeek.from) + 'の週</small></div>' +
+      '</div></section>';
+  }
+  function badgesBlock(m, p) {
+    if (!p) return '';
+    const list = L.badgeList(goal());
+    const got = list.filter((b) => p.earned[b.key]);
+    const next = list.filter((b) => !p.earned[b.key]);
+    let h = '<section class="block"><div class="block-h"><h2>称号</h2><span class="count">' + got.length + '/' + list.length + '</span></div>';
+    h += '<ul class="badges">' + got.sort((a, b) => (p.earned[a.key] < p.earned[b.key] ? 1 : -1)).map((b) =>
+      '<li class="badge on"><span class="badge-i" aria-hidden="true">' + icon('star') + '</span><b>' + esc(b.name) + '</b><small>' + mdw(p.earned[b.key]) + ' ' + p.earned[b.key].slice(0, 4) + '</small>' +
+      stampBar(m.id, 'b:' + b.key, { small: true }) + '</li>').join('') +
+      next.slice(0, 4).map((b) => '<li class="badge"><span class="badge-i" aria-hidden="true">' + icon('star') + '</span><b>' + esc(b.name) + '</b><small>' + esc(b.desc) + '</small></li>').join('') + '</ul>';
+    if (!got.length) h += '<p class="note">「実施した」がつくと、最初の称号がもらえます。</p>';
+    return h + '</section>';
+  }
+  function cheerBlock(m) {
+    const list = cheersFor(m.id);
+    if (!list.length) return '';
+    const sum = stampSum(list);
+    return '<section class="block"><div class="block-h"><h2>届いた応援</h2><span class="count">最近' + 60 + '日</span></div>' +
+      '<p class="cheer-sum">' + sum.html + '</p><ul class="cheers">' + list.slice(0, 8).map((x) =>
+        '<li><span class="cheer-e">' + esc(eventLabel(x.e)) + '<small>' + fromNames([x]) + '</small></span><span class="cheer-c">' + stampSum([x]).html + '</span></li>').join('') + '</ul></section>';
+  }
+  const BODY_K = [['weight', '体重', 'kg', 3], ['fat', '体脂肪率', '%', 4], ['muscle', '筋肉量', 'kg', 5]];
+  function bodyOf(id) { return (S.data.body || []).filter((b) => b[1] === id).sort((a, b) => (a[2] < b[2] ? -1 : 1)); }
+  function bodyChart(list, col, unit) {
+    const pts = list.filter((b) => b[col] !== null);
+    if (pts.length < 2) return '';
+    const W = 320, H = 110, P = 26;
+    const v = pts.map((b) => b[col]), lo = Math.min(...v), hi = Math.max(...v), span = hi - lo || 1;
+    const t0 = L.parse(pts[0][2]).getTime(), t1 = L.parse(pts[pts.length - 1][2]).getTime(), ts = t1 - t0 || 1;
+    const xy = pts.map((b) => [P + (L.parse(b[2]).getTime() - t0) / ts * (W - P * 2), 12 + (1 - (b[col] - lo) / span) * (H - 34)]);
+    return '<svg class="bchart" viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="' + esc(unit) + 'の変化">' +
+      '<polyline points="' + xy.map((p) => p[0].toFixed(1) + ',' + p[1].toFixed(1)).join(' ') + '"/>' +
+      xy.map((p, i) => '<circle cx="' + p[0].toFixed(1) + '" cy="' + p[1].toFixed(1) + '" r="3"><title>' + md(pts[i][2]) + ' ' + pts[i][col] + unit + '</title></circle>').join('') +
+      '<text x="' + P + '" y="' + (H - 4) + '">' + md(pts[0][2]) + '</text><text x="' + (W - P) + '" y="' + (H - 4) + '" text-anchor="end">' + md(pts[pts.length - 1][2]) + '</text>' +
+      '<text x="2" y="14" class="ax">' + hi + '</text><text x="2" y="' + (H - 22) + '" class="ax">' + lo + '</text></svg>';
+  }
+  function bodyBlock(m) {
+    const list = bodyOf(m.id), staff = can('body');
+    if (!list.length && !staff) return '';
+    let h = '<section class="block"><div class="block-h"><h2>体重・体組成</h2>' + (staff ? '<button class="btn small" data-act="body-new" data-id="' + m.id + '">' + icon('plus') + '入れる</button>' : '') + '</div>';
+    if (!list.length) return h + '<p class="empty small">まだ記録がありません。測ったら入れてください（数値は部員みんなが見られます）。</p></section>';
+    const last = list[list.length - 1];
+    h += '<div class="bnow">' + BODY_K.map((k) => {
+      const prev = list.slice(0, -1).reverse().find((b) => b[k[3]] !== null);
+      const v = last[k[3]];
+      if (v === null) return '';
+      const d = prev ? Math.round((v - prev[k[3]]) * 10) / 10 : null;
+      return '<div class="bv"><span class="best-k">' + k[1] + '</span><span class="best-v"><b class="num">' + v + '</b>' + k[2] + '</span>' +
+        (d !== null ? '<small class="' + (d > 0 ? 'up' : d < 0 ? 'down' : '') + '">' + (d > 0 ? '+' : d < 0 ? '−' : '±') + Math.abs(d) + k[2] + '</small><small>' + md(prev[2]) + 'から</small>' : '') + '</div>';
+    }).join('') + '</div><p class="note is-top">' + mdw(last[2]) + ' に測定</p>';
+    h += bodyChart(list, 3, 'kg');
+    h += '<details class="goal-more"><summary>これまでの記録（' + list.length + '回）</summary><ul class="blist">' + list.slice().reverse().map((b) =>
+      '<li><span class="ex-d">' + b[2].replace(/-/g, '/') + '</span><span>' + BODY_K.map((k) => (b[k[3]] === null ? '' : k[1] + ' ' + b[k[3]] + k[2])).filter(Boolean).join('・') + (b[6] ? '<small>' + esc(b[6]) + '</small>' : '') + '</span>' +
+      (staff ? '<button class="textbtn" data-act="body-del" data-id="' + esc(b[0]) + '">消す</button>' : '') + '</li>').join('') + '</ul></details>';
+    return h + '</section>';
+  }
+  function bodyInputs(prefix, v) {
+    return BODY_K.map((k) => '<label>' + k[1] + '<span class="opt">' + k[2] + '</span><input type="text" inputmode="decimal" name="' + prefix + k[0] + '" value="' + (v && v[k[3]] !== null && v[k[3]] !== undefined ? v[k[3]] : '') + '" autocomplete="off"></label>').join('');
+  }
+  function openBody(memberId) {
+    const m = memberById(memberId);
+    openSheet('体重・体組成（' + m.name + '）',
+      '<form data-form="body1" class="form"><input type="hidden" name="memberId" value="' + esc(memberId) + '">' +
+      '<label>測定日<input type="date" name="date" value="' + S.data.today + '" max="' + S.data.today + '" required></label>' +
+      '<div class="three">' + bodyInputs('', null) + '</div>' +
+      '<label>メモ<span class="opt">任意・スタッフだけに見える</span><input type="text" name="note" maxlength="100" placeholder="例：朝・練習前"></label>' +
+      '<p class="hint">数値は部員みんなが見られます。同じ日にもう一度入れると上書きします。</p><p class="form-err" hidden></p>' +
+      '<div class="actions"><button type="button" class="btn" data-act="sheet-close">やめる</button><button class="btn primary" type="submit">保存</button></div></form>');
+  }
+  function openBodyBulk() {
+    const list = sortMembers(S.data.members.filter((m) => m.active && m.player));
+    openSheet('体重・体組成をまとめて入れる',
+      '<form data-form="bodybulk" class="form"><label>測定日<input type="date" name="date" value="' + S.data.today + '" max="' + S.data.today + '" required></label>' +
+      '<p class="hint">測った人だけ入れてください（空の人は保存しません）。同じ日にもう一度入れると上書きします。数値は部員みんなが見られます。</p>' +
+      '<div class="bulk bodyb"><div class="bulk-h"><span>名前</span><span>体重kg</span><span>体脂肪%</span><span>筋肉量kg</span></div>' +
+      list.map((m) => '<div class="bulk-r" data-id="' + m.id + '"><span class="bulk-n"><b>' + esc(m.name) + '</b><small>' + esc(m.position || m.group || '') + '</small></span>' +
+        BODY_K.map((k) => '<input type="text" inputmode="decimal" name="' + k[0] + '_' + m.id + '" aria-label="' + esc(m.name) + 'の' + k[1] + '" autocomplete="off">').join('') + '</div>').join('') +
+      '</div><p class="form-err" hidden></p>' +
+      '<div class="actions sticky"><button type="button" class="btn" data-act="sheet-close">やめる</button><button class="btn primary" type="submit">保存</button></div></form>', { wide: true });
+  }
+  /** 部員一覧の下：体組成の最新（みんなが見られる） */
+  function bodyOverview() {
+    const latest = {};
+    (S.data.body || []).forEach((b) => { if (!latest[b[1]] || latest[b[1]][2] < b[2]) latest[b[1]] = b; });
+    const list = sortMembers(S.data.members.filter((m) => m.active && m.player && latest[m.id]));
+    if (!list.length && !can('body')) return '';
+    let h = can('body') ? '<div class="toolbar"><button class="btn" data-act="body-bulk">' + icon('scale') + '体重・体組成をまとめて入れる</button></div>' : '';
+    h += '<details class="block gone-box"' + (list.length ? '' : ' open') + '><summary><h2>体重・体組成（最新）</h2><span class="count">' + list.length + '人</span></summary>';
+    if (!list.length) return h + '<p class="empty small">まだ記録がありません。</p></details>';
+    h += '<table class="btable"><thead><tr><th>名前</th><th>体重</th><th>体脂肪</th><th>筋肉量</th><th>測定日</th></tr></thead><tbody>' + list.map((m) => {
+      const b = latest[m.id];
+      return '<tr><th><a href="#member/' + m.id + '">' + esc(m.name) + '</a></th>' + BODY_K.map((k) => '<td>' + (b[k[3]] === null ? '<span class="dash">－</span>' : '<b class="num">' + b[k[3]] + '</b>') + '</td>').join('') + '<td class="bd">' + md(b[2]) + '</td></tr>';
+    }).join('') + '</tbody></table></details>';
+    return h;
   }
 
   // ---------- 免除（部員ごと・部全体のオフ） ----------
@@ -739,16 +987,21 @@
   }
 
   // ---------- メニュー ----------
+  const WD_MON = [1, 2, 3, 4, 5, 6, 0];
+  const repeatLabel = (t) => (t.repeat && t.repeat.length ? '毎週' + WD_MON.filter((d) => t.repeat.indexOf(d) >= 0).map((d) => WD[d]).join('・') : '');
   function vMenus() {
     const d = S.data, today = d.today;
+    const tabs = [['upcoming', '今日から'], ['past', 'これまで']].concat(can('menu') ? [['templates', '型・繰り返し']] : []);
+    if (S.menuTab === 'templates' && !can('menu')) S.menuTab = 'upcoming';
+    let h = '<div class="fbar"><div class="seg" role="group" aria-label="表示">' +
+      tabs.map((t) => '<button data-act="menu-tab" data-v="' + t[0] + '" aria-pressed="' + (S.menuTab === t[0]) + '">' + t[1] + '</button>').join('') + '</div>' +
+      (S.menuTab === 'templates' ? '' : '<div class="seg small" role="group" aria-label="グループ">' + ['ALL', 'FW', 'BK'].map((g) => '<button data-act="menu-group" data-v="' + g + '" aria-pressed="' + (S.menuGroup === g) + '">' + MGROUP[g] + '</button>').join('') + '</div>') + '</div>';
+    if (S.menuTab === 'templates') return h + vTemplates();
     const all = d.menus.filter((w) => S.menuGroup === 'ALL' || w.group === S.menuGroup || w.group === 'ALL');
     const list = all.filter((w) => (S.menuTab === 'upcoming' ? w.date >= today : w.date < today));
     list.sort((a, b) => (S.menuTab === 'upcoming' ? (a.date < b.date ? -1 : a.date > b.date ? 1 : 0) : (a.date > b.date ? -1 : a.date < b.date ? 1 : 0)) || (a.group < b.group ? -1 : 1));
-    let h = '<div class="fbar"><div class="seg" role="group" aria-label="表示する期間">' +
-      '<button data-act="menu-tab" data-v="upcoming" aria-pressed="' + (S.menuTab === 'upcoming') + '">今日から</button>' +
-      '<button data-act="menu-tab" data-v="past" aria-pressed="' + (S.menuTab === 'past') + '">これまで</button></div>' +
-      '<div class="seg small" role="group" aria-label="グループ">' + ['ALL', 'FW', 'BK'].map((g) => '<button data-act="menu-group" data-v="' + g + '" aria-pressed="' + (S.menuGroup === g) + '">' + MGROUP[g] + '</button>').join('') + '</div></div>';
-    if (can('menu')) h += '<div class="toolbar"><button class="btn primary" data-act="menu-new">' + icon('plus') + 'メニューを作成</button></div>';
+    if (can('menu') || can('archive')) h += '<div class="toolbar">' + (can('menu') ? '<button class="btn primary" data-act="menu-new">' + icon('plus') + 'メニューを作成</button>' : '') +
+      (can('archive') ? '<a class="btn" href="#archive">これまでのメニュー一覧（引き継ぎ）</a>' : '') + '</div>';
     if (!list.length) return h + '<p class="empty">' + (S.menuTab === 'upcoming' ? '今日からのメニューはまだ登録されていません。' : 'これまでのメニューはありません。') + '</p>';
     let last = '';
     list.forEach((w) => {
@@ -758,25 +1011,173 @@
         last = w.date;
       }
       h += '<li><button class="menu-card g-' + w.group + '" data-act="menu-open" data-id="' + w.id + '">' +
-        '<span class="menu-top">' + targetChip(w) + '<b>' + esc(w.title) + '</b></span>' +
+        '<span class="menu-top">' + targetChip(w) + '<b>' + esc(w.title) + '</b>' + (w.video ? '<span class="vtag" title="動画あり">' + icon('play') + '</span>' : '') + '</span>' +
         '<span class="menu-body">' + esc(w.content.split('\n').slice(0, 3).join(' / ')) + '</span>' +
-        '<span class="menu-foot">対象 ' + w.targets.length + '人</span></button></li>';
+        '<span class="menu-foot">対象 ' + w.targets.length + '人' + (w.templateId ? '<small>繰り返し</small>' : '') + '</span></button></li>';
     });
     return h + '</ul><p class="note">メニューの対象は、FWリーダーメニューに参加している人だけです。ポジションを指定したメニューは、メインかサブがそのポジションの人が対象です。</p>';
+  }
+  function videoLink(url) {
+    return url ? '<a class="btn small vbtn" href="' + esc(url) + '" target="_blank" rel="noopener noreferrer">' + icon('play') + 'フォームの見本（動画）を見る</a>' : '';
   }
   function openMenu(id) {
     const w = S.data.menus.find((x) => x.id === id);
     if (!w) return;
     const names = w.targets.map(nameOf).filter(Boolean);
+    const tpl = w.templateId && (S.data.templates || []).find((t) => t.id === w.templateId);
     openSheet(w.title,
-      '<div class="detail"><p class="detail-meta">' + targetChip(w) + mdw(w.date) + '</p>' +
+      '<div class="detail"><p class="detail-meta">' + targetChip(w) + mdw(w.date) + (tpl ? '<small class="chip">' + esc(repeatLabel(tpl) || '型') + '</small>' : '') + '</p>' +
+      (w.video ? '<p>' + videoLink(w.video) + '</p>' : '') +
       '<h3>トレーニング内容</h3><p class="pre">' + nl2br(w.content) + '</p>' +
       (w.detail ? '<h3>回数・セット数・重量</h3><p class="pre">' + nl2br(w.detail) + '</p>' : '') +
       (w.note ? '<h3>備考</h3><p class="pre">' + nl2br(w.note) + '</p>' : '') +
       '<h3>対象者（' + names.length + '人）</h3><p class="names">' + (names.length ? names.map(esc).join('、') : 'メニュー参加の人がいません。') + '</p>' +
-      '<p class="note">対象はFWリーダーメニューに参加している人です。' + (w.createdBy ? '作成：' + esc(nameOf(w.createdBy)) : '') + '</p>' +
-      (can('menu') ? '<div class="actions"><button class="btn danger" data-act="menu-del" data-id="' + w.id + '">削除</button><button class="btn primary" data-act="menu-edit" data-id="' + w.id + '">編集</button></div>' : '') +
+      '<p class="note">対象はFWリーダーメニューに参加している人です。' + (w.createdBy ? '作成：' + esc(nameOf(w.createdBy)) : '') + (w.templateId && !w.edited ? '。型を直すと、このメニューもそろいます' : '') + '</p>' +
+      (can('menu') ? '<div class="actions wrap"><button class="btn" data-act="menu-copy" data-id="' + w.id + '">' + icon('copy') + '別の日にコピー</button><button class="btn" data-act="tpl-from-menu" data-id="' + w.id + '">型にする</button></div>' +
+        '<div class="actions"><button class="btn danger" data-act="menu-del" data-id="' + w.id + '">削除</button><button class="btn primary" data-act="menu-edit" data-id="' + w.id + '">編集</button></div>' : '') +
       '</div>');
+  }
+  // 種目のライブラリ（押すとトレーニング内容に足す。回数は目安）
+  const LIB = [
+    ['下半身', [['スクワット', '5回×5セット'], ['フロントスクワット', '5回×4セット'], ['デッドリフト', '5回×3セット'], ['ルーマニアンデッドリフト', '8回×3セット'], ['ブルガリアンスクワット', '左右8回×3セット'], ['ランジ', '左右10回×3セット'], ['レッグプレス', '10回×3セット'], ['ヒップスラスト', '10回×3セット'], ['カーフレイズ', '15回×3セット']]],
+    ['胸・押す', [['ベンチプレス', '5回×5セット'], ['インクラインベンチプレス', '8回×3セット'], ['ダンベルプレス', '10回×3セット'], ['腕立て伏せ', '20回×3セット'], ['ディップス', '10回×3セット']]],
+    ['背中・引く', [['懸垂', '限界まで×3セット'], ['ベントオーバーロウ', '8回×4セット'], ['ラットプルダウン', '10回×3セット'], ['ダンベルロウ', '左右10回×3セット'], ['シュラッグ', '12回×3セット']]],
+    ['肩・腕', [['ショルダープレス', '8回×3セット'], ['サイドレイズ', '15回×3セット'], ['アームカール', '12回×3セット'], ['トライセプスエクステンション', '12回×3セット']]],
+    ['体幹・首', [['プランク', '60秒×3セット'], ['サイドプランク', '左右45秒×3セット'], ['アブローラー', '10回×3セット'], ['首（前後左右）', '各15回×2セット']]],
+    ['パワー', [['パワークリーン', '3回×5セット'], ['ハングクリーン', '3回×4セット'], ['ボックスジャンプ', '5回×4セット'], ['メディシンボール投げ', '8回×3セット']]]
+  ];
+  function libPicker() {
+    return '<details class="lib"><summary>' + icon('plus') + '種目のライブラリから足す</summary><p class="hint">押すと「トレーニング内容」に種目、「回数・セット数・重量」に目安を足します。あとで直せます。</p>' +
+      LIB.map((c, ci) => '<div class="lib-c"><span class="lib-k">' + c[0] + '</span><div class="lib-l">' + c[1].map((x, i) => '<button type="button" class="lib-b" data-act="lib-add" data-c="' + ci + '" data-i="' + i + '">' + esc(x[0]) + '</button>').join('') + '</div></div>').join('') + '</details>';
+  }
+  function menuFields(v, opt) {
+    opt = opt || {};
+    return '<fieldset><legend>対象</legend><div class="radios">' +
+      ['FW', 'BK', 'ALL'].map((g) => '<label><input type="radio" name="group" value="' + g + '"' + (v.group === g && !(v.positions || []).length ? ' checked' : '') + '><span>' + MGROUP[g] + '</span></label>').join('') + '</div>' +
+      '<p class="hint">ポジションで絞るときは、下から選んでください（複数可）。選ぶと上のグループより優先します。</p>' +
+      posPicker('positions', v.positions || []) +
+      '<p class="hint strong" id="tgt-hint"></p></fieldset>' +
+      '<label>メニュー名<input type="text" name="title" maxlength="60" value="' + esc(v.title) + '" placeholder="例：下半身の日" required' + (opt.focus ? ' autofocus' : '') + '></label>' +
+      libPicker() +
+      '<label>トレーニング内容<textarea name="content" rows="5" maxlength="3000" placeholder="例：&#10;スクワット&#10;デッドリフト" required>' + esc(v.content) + '</textarea></label>' +
+      '<label>回数・セット数・重量<span class="opt">任意</span><textarea name="detail" rows="3" maxlength="3000" placeholder="例：スクワット 5回×5セット（MAXの80%）">' + esc(v.detail) + '</textarea></label>' +
+      '<label>フォームの見本の動画<span class="opt">任意・URL</span><input type="url" name="video" maxlength="500" value="' + esc(v.video || '') + '" placeholder="https://youtu.be/..." inputmode="url" autocomplete="off"></label>' +
+      '<label>備考<span class="opt">任意</span><textarea name="note" rows="2" maxlength="1000">' + esc(v.note) + '</textarea></label>';
+  }
+  function openMenuForm(id, prefill) {
+    const w = id ? S.data.menus.find((x) => x.id === id) : null;
+    const v = w || Object.assign({ date: S.data.today, group: 'FW', positions: [], title: '', content: '', detail: '', note: '', video: '' }, prefill || {});
+    const tpls = (S.data.templates || []);
+    openSheet(w ? 'メニューを編集' : 'メニューを作成',
+      '<form data-form="menu" class="form">' + (w ? '<input type="hidden" name="id" value="' + w.id + '">' : '') +
+      (!w && tpls.length ? '<label>型から作る<span class="opt">任意</span><select data-act-change="tpl-fill"><option value="">使わない</option>' + tpls.map((t) => '<option value="' + t.id + '">' + esc(t.title) + (t.repeat.length ? '（' + repeatLabel(t) + '）' : '') + '</option>').join('') + '</select></label>' : '') +
+      '<label>実施予定日<input type="date" name="date" value="' + v.date + '" required></label>' +
+      menuFields(v, { focus: !w && !prefill }) +
+      (w && w.templateId && !w.edited ? '<p class="hint">このメニューは繰り返しの型から作られています。ここで直すと、型を直してもこの日はそろわなくなります。</p>' : '') +
+      '<p class="form-err" hidden></p>' +
+      '<div class="actions"><button type="button" class="btn" data-act="sheet-close">やめる</button><button class="btn primary" type="submit">' + (w ? '変更を保存' : 'メニューを登録') + '</button></div></form>');
+    updateTargetHint();
+  }
+  // 型（テンプレート）と繰り返し
+  function vTemplates() {
+    const d = S.data, today = d.today;
+    const list = (d.templates || []).slice().sort((a, b) => ((b.repeat.length > 0) - (a.repeat.length > 0)) || (a.title < b.title ? -1 : 1));
+    let h = '<div class="toolbar"><button class="btn primary" data-act="tpl-new">' + icon('plus') + '型を作る</button>' + (can('archive') ? '<a class="btn" href="#archive">これまでのメニュー一覧</a>' : '') + '</div>' +
+      '<p class="note is-top">よく使うメニューを「型」にしておくと、作るときに選ぶだけで入ります。曜日を選ぶと、その曜日のメニューを4週間先まで自動で作ります（毎日のびます）。</p>';
+    if (!list.length) return h + '<p class="empty">まだ型がありません。メニューの「型にする」からも作れます。</p>';
+    return h + '<ul class="menus">' + list.map((t) => {
+      const next = d.menus.filter((w) => w.templateId === t.id && w.date >= today).sort((a, b) => (a.date < b.date ? -1 : 1))[0];
+      return '<li><button class="menu-card g-' + t.group + '" data-act="tpl-open" data-id="' + t.id + '"><span class="menu-top">' + targetChip(t) + '<b>' + esc(t.title) + '</b>' + (t.video ? '<span class="vtag">' + icon('play') + '</span>' : '') + '</span>' +
+        '<span class="menu-body">' + esc(t.content.split('\n').slice(0, 3).join(' / ')) + '</span>' +
+        '<span class="menu-foot">' + (t.repeat.length ? repeatLabel(t) + (next ? '・次は ' + mdw(next.date) : '') + (t.repeatTo ? '・' + md(t.repeatTo) + 'まで' : '') : '繰り返しなし') + '</span></button></li>';
+    }).join('') + '</ul>';
+  }
+  function openTemplate(id) {
+    const t = (S.data.templates || []).find((x) => x.id === id);
+    if (!t) return;
+    openSheet('型：' + t.title,
+      '<div class="detail"><p class="detail-meta">' + targetChip(t) + (t.repeat.length ? repeatLabel(t) : '繰り返しなし') + (t.repeatFrom || t.repeatTo ? '<small>' + (t.repeatFrom ? md(t.repeatFrom) : '') + '〜' + (t.repeatTo ? md(t.repeatTo) : '') + '</small>' : '') + '</p>' +
+      (t.video ? '<p>' + videoLink(t.video) + '</p>' : '') +
+      '<h3>トレーニング内容</h3><p class="pre">' + nl2br(t.content) + '</p>' +
+      (t.detail ? '<h3>回数・セット数・重量</h3><p class="pre">' + nl2br(t.detail) + '</p>' : '') +
+      (t.note ? '<h3>備考</h3><p class="pre">' + nl2br(t.note) + '</p>' : '') +
+      '<p class="note">作成：' + esc(nameOf(t.createdBy)) + '</p>' +
+      '<div class="actions wrap"><button class="btn" data-act="tpl-use" data-id="' + t.id + '">この型でメニューを作る</button></div>' +
+      '<div class="actions"><button class="btn danger" data-act="tpl-del" data-id="' + t.id + '">削除</button><button class="btn primary" data-act="tpl-edit" data-id="' + t.id + '">編集</button></div></div>');
+  }
+  function openTemplateForm(id, prefill) {
+    const t = id ? (S.data.templates || []).find((x) => x.id === id) : null;
+    const v = t || Object.assign({ group: 'FW', positions: [], title: '', content: '', detail: '', note: '', video: '', repeat: [], repeatFrom: '', repeatTo: '' }, prefill || {});
+    openSheet(t ? '型を編集' : '型を作る',
+      '<form data-form="template" class="form">' + (t ? '<input type="hidden" name="id" value="' + t.id + '">' : '') +
+      menuFields(v, { focus: !t && !prefill }) +
+      '<fieldset><legend>繰り返す曜日<span class="opt">任意</span></legend><div class="radios wd">' +
+      WD_MON.map((d) => '<label><input type="checkbox" name="repeat" value="' + d + '"' + (v.repeat.indexOf(d) >= 0 ? ' checked' : '') + '><span>' + WD[d] + '</span></label>').join('') + '</div>' +
+      '<p class="hint">選ぶと、その曜日のメニューを今日から4週間先まで自動で作ります（毎日のびます）。選ばなければ、型として保存するだけです。</p>' +
+      '<div class="two"><label>開始日<span class="opt">任意</span><input type="date" name="repeatFrom" value="' + esc(v.repeatFrom || '') + '"></label><label>終了日<span class="opt">任意</span><input type="date" name="repeatTo" value="' + esc(v.repeatTo || '') + '"></label></div></fieldset>' +
+      (t ? '<p class="hint">保存すると、今日以降の繰り返しのメニュー（手で直していないもの）も、この内容にそろえます。曜日を外した日の分は消えます。</p>' : '') +
+      '<p class="form-err" hidden></p>' +
+      '<div class="actions"><button type="button" class="btn" data-act="sheet-close">やめる</button><button class="btn primary" type="submit">' + (t ? '変更を保存' : '型を保存') + '</button></div></form>');
+    updateTargetHint();
+  }
+  function openCopy(id) {
+    const w = S.data.menus.find((x) => x.id === id);
+    if (!w) return;
+    const today = S.data.today, start = L.weekStart(today);
+    let cal = '<div class="mcal-w">' + ['月', '火', '水', '木', '金', '土', '日'].map((x) => '<span>' + x + '</span>').join('') + '</div><div class="mcal-g copycal">';
+    for (let i = 0; i < 42; i++) {
+      const d = L.addDays(start, i);
+      const past = d < today, same = d === w.date;
+      cal += past ? '<span class="mday blank"></span>' : '<label class="cday' + (same ? ' src' : '') + '"><input type="checkbox" name="dates" value="' + d + '"' + (same ? ' disabled' : '') + '><span><b>' + +d.slice(8, 10) + '</b>' + (d.slice(8, 10) === '01' || i === 0 || (i === L.dow(today) - 1) ? '<small>' + +d.slice(5, 7) + '月</small>' : '') + '</span></label>';
+    }
+    cal += '</div>';
+    openSheet('別の日にコピー',
+      '<form data-form="copy" class="form"><input type="hidden" name="id" value="' + w.id + '"><p class="lead-line small">「' + esc(w.title) + '」（' + mdw(w.date) + '）を、選んだ日にコピーします。対象者はその日の設定で決まります。</p>' +
+      '<div class="mcal">' + cal + '</div><p class="hint" id="copy-n">日付を選んでください（6週間先まで・複数可）</p>' +
+      '<p class="form-err" hidden></p><div class="actions"><button type="button" class="btn" data-act="sheet-close">やめる</button><button class="btn primary" type="submit">コピーする</button></div></form>');
+  }
+  // これまでのメニュー（引き継ぎ用）
+  async function loadArchive() {
+    try { const r = await api('menuArchive', {}); S.archive = { list: r.menus, q: (S.archive && S.archive.q) || '', by: (S.archive && S.archive.by) || '' }; }
+    catch (e) { S.archive = { list: [], q: '', by: '', err: e.message }; }
+    if (S.route.name === 'archive') render();
+  }
+  function archiveFiltered() {
+    const a = S.archive, q = (a.q || '').trim().toLowerCase();
+    return a.list.filter((w) => (!a.by || w.createdBy === a.by) && (!q || (w.title + '\n' + w.content + '\n' + w.detail + '\n' + w.note).toLowerCase().indexOf(q) >= 0));
+  }
+  function vArchive() {
+    let h = '<div class="sub-h"><a class="ibtn" href="#menus" aria-label="戻る">' + icon('back') + '</a><h1>これまでのメニュー</h1></div>';
+    if (!can('archive')) return h + '<p class="empty">ログインした管理者・FWリーダー・マネージャーが見られます。</p>';
+    if (!S.archive) { loadArchive(); return h + '<p class="empty">読み込み中…</p>'; }
+    if (S.archive.err) return h + '<p class="empty">' + esc(S.archive.err) + '</p>';
+    const a = S.archive, list = archiveFiltered();
+    const authors = []; a.list.forEach((w) => { if (w.createdBy && authors.indexOf(w.createdBy) < 0) authors.push(w.createdBy); });
+    h += '<p class="note is-top">FWリーダーの交代のときの引き継ぎ用です。これまでに作られたメニュー（' + a.list.length + '件）を全部見られます。いいメニューは「型にする」で次の人も使えます。</p>' +
+      '<div class="fbar arch-f"><input type="search" class="search" data-act-input="arch-q" value="' + esc(a.q) + '" placeholder="メニュー名・種目で探す" aria-label="探す">' +
+      '<select data-act-change="arch-by" aria-label="作った人"><option value="">作った人：全員</option>' + authors.map((id) => '<option value="' + id + '"' + (a.by === id ? ' selected' : '') + '>' + esc(nameOf(id) || id) + '</option>').join('') + '</select>' +
+      '<button class="btn small" data-act="arch-csv">' + icon('copy') + '表（CSV）で保存</button></div>';
+    if (!list.length) return h + '<p class="empty">見つかりません。</p>';
+    let last = '';
+    list.slice(0, 300).forEach((w) => {
+      const mo = w.date.slice(0, 7);
+      if (mo !== last) { if (last) h += '</ul>'; h += '<h2 class="dayhead">' + ymLabel(w.date) + '</h2><ul class="arch">'; last = mo; }
+      h += '<li><details><summary><span class="arch-d">' + mdw(w.date) + '</span>' + targetChip(w) + '<b>' + esc(w.title) + '</b><small>' + esc(nameOf(w.createdBy)) + '・対象' + w.targetCount + '人</small></summary>' +
+        (w.video ? '<p>' + videoLink(w.video) + '</p>' : '') +
+        '<p class="pre">' + nl2br(w.content) + '</p>' + (w.detail ? '<p class="pre sub">' + nl2br(w.detail) + '</p>' : '') + (w.note ? '<p class="pre sub">' + nl2br(w.note) + '</p>' : '') +
+        (can('menu') ? '<div class="share-row"><button class="btn small" data-act="arch-tpl" data-id="' + w.id + '">型にする</button><button class="btn small" data-act="arch-new" data-id="' + w.id + '">これを元に作る</button></div>' : '') + '</details></li>';
+    });
+    h += '</ul>';
+    if (list.length > 300) h += '<p class="note">先頭の300件だけ表示しています。探す・作った人で絞るか、CSVで全部を保存してください。</p>';
+    return h;
+  }
+  function archiveCsv() {
+    const rows = [['日付', '対象', 'メニュー名', 'トレーニング内容', '回数・セット数・重量', '備考', '動画リンク', '作った人', '対象人数']];
+    archiveFiltered().forEach((w) => rows.push([w.date, w.positions.length ? w.positions.join('・') : MGROUP[w.group], w.title, w.content, w.detail, w.note, w.video, nameOf(w.createdBy), w.targetCount]));
+    const csv = '﻿' + rows.map((r) => r.map((c) => { const x = String(c == null ? '' : c); return /[",\n\r]/.test(x) || /^[=+\-@]/.test(x) ? '"' + (/^[=+\-@]/.test(x) ? "'" : '') + x.replace(/"/g, '""') + '"' : x; }).join(',')).join('\r\n');
+    const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
+    const el = document.createElement('a'); el.href = url; el.download = 'kintore-menus-' + S.data.today + '.csv'; document.body.appendChild(el); el.click(); el.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 4000);
   }
   function previewTargets(group, poss, date) {
     return S.data.members.filter((m) => L.inRoster(m, date) && m.mode === 'leader' &&
@@ -788,34 +1189,15 @@
       positions().filter((p) => p.group === g).map((p) => '<label class="pchip-l"><input type="' + (opt.single ? 'radio' : 'checkbox') + '" name="' + name + '" value="' + esc(p.code) + '"' + (selected.indexOf(p.code) >= 0 ? ' checked' : '') + '><span class="pchip g-' + g + '">' + esc(p.code) + '</span></label>').join('') +
       '</div>').join('') + (opt.single ? '<div class="pospick-row"><label class="pchip-l"><input type="radio" name="' + name + '" value=""' + (!selected.length ? ' checked' : '') + '><span class="pchip">未設定</span></label></div>' : '') + '</div>';
   }
-  function openMenuForm(id) {
-    const w = id ? S.data.menus.find((x) => x.id === id) : null;
-    const v = w || { date: S.data.today, group: 'FW', positions: [], title: '', content: '', detail: '', note: '' };
-    openSheet(w ? 'メニューを編集' : 'メニューを作成',
-      '<form data-form="menu" class="form">' + (w ? '<input type="hidden" name="id" value="' + w.id + '">' : '') +
-      '<label>実施予定日<input type="date" name="date" value="' + v.date + '" required></label>' +
-      '<fieldset><legend>対象</legend><div class="radios">' +
-      ['FW', 'BK', 'ALL'].map((g) => '<label><input type="radio" name="group" value="' + g + '"' + (v.group === g && !(v.positions || []).length ? ' checked' : '') + '><span>' + MGROUP[g] + '</span></label>').join('') + '</div>' +
-      '<p class="hint">ポジションで絞るときは、下から選んでください（複数可）。選ぶと上のグループより優先します。</p>' +
-      posPicker('positions', v.positions || []) +
-      '<p class="hint strong" id="tgt-hint"></p></fieldset>' +
-      '<label>メニュー名<input type="text" name="title" maxlength="60" value="' + esc(v.title) + '" placeholder="例：下半身の日" required' + (w ? '' : ' autofocus') + '></label>' +
-      '<label>トレーニング内容<textarea name="content" rows="5" maxlength="3000" placeholder="例：&#10;スクワット&#10;デッドリフト" required>' + esc(v.content) + '</textarea></label>' +
-      '<label>回数・セット数・重量<span class="opt">任意</span><textarea name="detail" rows="3" maxlength="3000" placeholder="例：スクワット 5回×5セット（MAXの80%）">' + esc(v.detail) + '</textarea></label>' +
-      '<label>備考<span class="opt">任意</span><textarea name="note" rows="2" maxlength="1000">' + esc(v.note) + '</textarea></label>' +
-      '<p class="form-err" hidden></p>' +
-      '<div class="actions"><button type="button" class="btn" data-act="sheet-close">やめる</button><button class="btn primary" type="submit">' + (w ? '変更を保存' : 'メニューを登録') + '</button></div></form>');
-    updateTargetHint();
-  }
   function menuFormValues(f) {
     const poss = $$('input[name="positions"]:checked', f).map((x) => x.value);
     const gEl = $('input[name="group"]:checked', f);
     return { poss: poss, group: gEl ? gEl.value : 'ALL' };
   }
   function updateTargetHint() {
-    const f = $('#sheet-root form[data-form="menu"]');
+    const f = $('#sheet-root form[data-form="menu"]') || $('#sheet-root form[data-form="template"]');
     if (!f) return;
-    const v = menuFormValues(f), dt = f.date.value;
+    const v = menuFormValues(f), dt = f.date ? f.date.value : S.data.today;
     if (!L.isDate(dt)) return;
     const n = previewTargets(v.group, v.poss, dt);
     $('#tgt-hint').textContent = '対象：' + (v.poss.length ? v.poss.join('・') : MGROUP[v.group]) + 'のメニュー参加者 ' + n + '人（自主トレの人は入りません）';
@@ -835,10 +1217,29 @@
       const locked = !!r && me().perm === 'manager' && raw[5] !== me().id;
       rows.push({ m: m, saved: saved, sec: isT ? 0 : (m.mode === 'self' ? 1 : 2), locked: locked, by: r ? r.by : '' });
     });
-    rows.sort((a, b) => (a.sec - b.sec) || 0);
-    const ord = sortMembers(rows.map((x) => x.m)).map((m) => m.id);
-    rows.sort((a, b) => (a.sec - b.sec) || (ord.indexOf(a.m.id) - ord.indexOf(b.m.id)));
+    const ord = recOrder(rows.map((x) => x.m), date);
+    rows.sort((a, b) => (a.sec - b.sec) || (ord[a.m.id] - ord[b.m.id]));
     return rows;
+  }
+  const REC_SORTS = [['pos', 'ポジション'], ['grade', '学年'], ['name', '名前'], ['recent', '最近やった順']];
+  /** 記録画面の並び順。recent は、その日までに最後に「実施した」日が新しい順 */
+  function recOrder(list, date) {
+    let arr;
+    if (S.recSort === 'grade') {
+      const gi = (g) => { const i = GRADES.indexOf(g || ''); return i < 0 ? 99 : i; };
+      const base = sortMembers(list);
+      arr = base.slice().sort((a, b) => (gi(a.grade) - gi(b.grade)) || (base.indexOf(a) - base.indexOf(b)));
+    } else if (S.recSort === 'name') {
+      arr = list.slice().sort((a, b) => a.name.localeCompare(b.name, 'ja'));
+    } else if (S.recSort === 'recent') {
+      const last = {};
+      (S.data.records || []).forEach((r) => { if (+r[2] === 1 && r[1] <= date && (!last[r[0]] || last[r[0]] < r[1])) last[r[0]] = r[1]; });
+      const base = sortMembers(list);
+      arr = base.slice().sort((a, b) => ((last[b.id] || '') < (last[a.id] || '') ? -1 : (last[b.id] || '') > (last[a.id] || '') ? 1 : 0) || (base.indexOf(a) - base.indexOf(b)));
+    } else arr = sortMembers(list);
+    const o = {};
+    arr.forEach((m, i) => { o[m.id] = i; });
+    return o;
   }
   const recCur = (row) => (S.rec.edits[row.m.id] !== undefined ? S.rec.edits[row.m.id] : row.saved);
   function recVisible(row) {
@@ -891,7 +1292,8 @@
       ? menus.map((w) => '<button class="mini-menu" data-act="menu-open" data-id="' + w.id + '">' + targetChip(w) + esc(w.title) + '<small>対象' + w.targets.length + '人</small></button>').join('')
       : '<span>この日のFWリーダーメニューはありません。自主トレの実施を記録できます。</span>') + '</div>';
     h += filterBar(S.rec.group, S.rec.position, 'r') +
-      '<div class="toolbar"><button class="btn small" data-act="rec-all">表示中の全員を「実施した」に</button></div>';
+      '<div class="fbar"><div class="seg small" role="group" aria-label="並び順">' + REC_SORTS.map((x) => '<button data-act="rec-sort" data-v="' + x[0] + '" aria-pressed="' + (S.recSort === x[0]) + '">' + x[1] + '</button>').join('') + '</div></div>' +
+      '<div class="toolbar"><button class="btn small" data-act="rec-all">表示中の全員を「実施した」に</button><button class="btn small" data-act="trash-open">' + icon('trash') + '取り消した記録</button></div>';
     if (!rows.length) return h + '<p class="empty">この日に記録できる部員がいません。</p>';
     const secName = ['FWリーダーメニューの対象者', '自主トレの人', 'メニュー参加（この日は対象メニューなし）'];
     let sec = -1, shown = 0;
@@ -939,15 +1341,33 @@
   // ---------- 設定 ----------
   function vSettings() {
     const m = me();
-    let h = '<section class="block"><div class="block-h"><h2>ログイン</h2></div>';
+    let h = '';
+    if (can('admin') && (S.data.pinRequests || []).length) {
+      h += '<section class="block warnbox"><div class="block-h"><h2>暗証番号の再発行の依頼</h2><span class="count">' + S.data.pinRequests.length + '件</span></div><ul class="exlist">' +
+        S.data.pinRequests.map((x) => '<li><span class="ex-d">' + esc(x.at.slice(5, 16).replace('-', '/')) + '</span><span class="ex-r"><b>' + esc(x.name) + '</b><small>' + PERM[x.perm] + '</small></span>' +
+          '<span class="pr-a"><button class="btn small primary" data-act="pin-reset" data-id="' + x.id + '">発行</button><button class="textbtn" data-act="pinreq-close" data-id="' + x.id + '">閉じる</button></span></li>').join('') + '</ul>' +
+        '<p class="note">「発行」で新しい最初の暗証番号が出ます。本人に直接伝えてください。心当たりのない依頼は「閉じる」。</p></section>';
+    }
+    h += '<section class="block"><div class="block-h"><h2>ログイン</h2></div>';
     if (m) h += '<p class="acct"><b>' + esc(m.name) + '</b><span class="chip role">' + PERM[m.perm] + '</span></p>' +
-      '<div class="toolbar"><button class="btn" data-act="pin-change">暗証番号を変更</button><button class="btn" data-act="logout">ログアウト</button></div>';
+      '<div class="toolbar"><button class="btn" data-act="pin-change">暗証番号を変更</button><button class="btn" data-act="sessions-open">ログインしている端末</button><button class="btn" data-act="logout">ログアウト</button></div>';
     else h += '<p class="lead-line small">見るだけならログインは不要です。記録やメニューを入力する管理者・マネージャー・FWリーダーだけログインしてください。</p>' +
       '<div class="toolbar"><button class="btn primary" data-act="login">ログイン</button></div>';
     h += '</section>';
+    const players = sortMembers(S.data.members.filter((x) => x.active && x.player));
+    h += '<section class="block"><div class="block-h"><h2>見やすさ・自分の名前</h2><span class="count">この端末だけ</span></div>' +
+      '<div class="prefrow"><span>画面の明るさ</span><div class="seg small" role="group" aria-label="画面の明るさ">' +
+      [['auto', '自動'], ['light', 'ライト'], ['dark', 'ダーク']].map((x) => '<button data-act="pref-theme" data-v="' + x[0] + '" aria-pressed="' + (PREF.theme === x[0]) + '">' + x[1] + '</button>').join('') + '</div></div>' +
+      '<div class="prefrow"><span>文字の大きさ</span><div class="seg small" role="group" aria-label="文字の大きさ">' +
+      SIZES.map((x) => '<button data-act="pref-size" data-v="' + x[0] + '" aria-pressed="' + (PREF.size === x[0]) + '">' + x[1] + '</button>').join('') + '</div></div>' +
+      '<label class="prefrow form"><span>自分の名前<small>ホームに自分の状況と、届いた「おめでとう」が出ます。応援を送るときの名前にもなります</small></span>' +
+      '<select data-act-change="pref-self"><option value="">選ばない</option>' + players.map((x) => '<option value="' + x.id + '"' + (PREF.self === x.id ? ' selected' : '') + '>' + esc(x.name) + '</option>').join('') + '</select></label>' +
+      '<div class="toolbar"><button class="btn small" data-act="guide">使い方ガイドをもう一度見る</button></div></section>';
     if (can('admin')) {
       h += '<section class="block"><div class="block-h"><h2>管理者メニュー</h2></div><ul class="links">' +
         '<li><a href="#members">部員の追加・編集・権限<small>ポジション・取り組み方の設定は「まとめて編集」が便利です</small></a></li>' +
+        '<li><button data-act="perms-open">役職をまとめて付け替え<small>新年度のFWリーダー・マネージャーの交代。新しい人の暗証番号もまとめて発行します</small></button></li>' +
+        '<li><button data-act="trash-open">取り消した記録<small>まちがえて取り消した「実施した」を戻せます</small></button></li>' +
         '<li><a href="#logs">操作履歴<small>だれが・いつ・何を変えたか</small></a></li>' +
         '<li><button data-act="goal-open">週の目標回数（マスト）<small>いまは週' + goal() + '回以上</small></button></li>' +
         '<li><button data-act="offs-open">部全体のオフ期間<small>試験期間・合宿など、全員の目標をなしにする期間</small></button></li>' +
@@ -960,11 +1380,82 @@
       '<li>メニューの対象日に「実施した」が無ければ、翌日から<b>実施していない</b>（×）になります。メニューが無い日・自主トレの人は×になりません。</li>' +
       '<li><b>週' + goal() + '回以上の筋トレがマスト</b>です（月曜〜日曜）。ホームで「まだの人」、ランキングで達成・未達が分かります。怪我・病気などの<b>免除</b>や部全体の<b>オフ期間</b>の日は、その日数に応じて必要な回数が減ります。</li>' +
       '<li><b>実施率</b>はメニュー参加の人だけ。実施した対象日 ÷ 対象日。自主トレの人は実施回数で見ます。</li>' +
+      '<li>名前を押すと、その人の<b>自己ベスト・称号・体組成</b>が見られます。友達の達成には<b>応援スタンプ</b>で「おめでとう」を送れます。</li>' +
       '<li>部員名簿は会計アプリと共通です。進級や入部・退部は、どちらで直しても両方に反映されます。</li></ul></section>';
     h += '<div class="toolbar"><button class="btn" data-act="reload">最新の情報に更新</button></div>' +
       '<p class="ver">KURFC 筋トレ管理 v' + VERSION + (S.data.version ? '（サーバー v' + esc(S.data.version) + '）' : '') + '</p>';
     return h;
   }
+  async function openSessions() {
+    openSheet('ログインしている端末', '<p class="empty small">読み込み中…</p>');
+    try {
+      const r = await api('sessions', {});
+      const list = r.sessions;
+      openSheet('ログインしている端末',
+        '<p class="lead-line small">' + esc(me().name) + ' さんでログインしている端末です。心当たりのない端末や、なくしたスマホはログアウトさせてください。</p>' +
+        '<ul class="exlist sess">' + list.map((x) => '<li><span class="ex-r"><b>' + esc(x.device || '名前のない端末') + (x.current ? '<small class="ex-st s-now">この端末</small>' : '') + '</b><small>ログイン ' + esc(x.createdAt.slice(0, 16).replace(/-/g, '/')) + '</small></span>' +
+          (x.current ? '<span></span>' : '<button class="btn small" data-act="sess-out" data-k="' + esc(x.key) + '">ログアウト</button>') + '</li>').join('') + '</ul>' +
+        (list.length > 1 ? '<div class="actions"><button class="btn danger" data-act="sess-out" data-k="others">この端末以外をすべてログアウト</button></div>' : '<p class="note">この端末だけです。</p>') +
+        '<p class="note">暗証番号を変えると、ほかの端末は自動でログアウトします。</p>');
+    } catch (e) { openSheet('ログインしている端末', '<p class="form-err">' + esc(e.message) + '</p>'); }
+  }
+  function openPerms() {
+    const list = S.data.members.filter((m) => m.active);
+    const rank = { admin: 0, leader: 1, manager: 2, member: 3 };
+    const sorted = sortMembers(list).sort((a, b) => rank[a.perm] - rank[b.perm]);
+    openSheet('役職をまとめて付け替え',
+      '<form data-form="perms" class="form"><p class="lead-line small">新年度にFWリーダー・マネージャーが交代するときに使います。変えた人だけ保存します。</p>' +
+      '<p class="hint">新しくログインする人（一般部員から変えた人）には、最初の暗証番号をまとめて発行して、次の画面に出します。一般部員に戻した人はログインできなくなります。自分自身はここでは変えられません。</p>' +
+      '<ul class="pm-list">' + sorted.map((m) => '<li class="pm-top"><span><b>' + esc(m.name) + '</b><small>' + esc(m.grade || '') + (m.player ? '・' + esc(m.position || m.group || '') : '・' + esc(m.clubRole)) + '</small></span>' +
+        '<select name="p_' + m.id + '" data-cur="' + m.perm + '" aria-label="' + esc(m.name) + 'の権限"' + (m.id === me().id ? ' disabled' : '') + '>' +
+        ['member', 'manager', 'leader', 'admin'].map((r) => '<option value="' + r + '"' + (m.perm === r ? ' selected' : '') + '>' + PERM[r] + '</option>').join('') + '</select></li>').join('') + '</ul>' +
+      '<p class="form-err" hidden></p><div class="actions sticky"><button type="button" class="btn" data-act="sheet-close">やめる</button><button class="btn primary" type="submit">変更を保存</button></div></form>', { wide: true });
+  }
+  async function openTrash() {
+    openSheet('取り消した記録', '<p class="empty small">読み込み中…</p>');
+    try {
+      const r = await api('trash', {});
+      const mine = me();
+      openSheet('取り消した記録',
+        '<p class="lead-line small">「実施した」を取り消した記録です（新しい順・最大200件）。まちがえて取り消したものは「戻す」で元に戻せます。' + (mine.perm === 'manager' ? 'マネージャーは自分が取り消したものだけ戻せます。' : '') + '</p>' +
+        (r.trash.length ? '<ul class="exlist">' + r.trash.map((x) => '<li><span class="ex-d">' + mdw(x.date) + '</span><span class="ex-r"><b>' + esc(x.name) + '</b><small>' + esc(x.removedByName) + 'が ' + esc(x.removedAt.slice(5, 16).replace('-', '/')) + ' に取り消し</small></span>' +
+          ((mine.perm === 'admin' || x.removedBy === mine.id) ? '<button class="btn small" data-act="trash-restore" data-id="' + x.id + '">戻す</button>' : '<span></span>') + '</li>').join('') + '</ul>' : '<p class="empty small">取り消した記録はありません。</p>'));
+    } catch (e) { openSheet('取り消した記録', '<p class="form-err">' + esc(e.message) + '</p>'); }
+  }
+  function openPinRequest() {
+    const staff = (S.data && S.data.staff) || [];
+    openSheet('暗証番号を忘れたとき',
+      '<form data-form="pinreq" class="form"><p class="lead-line small">管理者に「暗証番号を出し直してほしい」と依頼を送ります。管理者が新しい最初の暗証番号を出したら、本人に直接伝えてもらってください。</p>' +
+      '<label>名前<select name="memberId" required><option value="">選んでください</option>' + staff.map((x) => '<option value="' + x.id + '">' + esc(x.name) + '（' + PERM[x.perm] + '）</option>').join('') + '</select></label>' +
+      '<p class="form-err" hidden></p><div class="actions"><button type="button" class="btn" data-act="login">戻る</button><button class="btn primary" type="submit">依頼を送る</button></div></form>');
+  }
+
+  // ---------- はじめて開いた人への使い方ガイド（30秒） ----------
+  const GUIDE = [
+    ['KURFC 筋トレへようこそ', '部員みんなの筋トレの記録を見るアプリです。<b>見るだけならログインは不要</b>。30秒で使い方を紹介します。', 'home'],
+    ['週' + '{g}' + '回がマスト', 'ホームの赤い板が部全体の回数。月曜〜日曜に<b>週{g}回以上</b>筋トレすれば達成です。「まだの人」「連続がピンチの人」もホームで分かります。', 'check'],
+    ['ランキングと自分の記録', 'ランキングやカレンダーの名前を押すと、その人の記録・<b>自己ベスト・称号</b>・体重の変化が見られます。', 'rank'],
+    ['友達に「おめでとう」', 'ホームの「おめでとう」で、達成した友達に<b>応援スタンプ</b>を送れます。下で自分の名前を選ぶと、自分あての応援がホームに出ます。', 'star'],
+    ['見やすく使う', '設定で<b>文字の大きさ</b>と<b>ダークモード</b>を変えられます。マネージャー・FWリーダーは設定からログインして記録やメニューを入れます。', 'gear']
+  ];
+  let guideStep = 0;
+  function openGuide(step) {
+    guideStep = step || 0;
+    const g = GUIDE[guideStep], last = guideStep === GUIDE.length - 1;
+    const players = S.data && S.data.members ? sortMembers(S.data.members.filter((x) => x.active && x.player)) : [];
+    $('#guide-root').innerHTML = '<div class="guide-bg"></div><section class="guide" role="dialog" aria-modal="true" aria-label="使い方ガイド">' +
+      '<div class="guide-i" aria-hidden="true">' + icon(g[2]) + '</div><h2>' + esc(g[0].replace('{g}', goal())) + '</h2><p>' + g[1].replace(/\{g\}/g, goal()) + '</p>' +
+      (guideStep === 3 && players.length ? '<label class="guide-self">自分の名前<span>（あとで設定で変えられます）</span><select data-act-change="pref-self"><option value="">選ばない</option>' + players.map((x) => '<option value="' + x.id + '"' + (PREF.self === x.id ? ' selected' : '') + '>' + esc(x.name) + '</option>').join('') + '</select></label>' : '') +
+      (guideStep === 4 ? '<div class="guide-prefs"><div class="seg small" role="group" aria-label="文字の大きさ">' + SIZES.map((x) => '<button data-act="pref-size" data-v="' + x[0] + '" aria-pressed="' + (PREF.size === x[0]) + '">' + x[1] + '</button>').join('') + '</div>' +
+        '<div class="seg small" role="group" aria-label="画面の明るさ">' + [['auto', '自動'], ['light', 'ライト'], ['dark', 'ダーク']].map((x) => '<button data-act="pref-theme" data-v="' + x[0] + '" aria-pressed="' + (PREF.theme === x[0]) + '">' + x[1] + '</button>').join('') + '</div></div>' : '') +
+      '<div class="guide-dots" aria-hidden="true">' + GUIDE.map((x, i) => '<i class="' + (i === guideStep ? 'on' : '') + '"></i>').join('') + '</div>' +
+      '<div class="actions"><button class="btn" data-act="guide-close">' + (last ? '閉じる' : 'スキップ') + '</button><button class="btn primary" data-act="' + (last ? 'guide-close' : 'guide-next') + '" autofocus>' + (last ? 'はじめる' : '次へ') + '</button></div>' +
+      '<p class="guide-n">' + (guideStep + 1) + ' / ' + GUIDE.length + '</p></section>';
+    document.body.classList.add('sheet-open');
+    const b = $('#guide-root [autofocus]'); if (b) b.focus();
+  }
+  function closeGuide() { $('#guide-root').innerHTML = ''; store.set('guided', 1); if (!$('#sheet-root').innerHTML) document.body.classList.remove('sheet-open'); if (S.data && !S.data.locked) render(); }
+
   function vLogs() {
     if (!can('admin')) return '<p class="empty">操作履歴を見られるのは管理者だけです。</p>';
     let h = '<div class="sub-h"><a class="ibtn" href="#settings" aria-label="戻る">' + icon('back') + '</a><h1>操作履歴</h1></div>';
@@ -995,7 +1486,7 @@
       '<form data-form="login" class="form"><label>名前<select name="memberId" required><option value="">選んでください</option>' +
       staff.map((s) => '<option value="' + s.id + '">' + esc(s.name) + '（' + PERM[s.perm] + '）</option>').join('') + '</select></label>' +
       '<label>暗証番号<input type="password" name="pin" autocomplete="current-password" required></label>' +
-      '<p class="form-err" hidden></p><p class="hint">一般部員はログイン不要です。暗証番号を忘れたときは、管理者に出し直してもらってください。</p>' +
+      '<p class="form-err" hidden></p><p class="hint">一般部員はログイン不要です。<button type="button" class="linkbtn inline" data-act="pinreq-open">暗証番号を忘れたとき</button></p>' +
       '<div class="actions"><button type="button" class="btn" data-act="sheet-close">やめる</button><button class="btn primary" type="submit">ログイン</button></div></form>');
   }
   function openPinChange(forced, oldPin) {
@@ -1151,10 +1642,10 @@
 
   // ---------- 全体の描画 ----------
   const NAV = [['home', 'ホーム', 'home'], ['rank', 'ランキング', 'rank'], ['record', '記録', 'check'], ['cal', 'カレンダー', 'cal'], ['menus', 'メニュー', 'menu'], ['members', '部員', 'users']];
-  const TITLE = { home: 'ホーム', rank: 'ランキング', record: '実施記録', cal: 'カレンダー', menus: 'メニュー', members: '部員', member: '部員', settings: '設定', logs: '操作履歴' };
+  const TITLE = { home: 'ホーム', rank: 'ランキング', record: '実施記録', cal: 'カレンダー', menus: 'メニュー', members: '部員', member: '部員', settings: '設定', logs: '操作履歴', archive: 'これまでのメニュー' };
   function shell(inner) {
     const r = S.route.name, m = me();
-    const navOn = r === 'member' ? 'members' : r === 'logs' ? 'settings' : r;
+    const navOn = r === 'member' ? 'members' : r === 'logs' ? 'settings' : r === 'archive' ? 'menus' : r;
     const items = NAV.filter((n) => n[0] !== 'record' || can('record'));
     return '<header class="top"><a class="brand" href="#home" aria-label="ホーム"><img class="mark" src="crest.webp?v=1" alt="" width="30" height="32"><span class="brand-t"><b>KURFC</b>筋トレ</span></a>' +
       '<span class="top-title">' + (TITLE[r] || '') + '</span>' +
@@ -1192,7 +1683,7 @@
     }
     if (S.data.locked) { app.innerHTML = lockedView(); return; }
     const r = S.route;
-    const fn = { home: vHome, rank: vRank, cal: vCal, menus: vMenus, members: vMembers, record: vRecord, settings: vSettings, logs: vLogs };
+    const fn = { home: vHome, rank: vRank, cal: vCal, menus: vMenus, members: vMembers, record: vRecord, settings: vSettings, logs: vLogs, archive: vArchive };
     app.innerHTML = shell(r.name === 'member' ? vMember(r.arg) : (fn[r.name] || vHome)());
     document.title = (TITLE[r.name] ? TITLE[r.name] + '｜' : '') + 'KURFC 筋トレ';
     if (r.name === 'home') countUp();
@@ -1200,6 +1691,7 @@
       const p = curPeriod(), pv = L.prevPeriod(S.kind, p.from);
       ensureRange(r.name === 'home' ? pv.from : p.from, p.to > S.data.today ? S.data.today : p.to);
     } else if (r.name === 'member' && S.memberMonth) ensureRange(S.memberMonth, S.memberMonth);
+    if (r.name === 'member' && memberById(r.arg) && memberById(r.arg).player) loadHistory(r.arg);
     else if (r.name === 'record' && S.rec.date) ensureRange(S.rec.date, S.rec.date);
     if (me() && me().mustChange && !$('#sheet-root form[data-form="pin"]')) openPinChange(true, pendingOldPin);
     const wrap = $('.matrix-wrap'), th = wrap && $('thead th.today', wrap);
@@ -1214,6 +1706,27 @@
       '<button class="linkbtn" data-act="login">管理者・マネージャー・FWリーダーのログイン</button></div>';
   }
 
+  function putStamp(x) {
+    if (!S.stampMap) S.stampMap = {};
+    S.stampMap[x.t + '|' + x.e] = x;
+    const list = S.data.stamps || (S.data.stamps = []);
+    const i = list.findIndex((y) => y.t === x.t && y.e === x.e);
+    if (i >= 0) list[i] = Object.assign({}, list[i], x); else list.push(Object.assign({ at: '' }, x));
+    $$('.stamps').forEach((b) => { if (b.dataset.t === x.t && b.dataset.e === x.e) b.outerHTML = stampBar(x.t, x.e, { small: b.classList.contains('small') }); });
+  }
+  const STAMP_BUSY = {};
+  /** スタンプを押したときの小さな演出 */
+  function burst(r, k) {
+    const span = document.createElement('span');
+    span.className = 'burst'; span.textContent = (STAMPS.find((x) => x[0] === k) || ['', '✨'])[1];
+    span.style.left = (r.left + r.width / 2) + 'px'; span.style.top = r.top + 'px';
+    document.body.appendChild(span); setTimeout(() => span.remove(), 700);
+  }
+  function rerenderKeepGuide() {
+    if (S.data) render();
+    if ($('#guide-root').innerHTML) openGuide(guideStep);
+  }
+
   // ---------- ルーティング ----------
   let prevHash = '';
   function parseHash() {
@@ -1226,6 +1739,7 @@
     if (next.name === 'record' && next.arg && L.isDate(next.arg)) { S.rec.date = next.arg; S.rec.edits = {}; }
     if (next.name === 'member' && S.route.arg !== next.arg) S.memberMonth = null;
     if (next.name !== 'logs') S.logs = null;
+    if (next.name !== 'archive') S.archive = null;
     S.route = next;
     closeSheet();
     render();
@@ -1335,6 +1849,85 @@
       finally { el.disabled = false; }
     },
     'promote-open': () => openPromote(),
+    // 応援スタンプ（押すとすぐ数を変え、サーバーの返事で直す）
+    stamp: async (el) => {
+      const box = el.closest('.stamps'), t = box.dataset.t, e = box.dataset.e, k = el.dataset.k, key = t + '|' + e;
+      if (STAMP_BUSY[key]) return;
+      const rect = el.getBoundingClientRect();
+      const before = JSON.parse(JSON.stringify(stampOf(t, e)));
+      const x = JSON.parse(JSON.stringify(before));
+      const on = x.mine.indexOf(k) < 0;
+      if (on) { x.mine.push(k); x.c[k] = (x.c[k] || 0) + 1; } else { x.mine = x.mine.filter((y) => y !== k); x.c[k] = Math.max(0, (x.c[k] || 1) - 1); if (!x.c[k]) delete x.c[k]; }
+      putStamp(x); STAMP_BUSY[key] = 1;
+      if (on && !reduceMotion()) burst(rect, k);
+      try { const r = await api('stamp', { target: t, event: e, kind: k, from: PREF.self || '' }); putStamp(r.stamp); }
+      catch (err) { putStamp(before); toast(err.message, 'err'); }
+      finally { delete STAMP_BUSY[key]; }
+    },
+    'pref-theme': (el) => { PREF.theme = el.dataset.v; store.set('theme', PREF.theme); applyPrefs(); rerenderKeepGuide(); },
+    'pref-size': (el) => { PREF.size = el.dataset.v; store.set('size', PREF.size); applyPrefs(); rerenderKeepGuide(); },
+    guide: () => openGuide(0),
+    'guide-next': () => openGuide(guideStep + 1),
+    'guide-close': () => closeGuide(),
+    'sessions-open': () => openSessions(),
+    'sess-out': async (el) => {
+      if (el.dataset.armed !== '1') { el.dataset.armed = '1'; const t0 = el.textContent; el.textContent = 'もう一度押すとログアウト'; setTimeout(() => { if (el.isConnected) { el.dataset.armed = ''; el.textContent = t0; } }, 4000); return; }
+      await busy(el, async () => {
+        try { const r = await api('logoutSession', { key: el.dataset.k }); toast(r.removed + '台の端末をログアウトしました'); openSessions(); }
+        catch (e) { toast(e.message, 'err'); }
+      });
+    },
+    'perms-open': () => openPerms(),
+    'trash-open': () => openTrash(),
+    'trash-restore': async (el) => {
+      await busy(el, async () => {
+        try {
+          const r = await api('restoreRecord', { id: el.dataset.id });
+          S.data.records = S.data.records.filter((x) => x[1] !== r.date).concat(r.records);
+          setData(S.data); S.hist = {}; render(); openTrash(); toast(mdw(r.date) + ' の記録を戻しました');
+        } catch (e) { toast(e.message, 'err'); }
+      });
+    },
+    'pinreq-open': () => openPinRequest(),
+    'pinreq-close': async (el) => {
+      await busy(el, async () => {
+        try { await api('dismissPinRequest', { id: el.dataset.id }); await loadState(); render(); toast('依頼を閉じました'); }
+        catch (e) { toast(e.message, 'err'); }
+      });
+    },
+    'body-new': (el) => openBody(el.dataset.id),
+    'body-bulk': () => openBodyBulk(),
+    'body-del': async (el) => {
+      if (el.dataset.armed !== '1') { el.dataset.armed = '1'; el.textContent = 'もう一度押すと消す'; setTimeout(() => { if (el.isConnected) { el.dataset.armed = ''; el.textContent = '消す'; } }, 4000); return; }
+      try { await api('deleteBody', { id: el.dataset.id }); S.data.body = (S.data.body || []).filter((b) => b[0] !== el.dataset.id); render(); toast('消しました'); }
+      catch (e) { toast(e.message, 'err'); }
+    },
+    'rec-sort': (el) => { S.recSort = el.dataset.v; store.set('recSort', S.recSort); render(); },
+    'menu-copy': (el) => openCopy(el.dataset.id),
+    'tpl-from-menu': (el) => { const w = S.data.menus.find((x) => x.id === el.dataset.id); if (w) openTemplateForm('', { group: w.group, positions: w.positions, title: w.title, content: w.content, detail: w.detail, note: w.note, video: w.video, repeat: [L.dow(w.date)] }); },
+    'tpl-new': () => openTemplateForm(''),
+    'tpl-open': (el) => openTemplate(el.dataset.id),
+    'tpl-edit': (el) => openTemplateForm(el.dataset.id),
+    'tpl-use': (el) => { const t = (S.data.templates || []).find((x) => x.id === el.dataset.id); if (t) openMenuForm('', { group: t.group, positions: t.positions, title: t.title, content: t.content, detail: t.detail, note: t.note, video: t.video }); },
+    'tpl-del': async (el) => {
+      const t = (S.data.templates || []).find((x) => x.id === el.dataset.id);
+      if (!t) return;
+      const keep = t.repeat.length ? !confirm('「' + t.title + '」の型を削除します。\n明日以降の繰り返しのメニュー（手で直していないもの）も消しますか？\n\nOK：消す ／ キャンセル：メニューは残す') : true;
+      await busy(el, async () => {
+        try { const r = await api('deleteTemplate', { id: t.id, keepMenus: keep }); closeSheet(); await loadState(); render(); toast('型を削除しました' + (r.removed ? '（メニュー ' + r.removed + '件も削除）' : '')); }
+        catch (e) { toast(e.message, 'err'); }
+      });
+    },
+    'lib-add': (el) => {
+      const f = el.closest('form'), x = LIB[+el.dataset.c][1][+el.dataset.i];
+      const add = (ta, line) => { ta.value = (ta.value.replace(/\s+$/, '') ? ta.value.replace(/\s+$/, '') + '\n' : '') + line; };
+      add(f.content, x[0]); add(f.detail, x[0] + '：' + x[1]);
+      el.classList.add('added'); toast('「' + x[0] + '」を足しました');
+    },
+    'arch-csv': () => archiveCsv(),
+    'arch-tpl': (el) => { const w = S.archive.list.find((x) => x.id === el.dataset.id); if (w) openTemplateForm('', { group: w.group, positions: w.positions, title: w.title, content: w.content, detail: w.detail, note: w.note, video: w.video }); },
+    'arch-new': (el) => { const w = S.archive.list.find((x) => x.id === el.dataset.id); if (w) openMenuForm('', { group: w.group, positions: w.positions, title: w.title, content: w.content, detail: w.detail, note: w.note, video: w.video }); },
+
     viewlock: () => openViewLock(),
     reload: async (el) => { await busy(el, async () => { await loadState(); render(); if (!S.loadError) toast('最新の情報に更新しました'); }); },
     'logs-more': (el) => busy(el, () => loadLogs(S.logs.list.length)),
@@ -1354,7 +1947,7 @@
         try {
           const r = await api('deleteRecord', { memberId: m.id, date: date });
           S.data.records = S.data.records.filter((x) => x[1] !== date).concat(r.records);
-          setData(S.data); render(); toast('取り消しました');
+          setData(S.data); S.hist = {}; render(); toast('取り消しました');
         } catch (e) { toast(e.message, 'err'); }
       });
     },
@@ -1380,7 +1973,7 @@
         try {
           const r = await api('saveRecords', { date: date, items: items });
           S.data.records = S.data.records.filter((x) => x[1] !== date).concat(r.records);
-          setData(S.data);
+          setData(S.data); S.hist = {};
           S.rec.edits = {};
           closeSheet(); render();
           if (r.rejected.length) toast('保存できなかった記録があります：' + r.rejected.map((x) => (x.name || '') + '（' + x.message + '）').join('、'), 'err');
@@ -1398,7 +1991,7 @@
       const pin = f.pin.value;
       await busy(btn, async () => {
         try {
-          const r = await api('login', { memberId: f.memberId.value, pin: pin });
+          const r = await api('login', { memberId: f.memberId.value, pin: pin, deviceName: deviceName() });
           S.token = r.token; store.set('token', r.token);
           pendingOldPin = r.me.mustChange ? pin : '';
           closeSheet(); await loadState(); render();
@@ -1426,7 +2019,7 @@
     },
     menu: async (f, btn) => {
       const v = menuFormValues(f);
-      const menu = { id: f.id ? f.id.value : '', date: f.date.value, group: v.group, positions: v.poss, title: f.title.value, content: f.content.value, detail: f.detail.value, note: f.note.value };
+      const menu = { id: f.id ? f.id.value : '', date: f.date.value, group: v.group, positions: v.poss, title: f.title.value, content: f.content.value, detail: f.detail.value, note: f.note.value, video: f.video.value.trim() };
       await busy(btn, async () => {
         try {
           await api('saveMenu', { menu: menu });
@@ -1494,6 +2087,70 @@
         } catch (e) { sheetError(e.message); }
       });
     },
+    template: async (f, btn) => {
+      const v = menuFormValues(f);
+      const t = { id: f.id ? f.id.value : '', group: v.group, positions: v.poss, title: f.title.value, content: f.content.value, detail: f.detail.value, note: f.note.value, video: f.video.value.trim(),
+        repeat: $$('input[name="repeat"]:checked', f).map((x) => +x.value), repeatFrom: f.repeatFrom.value, repeatTo: f.repeatTo.value };
+      await busy(btn, async () => {
+        try {
+          const r = await api('saveTemplate', { template: t });
+          closeSheet(); await loadState(); S.menuTab = 'templates'; if (S.route.name !== 'menus') location.hash = '#menus'; render();
+          toast((t.id ? '型を変更しました' : '型を保存しました') + (r.created ? '（メニューを ' + r.created + '件作成）' : '') + (r.updated ? '（' + r.updated + '件をそろえました）' : '') + (r.removed ? '（' + r.removed + '件を削除）' : ''));
+        } catch (e) { sheetError(e.message); }
+      });
+    },
+    copy: async (f, btn) => {
+      const dates = $$('input[name="dates"]:checked', f).map((x) => x.value);
+      if (!dates.length) { sheetError('コピーする日を選んでください。'); return; }
+      await busy(btn, async () => {
+        try { const r = await api('copyMenu', { id: f.id.value, dates: dates }); closeSheet(); await loadState(); render(); toast(r.created + '日にコピーしました'); }
+        catch (e) { sheetError(e.message); }
+      });
+    },
+    body1: async (f, btn) => {
+      const row = { memberId: f.memberId.value, date: f.date.value, weight: f.weight.value, fat: f.fat.value, muscle: f.muscle.value, note: f.note.value };
+      await busy(btn, async () => {
+        try { const r = await api('saveBody', { rows: [row] }); S.data.body = r.body; closeSheet(); render(); toast('保存しました'); }
+        catch (e) { sheetError(e.message); }
+      });
+    },
+    bodybulk: async (f, btn) => {
+      const rows = [];
+      $$('.bulk-r', f).forEach((el) => {
+        const id = el.dataset.id, v = {};
+        ['weight', 'fat', 'muscle'].forEach((k) => { v[k] = f[k + '_' + id].value.trim(); });
+        if (v.weight || v.fat || v.muscle) rows.push(Object.assign({ memberId: id, date: f.date.value }, v));
+      });
+      if (!rows.length) { sheetError('1人以上入れてください。'); return; }
+      await busy(btn, async () => {
+        try { const r = await api('saveBody', { rows: rows }); S.data.body = r.body; closeSheet(); render(); toast(rows.length + '人分を保存しました'); }
+        catch (e) { sheetError(e.message); }
+      });
+    },
+    perms: async (f, btn) => {
+      const rows = $$('select[name^="p_"]', f).filter((x) => !x.disabled && x.value !== x.dataset.cur).map((x) => ({ id: x.name.slice(2), perm: x.value }));
+      if (!rows.length) { closeSheet(); toast('変更はありません'); return; }
+      await busy(btn, async () => {
+        try {
+          const r = await api('bulkPerms', { rows: rows });
+          closeSheet(); await loadState(); render();
+          if (r.pins.length) openSheet('暗証番号を発行しました',
+            '<div class="pinshow"><p>新しくログインする人の最初の暗証番号です。本人に直接伝えてください。</p><ul class="pins">' +
+            r.pins.map((x) => '<li><span><b>' + esc(x.name) + '</b><small>' + PERM[x.perm] + '</small></span><span class="pin num">' + esc(x.pin) + '</span></li>').join('') + '</ul>' +
+            '<p class="note">最初のログインで、本人が新しい暗証番号を決めます。この画面を閉じると、番号はもう表示できません（あとで「部員の編集」から出し直せます）。</p>' +
+            '<div class="actions"><button class="btn primary" data-act="sheet-close">伝えたので閉じる</button></div></div>', { locked: false });
+          else toast(r.changed + '人の役職を変えました');
+        } catch (e) { sheetError(e.message); }
+      });
+    },
+    pinreq: async (f, btn) => {
+      await busy(btn, async () => {
+        try {
+          await api('pinRequest', { memberId: f.memberId.value });
+          openSheet('依頼を送りました', '<p class="lead-line">管理者に依頼が届きました。管理者が新しい最初の暗証番号を出したら、その番号でログインしてください（ログインすると、自分の暗証番号を決め直す画面になります）。</p><div class="actions"><button class="btn primary" data-act="sheet-close">閉じる</button></div>');
+        } catch (e) { sheetError(e.message); }
+      });
+    },
     exempt: async (f, btn) => {
       if (f.to.value < f.from.value) { sheetError('終了日は開始日より後にしてください。'); return; }
       await busy(btn, async () => {
@@ -1543,13 +2200,43 @@
       S.rec.date = v; S.rec.edits = {}; render();
       return;
     }
-    if (t.form && t.form.dataset.form === 'menu') {
+    if (t.dataset && t.dataset.actChange === 'pref-self') {
+      PREF.self = t.value; if (PREF.self) store.set('self', PREF.self); else store.del('self');
+      if (!$('#guide-root').innerHTML) render();
+      return;
+    }
+    if (t.dataset && t.dataset.actChange === 'arch-by') { S.archive.by = t.value; render(); return; }
+    if (t.dataset && t.dataset.actChange === 'tpl-fill') {
+      const tp = (S.data.templates || []).find((x) => x.id === t.value), f = t.form;
+      if (!tp) return;
+      ['title', 'content', 'detail', 'note', 'video'].forEach((k) => { f[k].value = tp[k] || ''; });
+      $$('input[name="positions"]', f).forEach((x) => { x.checked = tp.positions.indexOf(x.value) >= 0; });
+      $$('input[name="group"]', f).forEach((x) => { x.checked = !tp.positions.length && x.value === tp.group; });
+      updateTargetHint(); return;
+    }
+    if (t.form && t.form.dataset.form === 'copy') {
+      const n = $$('input[name="dates"]:checked', t.form).length;
+      $('#copy-n').textContent = n ? n + '日を選んでいます' : '日付を選んでください（6週間先まで・複数可）';
+      return;
+    }
+    if (t.form && (t.form.dataset.form === 'menu' || t.form.dataset.form === 'template')) {
       if (t.name === 'group') $$('input[name="positions"]', t.form).forEach((x) => { x.checked = false; });
       if (t.name === 'positions' && t.checked) { const g = $('input[name="group"]:checked', t.form); if (g) g.checked = false; }
       updateTargetHint();
     }
   });
-  document.addEventListener('keydown', (ev) => { if (ev.key === 'Escape' && !sheetLocked && $('#sheet-root').innerHTML) closeSheet(); });
+  let archTimer = 0;
+  document.addEventListener('input', (ev) => {
+    const t = ev.target;
+    if (t.dataset && t.dataset.actInput === 'arch-q') {
+      clearTimeout(archTimer);
+      archTimer = setTimeout(() => { S.archive.q = t.value; render(); const el = $('.search'); if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); } }, 250);
+    }
+  });
+  document.addEventListener('keydown', (ev) => {
+    if (ev.key === 'Escape' && $('#guide-root').innerHTML) { closeGuide(); return; }
+    if (ev.key === 'Escape' && !sheetLocked && $('#sheet-root').innerHTML) closeSheet();
+  });
   window.addEventListener('hashchange', onHash);
   window.addEventListener('beforeunload', (ev) => {
     if (S.route.name === 'record' && S.idx && can('record') && recDirty()) { ev.preventDefault(); ev.returnValue = ''; }
@@ -1574,5 +2261,6 @@
     render();
     await loadState({});
     render();
+    if (S.data && !S.data.locked && !store.get('guided', 0)) openGuide(0);
   })();
 })();

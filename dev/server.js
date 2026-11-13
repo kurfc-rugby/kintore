@@ -88,6 +88,23 @@ function seed() {
   api({ op: 'saveExempt', token: A, memberId: players[2].id, from: L.addDays(L.weekStart(today), -2), to: L.addDays(L.weekStart(today), 10), reason: '怪我', note: '右足首の捻挫' });
   api({ op: 'saveExempt', token: A, memberId: players[5].id, from: L.weekStart(today), to: L.addDays(L.weekStart(today), 2), reason: '病気・体調不良' });
   api({ op: 'saveExempt', token: A, memberId: 'ALL', from: L.addDays(L.weekStart(today), -21), to: L.addDays(L.weekStart(today), -15), reason: '試験期間' });
+  // 型（月・木の繰り返し）、体組成、応援スタンプ、暗証番号の再発行の依頼
+  api({ op: 'saveTemplate', token: LD, template: { title: 'FW 下半身（型）', group: 'FW', content: 'スクワット\nデッドリフト', detail: 'スクワット：5回×5セット', note: '', video: 'https://www.youtube.com/watch?v=example', repeat: [1, 4] } });
+  api({ op: 'saveTemplate', token: LD, template: { title: '首・体幹（型）', group: 'ALL', content: 'プランク\n首（前後左右）', detail: '', note: '', video: '', repeat: [] } });
+  const bodyRows = [];
+  players.slice(0, 12).forEach((p, i) => {
+    [-42, -28, -14, 0].forEach((k, j) => {
+      bodyRows.push({ memberId: p.id, date: L.addDays(today, k - (i % 3)), weight: (68 + i * 2.3 + j * 0.6).toFixed(1), fat: (14 + (i % 5) - j * 0.3).toFixed(1), muscle: i % 2 ? (52 + i + j * 0.4).toFixed(1) : '' });
+    });
+  });
+  api({ op: 'saveBody', token: M, rows: bodyRows.filter((r) => r.date <= today) });
+  const st2 = api({ op: 'state', token: A });
+  const ev = L.feedEvents(st2, L.buildIndex(st2), today, 3, st2.life, 10);
+  const kinds = ['clap', 'fire', 'muscle', 'party', 'hundred'];
+  ev.slice(0, 8).forEach((e, i) => {
+    for (let k = 0; k < (i % 4) + 1; k++) api({ op: 'stamp', target: e.id, event: e.key, kind: kinds[(i + k) % 5], device: ('abcdef0123456789' + i + k + 'aaaa').slice(0, 20).replace(/[^0-9a-f]/g, 'a'), from: players[(i + k + 3) % players.length].id });
+  });
+  api({ op: 'pinRequest', memberId: id['マネ さくら'] });
   console.log('テストデータを用意しました（今日 = ' + today + '）');
 }
 seed();

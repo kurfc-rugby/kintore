@@ -71,6 +71,7 @@ function create(opts) {
     getRange(r, c, nr, nc) { return new Range(this, r, c, nr || 1, nc || 1); }
     appendRow(arr) { new Range(this, this.getLastRow() + 1, 1, 1, arr.length).setValues([arr]); return this; }
     deleteRow(r) { this.data.splice(r - 1, 1); this.writes++; }
+    deleteRows(r, n) { this.data.splice(r - 1, n); this.writes++; }
     setFrozenRows() {}
   }
   class Spreadsheet {

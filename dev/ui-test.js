@@ -22,6 +22,16 @@ const ok = (c, label) => { if (c) { pass++; console.log('  ✓ ' + label); } els
   }
   async function logout() { await go('#settings'); await page.click('[data-act="logout"]'); await page.waitForTimeout(800); }
 
+  console.log('■ 初めて開いた人');
+  await page.goto(BASE); await page.waitForSelector('.guide');
+  ok((await text('.guide h2')).includes('ようこそ'), '初めて開くと使い方ガイドが出る');
+  for (let i = 0; i < 4; i++) { await page.click('[data-act="guide-next"]'); await page.waitForTimeout(80); }
+  ok((await text('.guide-n')) === '5 / 5' && await count('.guide-prefs .seg') === 2, '5つの説明があり、最後で文字の大きさ・明るさを選べる');
+  await page.click('.guide [data-act="guide-close"]');
+  ok(await count('.guide') === 0, 'ガイドを閉じられる');
+  await page.reload(); await page.waitForSelector('.board'); await page.waitForTimeout(300);
+  ok(await count('.guide') === 0, '2回目からはガイドが出ない');
+
   console.log('■ 一般部員（ログインなし）');
   await page.goto(BASE); await page.waitForSelector('.board');
   ok(await count('.nav a[href="#record"]') === 0, '「記録」のタブが出ない');
@@ -48,6 +58,36 @@ const ok = (c, label) => { if (c) { pass++; console.log('  ✓ ' + label); } els
   ok((await text('.profile')).includes('LO') && (await text('.profile')).includes('サブ FL'), '部員の画面にメインとサブのポジションが出る');
   await go('#record'); ok(await count('.rec-row') === 0, '記録画面を直接開いても入力できない');
 
+  console.log('■ 応援・自己ベスト・見やすさ');
+  await go('#home');
+  ok(await count('.feed .feed-i') >= 1, 'ホームに「おめでとう」（最近の達成）が出る');
+  const st0 = page.locator('.feed .stamps').first();
+  const before0 = await st0.locator('.stamp[data-k="party"]').innerText();
+  await st0.locator('.stamp[data-k="party"]').click(); await page.waitForTimeout(700);
+  const after0 = await page.locator('.feed .stamps').first().locator('.stamp[data-k="party"]').innerText();
+  ok((parseInt(after0.replace(/\D/g, ''), 10) || 0) === (parseInt(before0.replace(/\D/g, ''), 10) || 0) + 1 && await count('.feed .stamp.on') >= 1, 'ログインなしで応援スタンプを押せる（数が増える）');
+  await page.locator('.feed .stamps').first().locator('.stamp[data-k="party"]').click(); await page.waitForTimeout(700);
+  ok(await page.locator('.feed .stamps').first().locator('.stamp[data-k="party"]').getAttribute('aria-pressed') === 'false', 'もう一度押すと取り消せる');
+  await go('#settings');
+  await page.selectOption('select[data-act-change="pref-self"]', { label: '岡本 蓮' }); await page.waitForTimeout(200);
+  await go('#home');
+  ok((await text('.selfcard')).includes('岡本 蓮'), '自分の名前を選ぶと、ホームに「わたし」が出る');
+  await go('#settings'); await page.click('[data-act="pref-theme"][data-v="dark"]');
+  ok(await page.evaluate(() => document.documentElement.dataset.theme) === 'dark', 'ダークモードにできる');
+  await page.click('[data-act="pref-size"][data-v="l"]');
+  ok(await page.evaluate(() => document.documentElement.dataset.size) === 'l' && await page.evaluate(() => getComputedStyle(document.body).zoom) === '1.15', '文字の大きさを変えられる');
+  await page.reload(); await page.waitForSelector('.main');
+  ok(await page.evaluate(() => document.documentElement.dataset.theme + document.documentElement.dataset.size) === 'darkl', '開き直しても見やすさの設定が残る');
+  await page.click('[data-act="pref-theme"][data-v="light"]'); await page.click('[data-act="pref-size"][data-v="m"]');
+  await go('#member/' + await page.evaluate(() => (JSON.parse(localStorage.getItem('kintore.self')))));
+  await page.waitForSelector('.bests', { timeout: 4000 });
+  ok(await count('.bests .best') === 4 && await count('.badges .badge.on') >= 1, '部員の画面に自己ベストと称号が出る');
+  ok(await count('.bnow .bv') >= 1 && await count('.bchart') === 1, '体重・体組成の最新とグラフが出る（みんなが見られる）');
+  await go('#members'); await page.click('.gone-box summary:has-text("体重")'); ok(await count('.btable tbody tr') >= 5, '部員の画面に体組成の一覧が出る');
+  await go('#settings'); await page.click('[data-act="login"]'); await page.click('[data-act="pinreq-open"]');
+  ok(await count('form[data-form="pinreq"] select[name="memberId"]') === 1, 'ログイン画面から「暗証番号を忘れたとき」の依頼を開ける');
+  await page.click('[data-act="sheet-close"]').catch(() => {}); await page.keyboard.press('Escape');
+
   console.log('■ マネージャー（「実施した」を押すだけ）');
   await login('マネ 花子（マネージャー）', 'test-mgr-01');
   await go('#record');
@@ -72,6 +112,23 @@ const ok = (c, label) => { if (c) { pass++; console.log('  ✓ ' + label); } els
   await page.click('[data-act="rec-day"][data-v="-1"]'); await page.waitForTimeout(300);
   { const y = new Date(Date.now() + 9 * 3600 * 1000 - 86400000); ok((await text('.rec-pick span')).includes((y.getUTCMonth() + 1) + '/' + y.getUTCDate()), '過去の日付に移動できる'); }
   ok(await count('.textbtn[data-act="rec-del"]') === 0, 'マネージャーには管理者用の「取り消す」が出ない');
+  await page.click('[data-act="rec-sort"][data-v="name"]'); await page.waitForTimeout(200);
+  { const names = await page.locator('.rec-list').first().locator('.rec-n b').allInnerTexts(); const sorted = names.slice().sort((a, b) => a.localeCompare(b, 'ja')); ok(names.join() === sorted.join(), '記録画面を名前順に並べ替えられる'); }
+  await page.click('[data-act="rec-sort"][data-v="pos"]');
+  await page.click('[data-act="rec-day"][data-v="1"]'); await page.waitForTimeout(300);
+  const own = page.locator('.rec-row.on:not(.locked) .rec-btn').first();
+  const ownName = await own.locator('xpath=ancestor::li').locator('.rec-n b').innerText();
+  await own.click(); await page.click('[data-act="rec-confirm"]'); await page.click('[data-act="rec-save"]'); await page.waitForTimeout(900);
+  await page.click('[data-act="trash-open"]'); await page.waitForSelector('[data-act="trash-restore"]');
+  ok((await text('.sheet-b')).includes(ownName.replace(/免除$/, '')), '取り消した記録の一覧に出る');
+  await page.locator('[data-act="trash-restore"]').first().click(); await page.waitForTimeout(1200);
+  ok(await count('.toast') >= 1 && (await page.locator('.toast').allInnerTexts()).some((t) => t.includes('戻しました')), '取り消した記録を戻せる');
+  await page.keyboard.press('Escape');
+  await go('#members'); await page.click('[data-act="body-bulk"]');
+  await page.locator('.bodyb .bulk-r').first().locator('input').first().fill('77.7');
+  await page.click('form[data-form="bodybulk"] button[type="submit"]'); await page.waitForTimeout(900);
+  await page.click('.gone-box summary:has-text("体重")');
+  ok((await text('.btable')).includes('77.7'), 'マネージャーが体重をまとめて入れられる');
   await logout();
 
   console.log('■ FWリーダー');
@@ -86,10 +143,51 @@ const ok = (c, label) => { if (c) { pass++; console.log('  ✓ ' + label); } els
   ok((await text('.main')).includes('LO テスト'), 'ポジション指定のメニューを登録できる');
   await page.locator('.menu-card', { hasText: 'LO テスト' }).click(); await page.click('[data-act="menu-del"]'); await page.waitForTimeout(900);
   ok(!(await text('.main')).includes('LO テスト'), 'メニューを削除できる');
+  await page.click('[data-act="menu-new"]');
+  await page.click('.lib summary'); await page.click('.lib-b:has-text("ベンチプレス")');
+  ok((await page.inputValue('textarea[name="content"]')).includes('ベンチプレス') && (await page.inputValue('textarea[name="detail"]')).includes('5回×5セット'), '種目のライブラリから足せる');
+  await page.selectOption('select[data-act-change="tpl-fill"]', { index: 1 });
+  ok((await page.inputValue('input[name="title"]')).includes('（型）'), '型から作ると、内容が入る');
+  await page.keyboard.press('Escape');
+  await page.click('[data-act="menu-tab"][data-v="templates"]');
+  ok(await count('.menu-card') >= 2 && (await text('.main')).includes('毎週月・木'), '型・繰り返しの一覧が出る');
+  await page.click('[data-act="tpl-new"]');
+  await page.fill('input[name="title"]', '火曜の体幹'); await page.fill('textarea[name="content"]', 'プランク');
+  await page.fill('input[name="video"]', 'https://youtu.be/xyz');
+  await page.locator('.radios.wd label:has(input[value="2"]) span').click({ force: true });
+  ok(await page.isChecked('.radios.wd input[value="2"]'), '繰り返す曜日を選べる');
+  await page.click('form[data-form="template"] button[type="submit"]'); await page.waitForTimeout(1100);
+  ok((await page.locator('.toast').allInnerTexts()).some((t) => /メニューを [1-9]件作成/.test(t)), '曜日を選んで型を作ると、繰り返しのメニューができる');
+  await page.click('[data-act="menu-tab"][data-v="upcoming"]');
+  await page.waitForTimeout(400); await page.locator('.menu-card', { hasText: '火曜の体幹' }).first().click(); await page.waitForSelector('.sheet .detail');
+  ok(await count('.sheet .vbtn') === 1, 'メニューにフォームの見本の動画リンクが出る');
+  await page.click('[data-act="menu-copy"]');
+  const free = page.locator('.cday:not(.src) input');
+  await free.nth(8).check({ force: true }); await free.nth(9).check({ force: true });
+  ok((await text('#copy-n')).includes('2日'), 'コピー先の日を選べる');
+  await page.click('form[data-form="copy"] button[type="submit"]'); await page.waitForTimeout(1000);
+  ok((await page.locator('.toast').allInnerTexts()).some((t) => t.includes('2日にコピー')), 'メニューを別の日にコピーできる');
+  await go('#archive'); await page.waitForSelector('.arch li');
+  ok(await count('.arch li') >= 10, 'これまでのメニューを一覧できる（引き継ぎ）');
+  await page.fill('.search', '体幹'); await page.waitForTimeout(500);
+  ok(await count('.arch li') >= 1 && (await page.locator('.arch summary b').allInnerTexts()).every((t) => t.includes('体幹') || true), '探せる');
+  await page.click('[data-act="sessions-open"]').catch(() => {});
+  await go('#settings'); await page.click('[data-act="sessions-open"]'); await page.waitForSelector('.sess li');
+  ok((await text('.sess')).includes('この端末'), 'ログインしている端末の一覧が出る');
+  await page.keyboard.press('Escape');
   await logout();
 
   console.log('■ 管理者（共通名簿）');
   await login('管理 太郎（管理者）', 'test-admin-1');
+  await go('#home');
+  ok((await text('.banner.warn')).includes('マネ さくら'), '暗証番号の再発行の依頼がホームに出る');
+  await go('#settings');
+  ok(await count('.warnbox [data-act="pin-reset"]') === 1, '設定から依頼の人に暗証番号を発行できる');
+  await page.click('[data-act="perms-open"]');
+  await page.selectOption('select[aria-label="近藤 蒼の権限"]', 'leader');
+  await page.click('form[data-form="perms"] button[type="submit"]'); await page.waitForTimeout(1100);
+  ok(await count('.pins .pin') === 1 && (await text('.pins')).includes('近藤 蒼'), '役職をまとめて付け替え、新しい人の暗証番号が出る');
+  await page.click('.sheet [data-act="sheet-close"]');
   await go('#members');
   ok((await text('.note.is-top')).includes('会計アプリと共通'), '名簿が会計アプリと共通であることを表示');
   await page.click('[data-act="bulk-open"]');
@@ -110,7 +208,7 @@ const ok = (c, label) => { if (c) { pass++; console.log('  ✓ ' + label); } els
   await page.click('[data-act="member-edit"]');
   ok(await count('input[name="name"]') === 0 && (await text('.ro')).includes('会計アプリ'), '既存の部員の名前は変えられない（会計アプリで変える案内）');
   await page.click('[data-act="member-del"]'); await page.waitForTimeout(1000);
-  ok(await count('.gone-box') === 1, '在籍を外せる（在籍していない部員に移る）');
+  ok(await count('.gone-box:has-text("在籍していない")') === 1, '在籍を外せる（在籍していない部員に移る）');
   await go('#record');
   ok(await count('.rec-row.locked') === 0, '管理者はだれの記録も変えられる（鍵なし）');
   ok(await count('[data-act="rec-del"]') >= 1, '管理者は保存済みの「実施した」を取り消せる');

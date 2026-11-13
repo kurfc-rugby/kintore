@@ -10,8 +10,8 @@
  * 最初にやること：スプレッドシートのメニュー「筋トレ管理」→「管理者を登録」
  * 詳しくは 04_ドキュメント/筋トレ管理アプリ_使い方と引き継ぎ.md
  */
-const APP_VERSION = '2.4.0';
-const SCHEMA_VERSION = '3';
+const APP_VERSION = '2.5.0';
+const SCHEMA_VERSION = '4';
 const TZ = 'Asia/Tokyo';
 const SESSION_DAYS = 90;
 const VIEW_SESSION_DAYS = 180;
@@ -33,7 +33,7 @@ const DEF = {
     ['id', '部員ID'], ['nameMemo', '名前（控え）'], ['mode', '取り組み方'], ['perm', '権限'],
     ['start', '開始日'], ['left', '退部日'],
     ['pinHash', '暗証番号ハッシュ'], ['pinSalt', 'ソルト'], ['mustChange', '要変更'], ['failCount', '失敗回数'],
-    ['lockUntil', 'ロック解除'], ['createdAt', '作成日時'], ['updatedAt', '更新日時']] },
+    ['lockUntil', 'ロック解除'], ['createdAt', '作成日時'], ['updatedAt', '更新日時'], ['pinReqAt', '暗証番号の再発行依頼']] },
   history: { name: '設定変更履歴', cols: [
     ['memberId', '部員ID'], ['effDate', '適用開始日'], ['group', 'グループ'], ['mode', '取り組み方'],
     ['position', 'ポジション'], ['subPositions', 'サブポジション'], ['by', '変更者ID'], ['at', '変更日時']] },
@@ -41,20 +41,36 @@ const DEF = {
     ['id', 'ID'], ['date', '実施予定日'], ['group', '対象グループ'], ['positions', '対象ポジション'], ['title', 'メニュー名'],
     ['content', 'トレーニング内容'], ['detail', '回数・セット数・重量'], ['note', '備考'], ['targets', '対象者ID'],
     ['createdBy', '作成者ID'], ['createdAt', '作成日時'], ['updatedBy', '更新者ID'], ['updatedAt', '更新日時'],
-    ['deletedBy', '削除者ID'], ['deletedAt', '削除日時']] },
+    ['deletedBy', '削除者ID'], ['deletedAt', '削除日時'], ['video', '動画リンク'], ['templateId', '型ID']] },
   records: { name: '実施記録', cols: [
     ['memberId', '部員ID'], ['date', '日付'], ['status', '実施状況'], ['target', 'メニュー対象'], ['menuIds', 'メニューID'],
     ['createdBy', '記録者ID'], ['createdAt', '記録日時'], ['updatedBy', '修正者ID'], ['updatedAt', '修正日時']] },
   sessions: { name: 'ログイン', cols: [
-    ['tokenHash', 'トークンハッシュ'], ['memberId', '部員ID'], ['kind', '種類'], ['createdAt', '作成日時'], ['expiresAt', '有効期限']] },
+    ['tokenHash', 'トークンハッシュ'], ['memberId', '部員ID'], ['kind', '種類'], ['createdAt', '作成日時'], ['expiresAt', '有効期限'], ['device', '端末']] },
   logs: { name: '操作履歴', cols: [
     ['at', '日時'], ['actorId', '操作者ID'], ['actorName', '操作者'], ['role', '権限'], ['action', '操作'], ['detail', '内容']] },
   settings: { name: '設定', cols: [['key', '項目'], ['value', '値']] },
   exempts: { name: '免除', cols: [
     ['id', 'ID'], ['memberId', '部員ID'], ['from', '開始日'], ['to', '終了日'], ['reason', '理由'], ['note', 'メモ'],
-    ['createdBy', '登録者ID'], ['createdAt', '登録日時'], ['deletedBy', '削除者ID'], ['deletedAt', '削除日時']] }
+    ['createdBy', '登録者ID'], ['createdAt', '登録日時'], ['deletedBy', '削除者ID'], ['deletedAt', '削除日時']] },
+  templates: { name: 'メニューの型', cols: [
+    ['id', 'ID'], ['title', 'メニュー名'], ['group', '対象グループ'], ['positions', '対象ポジション'], ['content', 'トレーニング内容'],
+    ['detail', '回数・セット数・重量'], ['note', '備考'], ['video', '動画リンク'],
+    ['repeat', '繰り返す曜日'], ['repeatFrom', '繰り返しの開始日'], ['repeatTo', '繰り返しの終了日'],
+    ['createdBy', '作成者ID'], ['createdAt', '作成日時'], ['updatedBy', '更新者ID'], ['updatedAt', '更新日時'],
+    ['deletedBy', '削除者ID'], ['deletedAt', '削除日時']] },
+  trash: { name: '取り消した記録', cols: [
+    ['id', 'ID'], ['memberId', '部員ID'], ['date', '日付'], ['status', '実施状況'], ['target', 'メニュー対象'], ['menuIds', 'メニューID'],
+    ['createdBy', '記録者ID'], ['createdAt', '記録日時'], ['removedBy', '取り消した人ID'], ['removedAt', '取り消し日時'],
+    ['restoredBy', '戻した人ID'], ['restoredAt', '戻した日時']] },
+  body: { name: '体組成', cols: [
+    ['id', 'ID'], ['memberId', '部員ID'], ['date', '測定日'], ['weight', '体重(kg)'], ['fat', '体脂肪率(%)'], ['muscle', '筋肉量(kg)'], ['note', 'メモ'],
+    ['createdBy', '記録者ID'], ['createdAt', '記録日時'], ['updatedBy', '修正者ID'], ['updatedAt', '修正日時'],
+    ['deletedBy', '削除者ID'], ['deletedAt', '削除日時']] },
+  stamps: { name: '応援', cols: [
+    ['id', 'ID'], ['target', '相手の部員ID'], ['event', 'できごと'], ['kind', 'スタンプ'], ['fromId', '送った部員ID'], ['device', '端末'], ['at', '日時']] }
 };
-const DATE_COLS = { start: 1, left: 1, effDate: 1, date: 1, from: 1, to: 1 };
+const DATE_COLS = { start: 1, left: 1, effDate: 1, date: 1, from: 1, to: 1, repeatFrom: 1, repeatTo: 1 };
 
 const ENC = {
   mode: { leader: 'リーダーメニュー', self: '自主トレ' },
@@ -67,7 +83,9 @@ const FIELD_ENC = {
   people: { mode: 'mode', perm: 'perm', mustChange: 'bool' },
   history: { mode: 'mode' },
   menus: { group: 'mgroup' },
-  records: { status: 'status', target: 'bool' }
+  records: { status: 'status', target: 'bool' },
+  templates: { group: 'mgroup' },
+  trash: { status: 'status', target: 'bool' }
 };
 const STAFF = { admin: 1, manager: 1, leader: 1 };
 
@@ -100,10 +118,11 @@ function handle_(req) {
     if (!req || typeof req !== 'object') throw err_('bad_request', '送信内容が正しくありません。');
     ensureSchema_();
     syncRoster_();
+    dailyMaint_();
     const ctx = { req: req, me: null, view: false };
     resolveSession_(ctx);
     const op = String(req.op || '');
-    const open = { ping: 1, state: 1, login: 1, logout: 1, viewLogin: 1, changePin: 1 };
+    const open = { ping: 1, state: 1, login: 1, logout: 1, viewLogin: 1, changePin: 1, memberHistory: 1, stamp: 1, pinRequest: 1 };
     if (!open[op] && ctx.me && ctx.me.mustChange) {
       throw err_('must_change_pin', '先に暗証番号を変更してください。');
     }
@@ -128,6 +147,21 @@ function handle_(req) {
       case 'resetPin': return opResetPin_(ctx);
       case 'logs': return opLogs_(ctx);
       case 'saveSettings': return opSaveSettings_(ctx);
+      case 'memberHistory': return opMemberHistory_(ctx);
+      case 'saveTemplate': return opSaveTemplate_(ctx);
+      case 'deleteTemplate': return opDeleteTemplate_(ctx);
+      case 'copyMenu': return opCopyMenu_(ctx);
+      case 'menuArchive': return opMenuArchive_(ctx);
+      case 'trash': return opTrash_(ctx);
+      case 'restoreRecord': return opRestoreRecord_(ctx);
+      case 'saveBody': return opSaveBody_(ctx);
+      case 'deleteBody': return opDeleteBody_(ctx);
+      case 'stamp': return opStamp_(ctx);
+      case 'pinRequest': return opPinRequest_(ctx);
+      case 'dismissPinRequest': return opDismissPinRequest_(ctx);
+      case 'sessions': return opSessions_(ctx);
+      case 'logoutSession': return opLogoutSession_(ctx);
+      case 'bulkPerms': return opBulkPerms_(ctx);
       default: throw err_('unknown_op', '不明な操作です。');
     }
   } catch (x) {
@@ -167,6 +201,7 @@ function addDays_(s, n) {
   const d = new Date(Date.UTC(+a[0], +a[1] - 1, +a[2] + n));
   return d.getUTCFullYear() + '-' + ('0' + (d.getUTCMonth() + 1)).slice(-2) + '-' + ('0' + d.getUTCDate()).slice(-2);
 }
+function dow_(s) { const a = s.split('-'); return new Date(Date.UTC(+a[0], +a[1] - 1, +a[2])).getUTCDay(); } // 0=日
 function reqDate_(v, label) {
   const s = String(v == null ? '' : v);
   if (!isDate_(s)) throw err_('bad_date', (label || '日付') + 'が正しくありません。');
@@ -371,7 +406,7 @@ function peopleRow_(m) {
   if (m.set) return m.set;
   const now = now_();
   const row = { id: m.id, nameMemo: m.name, mode: m.mode, perm: m.perm, start: m.start, left: m.left,
-    pinHash: '', pinSalt: '', mustChange: '0', failCount: '0', lockUntil: '', createdAt: now, updatedAt: '' };
+    pinHash: '', pinSalt: '', mustChange: '0', failCount: '0', lockUntil: '', createdAt: now, updatedAt: '', pinReqAt: '' };
   insert_('people', [row]);
   m.set = row;
   return row;
@@ -636,7 +671,7 @@ function opLogin_(ctx) {
     update_('people', s);
     removeMany_('sessions', table_('sessions').rows.filter(function (r) { return r.expiresAt <= now; }));
     const token = randomHex_();
-    insert_('sessions', [{ tokenHash: sha256Hex_(token), memberId: m.id, kind: 'staff', createdAt: now, expiresAt: nowPlusMin_(SESSION_DAYS * 1440) }]);
+    insert_('sessions', [{ tokenHash: sha256Hex_(token), memberId: m.id, kind: 'staff', createdAt: now, expiresAt: nowPlusMin_(SESSION_DAYS * 1440), device: deviceLabel_(ctx.req.deviceName) }]);
     const me = meOf_(m);
     log_(me, 'ログイン', '');
     return { ok: true, token: token, me: me };
@@ -685,7 +720,7 @@ function opViewLogin_(ctx) {
   }
   return withLock_(function () {
     const token = randomHex_();
-    insert_('sessions', [{ tokenHash: sha256Hex_(token), memberId: '', kind: 'view', createdAt: now_(), expiresAt: nowPlusMin_(VIEW_SESSION_DAYS * 1440) }]);
+    insert_('sessions', [{ tokenHash: sha256Hex_(token), memberId: '', kind: 'view', createdAt: now_(), expiresAt: nowPlusMin_(VIEW_SESSION_DAYS * 1440), device: deviceLabel_(ctx.req.deviceName) }]);
     return { ok: true, viewToken: token };
   });
 }
@@ -783,7 +818,8 @@ function memberWire_(m, admin) {
 function menuWire_(w) {
   return {
     id: w.id, date: w.date, group: w.group, positions: menuPositions_(w), title: w.title, content: w.content, detail: w.detail, note: w.note,
-    targets: w.targets ? w.targets.split(',') : [], createdBy: w.createdBy, updatedAt: w.updatedAt || w.createdAt
+    targets: w.targets ? w.targets.split(',') : [], createdBy: w.createdBy, updatedAt: w.updatedAt || w.createdAt,
+    video: w.video || '', templateId: w.templateId || '', edited: !!w.updatedBy
   };
 }
 function recordsWire_(from, to) {
@@ -810,6 +846,11 @@ function opState_(ctx) {
   base.menus = table_('menus').rows.filter(function (w) { return !w.deletedAt && w.date >= from && w.date <= to; }).map(menuWire_);
   base.records = recordsWire_(from, to);
   base.exempts = exemptsWire_(addDays_(from, -7), addDays_(to, 7), ctx.me);
+  base.life = lifeWire_();
+  base.body = bodyWire_(ctx.me);
+  base.stamps = stampsWire_(addDays_(today, -STAMP_DAYS), ctx.req.device);
+  if (ctx.me && (ctx.me.perm === 'admin' || ctx.me.perm === 'leader')) base.templates = table_('templates').rows.filter(function (t) { return !t.deletedAt; }).map(templateWire_);
+  if (admin) base.pinRequests = pinRequests_();
   return base;
 }
 
@@ -863,6 +904,7 @@ function opSaveRecords_(ctx) {
         logs.push(logRow_(me, '記録を取り消し', m.name + ' ' + date + '：' + ENC.status[ex.status] + ' → 記録なし'));
       }
     });
+    insert_('trash', removes.map(function (x) { return trashRow_(x, me, now); }));
     removeMany_('records', removes);
     insert_('records', inserts);
     insert_('logs', logs);
@@ -878,6 +920,7 @@ function opDeleteRecord_(ctx) {
     const r = table_('records').rows.filter(function (x) { return x.memberId === id && x.date === date; })[0];
     if (!r) throw err_('not_found', 'その記録は見つかりません。');
     const m = memberById_(id);
+    insert_('trash', [trashRow_(r, me, now_())]);
     remove_('records', r);
     log_(me, '記録を削除', (m ? m.name : id) + ' ' + date + '：' + ENC.status[r.status] + ' → 記録なし');
     return { ok: true, date: date, records: recordsWire_(date, date) };
@@ -927,7 +970,8 @@ function opSaveMenu_(ctx) {
     title: text_(src.title, 60, 'メニュー名', true),
     content: text_(src.content, 3000, 'トレーニング内容', true),
     detail: text_(src.detail, 3000, '回数・セット数・重量', false),
-    note: text_(src.note, 1000, '備考', false)
+    note: text_(src.note, 1000, '備考', false),
+    video: url_(src.video, '動画リンク')
   };
   if (!data.group) throw err_('bad_group', '対象グループを選んでください。');
   return withLock_(function () {
@@ -940,7 +984,7 @@ function opSaveMenu_(ctx) {
       const oldDate = w.date;
       const moved = w.date !== data.date || w.group !== data.group || w.positions !== data.positions;
       const before = menuLabel_(w);
-      Object.assign(w, { title: data.title, content: data.content, detail: data.detail, note: data.note, date: data.date, group: data.group, positions: data.positions });
+      Object.assign(w, { title: data.title, content: data.content, detail: data.detail, note: data.note, video: data.video, date: data.date, group: data.group, positions: data.positions });
       if (moved || w.date >= today_()) w.targets = computeTargets_(w.date, w.group, positions, hist).join(',');
       w.updatedBy = me.id; w.updatedAt = now;
       update_('menus', w);
@@ -950,7 +994,7 @@ function opSaveMenu_(ctx) {
     } else {
       w = {
         id: 'w' + Utilities.getUuid().replace(/-/g, '').slice(0, 10), date: data.date, group: data.group, positions: data.positions,
-        title: data.title, content: data.content, detail: data.detail, note: data.note,
+        title: data.title, content: data.content, detail: data.detail, note: data.note, video: data.video, templateId: '',
         targets: computeTargets_(data.date, data.group, positions, hist).join(','),
         createdBy: me.id, createdAt: now, updatedBy: '', updatedAt: '', deletedBy: '', deletedAt: ''
       };
@@ -1315,7 +1359,7 @@ function issuePin_(m) {
   const s = peopleRow_(m);
   s.pinSalt = randomHex_().slice(0, 32);
   s.pinHash = pinHash_(s.pinSalt, pin);
-  s.mustChange = '1'; s.failCount = '0'; s.lockUntil = ''; s.updatedAt = now_();
+  s.mustChange = '1'; s.failCount = '0'; s.lockUntil = ''; s.pinReqAt = ''; s.updatedAt = now_();
   update_('people', s);
   killSessions_(m.id, '');
   return pin;
@@ -1363,6 +1407,483 @@ function opSaveSettings_(ctx) {
       }
     }
     return { ok: true, viewLock: !!setting_('viewPassHash'), weekGoal: weekGoal_() };
+  });
+}
+
+// ---------------------------------------------------------------------------
+// 共通の小道具（v2.5）
+// ---------------------------------------------------------------------------
+function newId_(prefix) { return prefix + Utilities.getUuid().replace(/-/g, '').slice(0, 10); }
+function url_(v, label) {
+  const s = String(v == null ? '' : v).trim();
+  if (!s) return '';
+  if (s.length > 500 || !/^https?:\/\/[^\s<>"']+$/.test(s)) throw err_('bad_url', label + 'は https:// から始まるURLにしてください。');
+  return s;
+}
+function deviceLabel_(v) { return String(v == null ? '' : v).replace(/[\x00-\x1f<>]/g, '').trim().slice(0, 40); }
+/** 合言葉がかかっているとき、合言葉もログインも無ければ断る */
+function requireView_(ctx) {
+  if (setting_('viewPassHash') && !ctx.me && !ctx.view) throw err_('locked', '部の合言葉を入れてから使ってください。');
+}
+function memberOrThrow_(id) {
+  const m = memberById_(id);
+  if (!m || m.gone) throw err_('not_found', 'その部員は見つかりません。');
+  return m;
+}
+
+// ---------------------------------------------------------------------------
+// 1日1回の手入れ（最初のリクエストで）。メニューの型の繰り返しを先まで作る・古い応援を片付ける
+// ---------------------------------------------------------------------------
+const REPEAT_AHEAD_DAYS = 28;
+const STAMP_DAYS = 60;          // 画面に返す応援の期間
+const STAMP_KEEP_DAYS = 400;    // これより古い応援はシートから消す
+function dailyMaint_() {
+  const today = today_();
+  if (setting_('maintOn') === today) return;
+  withLock_(function () {
+    if (setting_('maintOn') === today) return;
+    const hist = historyIndex_();
+    table_('templates').rows.forEach(function (t) { if (!t.deletedAt && t.repeat) fillTemplate_(t, hist, today); });
+    pruneStamps_(today);
+    setSetting_('maintOn', today);
+  });
+}
+function pruneStamps_(today) {
+  const t = table_('stamps');
+  const limit = addDays_(today, -STAMP_KEEP_DAYS);
+  let n = 0;
+  for (let i = 0; i < t.rows.length && t.rows[i].at.slice(0, 10) < limit; i++) n++;
+  if (!n) return;
+  t.sheet.deleteRows(2, n);
+  REQ_.tables.stamps = null; delete REQ_.tables.stamps;
+}
+
+// ---------------------------------------------------------------------------
+// メニューの型（テンプレート）と繰り返し（管理者・FWリーダー）
+//   型はそのまま「型から作る」に使える。曜日を選ぶと、その曜日のメニューを今日から4週間先まで自動で作る（毎日のばす）。
+//   型を直すと、まだだれも手で直していない今日以降のメニューもそろえる。手で直した・消したメニューは触らない。
+// ---------------------------------------------------------------------------
+function templateWire_(t) {
+  return { id: t.id, title: t.title, group: t.group, positions: menuPositions_(t), content: t.content, detail: t.detail, note: t.note, video: t.video,
+    repeat: t.repeat ? t.repeat.split(',').map(Number) : [], repeatFrom: t.repeatFrom, repeatTo: t.repeatTo, createdBy: t.createdBy, updatedAt: t.updatedAt || t.createdAt };
+}
+function repeatDays_(arr) {
+  const list = Array.isArray(arr) ? arr : [];
+  const out = [];
+  list.forEach(function (x) { const n = Number(x); if (n >= 0 && n <= 6 && Math.floor(n) === n && out.indexOf(n) < 0) out.push(n); });
+  return out.sort();
+}
+function onSchedule_(t, date) {
+  if (!t.repeat) return false;
+  if (t.repeatFrom && date < t.repeatFrom) return false;
+  if (t.repeatTo && date > t.repeatTo) return false;
+  return t.repeat.split(',').map(Number).indexOf(dow_(date)) >= 0;
+}
+/** 繰り返しのメニューを先まで作る。作った件数を返す（ロックの中で呼ぶ） */
+function fillTemplate_(t, hist, today) {
+  if (!t.repeat || t.deletedAt) return 0;
+  let to = addDays_(today, REPEAT_AHEAD_DAYS - 1);
+  if (t.repeatTo && t.repeatTo < to) to = t.repeatTo;
+  const from = t.repeatFrom && t.repeatFrom > today ? t.repeatFrom : today;
+  const have = {};
+  table_('menus').rows.forEach(function (w) { if (w.templateId === t.id) have[w.date] = 1; }); // 消したメニューの日も作り直さない
+  const now = now_(), rows = [];
+  const pos = menuPositions_(t);
+  for (let d = from; d <= to; d = addDays_(d, 1)) {
+    if (have[d] || !onSchedule_(t, d)) continue;
+    rows.push({ id: newId_('w'), date: d, group: t.group, positions: t.positions, title: t.title, content: t.content, detail: t.detail, note: t.note,
+      video: t.video, templateId: t.id, targets: computeTargets_(d, t.group, pos, hist).join(','),
+      createdBy: t.updatedBy || t.createdBy, createdAt: now, updatedBy: '', updatedAt: '', deletedBy: '', deletedAt: '' });
+  }
+  insert_('menus', rows);
+  if (rows.some(function (w) { return w.date === today; })) syncRecordTargets_(today);
+  return rows.length;
+}
+function opSaveTemplate_(ctx) {
+  const me = requireRole_(ctx, ['admin', 'leader']);
+  const src = ctx.req.template || {};
+  const positions = cleanPositions_(src.positions);
+  const days = repeatDays_(src.repeat);
+  const data = {
+    group: positions.length ? groupOfPositions_(positions) : (['FW', 'BK', 'ALL'].indexOf(src.group) >= 0 ? src.group : null),
+    positions: positions.join(','),
+    title: text_(src.title, 60, 'メニュー名', true),
+    content: text_(src.content, 3000, 'トレーニング内容', true),
+    detail: text_(src.detail, 3000, '回数・セット数・重量', false),
+    note: text_(src.note, 1000, '備考', false),
+    video: url_(src.video, '動画リンク'),
+    repeat: days.join(','),
+    repeatFrom: src.repeatFrom ? reqDate_(src.repeatFrom, '繰り返しの開始日') : '',
+    repeatTo: src.repeatTo ? reqDate_(src.repeatTo, '繰り返しの終了日') : ''
+  };
+  if (!data.group) throw err_('bad_group', '対象グループを選んでください。');
+  if (data.repeatFrom && data.repeatTo && data.repeatTo < data.repeatFrom) throw err_('bad_range', '繰り返しの終了日は開始日より後にしてください。');
+  return withLock_(function () {
+    const now = now_(), today = today_(), hist = historyIndex_();
+    let t, updated = 0, removed = 0;
+    if (src.id) {
+      t = table_('templates').rows.filter(function (x) { return x.id === String(src.id) && !x.deletedAt; })[0];
+      if (!t) throw err_('not_found', 'その型は見つかりません。');
+      Object.assign(t, data, { updatedBy: me.id, updatedAt: now });
+      update_('templates', t);
+      // 手で直していない今日以降のメニューをそろえる（予定から外れた日のものは消す）
+      const gone = [];
+      table_('menus').rows.forEach(function (w) {
+        if (w.templateId !== t.id || w.deletedAt || w.updatedBy || w.date < today) return;
+        if (!onSchedule_(t, w.date)) { if (w.date > today) gone.push(w); return; }
+        Object.assign(w, { group: t.group, positions: t.positions, title: t.title, content: t.content, detail: t.detail, note: t.note, video: t.video });
+        w.targets = computeTargets_(w.date, w.group, positions, hist).join(',');
+        update_('menus', w); updated++;
+      });
+      removeMany_('menus', gone); removed = gone.length;
+      log_(me, 'メニューの型を編集', t.title + repeatLabel_(t));
+    } else {
+      t = Object.assign({ id: newId_('t') }, data, { createdBy: me.id, createdAt: now, updatedBy: '', updatedAt: '', deletedBy: '', deletedAt: '' });
+      insert_('templates', [t]);
+      log_(me, 'メニューの型を作成', t.title + repeatLabel_(t));
+    }
+    const created = fillTemplate_(t, hist, today);
+    syncRecordTargets_(today);
+    return { ok: true, template: templateWire_(t), created: created, updated: updated, removed: removed };
+  });
+}
+function repeatLabel_(t) {
+  if (!t.repeat) return '';
+  const W = ['日', '月', '火', '水', '木', '金', '土'];
+  return '（毎週' + t.repeat.split(',').map(function (n) { return W[+n]; }).join('・') + '）';
+}
+function opDeleteTemplate_(ctx) {
+  const me = requireRole_(ctx, ['admin', 'leader']);
+  const id = String(ctx.req.id || '');
+  const keep = !!ctx.req.keepMenus;
+  return withLock_(function () {
+    const t = table_('templates').rows.filter(function (x) { return x.id === id && !x.deletedAt; })[0];
+    if (!t) throw err_('not_found', 'その型は見つかりません。');
+    t.deletedBy = me.id; t.deletedAt = now_();
+    update_('templates', t);
+    let removed = 0;
+    if (!keep) {
+      const today = today_();
+      const gone = table_('menus').rows.filter(function (w) { return w.templateId === t.id && !w.deletedAt && !w.updatedBy && w.date > today; });
+      removeMany_('menus', gone); removed = gone.length;
+    }
+    log_(me, 'メニューの型を削除', t.title + (removed ? '・明日以降の繰り返し ' + removed + '件も削除' : ''));
+    return { ok: true, id: id, removed: removed };
+  });
+}
+
+/** メニューを別の日にコピー（最大31日分） */
+function opCopyMenu_(ctx) {
+  const me = requireRole_(ctx, ['admin', 'leader']);
+  const id = String(ctx.req.id || '');
+  const dates = (Array.isArray(ctx.req.dates) ? ctx.req.dates : []).map(function (d) { return reqDate_(d, 'コピー先の日付'); })
+    .filter(function (d, i, a) { return a.indexOf(d) === i; }).sort();
+  if (!dates.length) throw err_('empty', 'コピー先の日付を選んでください。');
+  if (dates.length > 31) throw err_('too_many', '一度にコピーできるのは31日分までです。');
+  return withLock_(function () {
+    const src = table_('menus').rows.filter(function (x) { return x.id === id && !x.deletedAt; })[0];
+    if (!src) throw err_('not_found', 'そのメニューは見つかりません。');
+    const hist = historyIndex_(), now = now_(), pos = menuPositions_(src);
+    const rows = dates.map(function (d) {
+      return { id: newId_('w'), date: d, group: src.group, positions: src.positions, title: src.title, content: src.content, detail: src.detail, note: src.note,
+        video: src.video, templateId: '', targets: computeTargets_(d, src.group, pos, hist).join(','),
+        createdBy: me.id, createdAt: now, updatedBy: '', updatedAt: '', deletedBy: '', deletedAt: '' };
+    });
+    insert_('menus', rows);
+    dates.forEach(syncRecordTargets_);
+    log_(me, 'メニューをコピー', menuLabel_(src) + ' → ' + dates.map(function (d) { return d.slice(5).replace('-', '/'); }).join('、'));
+    return { ok: true, created: rows.length };
+  });
+}
+
+/** これまでのメニューの一覧（引き継ぎ用。管理者・FWリーダー・マネージャー） */
+function opMenuArchive_(ctx) {
+  requireRole_(ctx, ['admin', 'leader', 'manager']);
+  const list = table_('menus').rows.filter(function (w) { return !w.deletedAt; })
+    .sort(function (a, b) { return a.date < b.date ? 1 : a.date > b.date ? -1 : 0; })
+    .map(function (w) { const o = menuWire_(w); o.targetCount = o.targets.length; delete o.targets; return o; });
+  return { ok: true, menus: list };
+}
+
+// ---------------------------------------------------------------------------
+// 取り消した記録（ごみ箱）と復元（管理者・マネージャー。マネージャーは自分が取り消したものだけ戻せる）
+// ---------------------------------------------------------------------------
+const TRASH_LIST = 200;
+function trashRow_(r, me, now) {
+  return { id: newId_('r'), memberId: r.memberId, date: r.date, status: r.status, target: r.target, menuIds: r.menuIds,
+    createdBy: r.createdBy, createdAt: r.createdAt, removedBy: me.id, removedAt: now, restoredBy: '', restoredAt: '' };
+}
+function opTrash_(ctx) {
+  requireRole_(ctx, ['admin', 'manager']);
+  const rows = table_('trash').rows;
+  const out = [];
+  for (let i = rows.length - 1; i >= 0 && out.length < TRASH_LIST; i--) {
+    const x = rows[i];
+    if (x.restoredAt) continue;
+    const m = memberById_(x.memberId);
+    out.push({ id: x.id, memberId: x.memberId, name: m ? m.name : x.memberId, date: x.date, status: x.status,
+      createdBy: x.createdBy, removedBy: x.removedBy, removedByName: (memberById_(x.removedBy) || {}).name || '', removedAt: x.removedAt });
+  }
+  return { ok: true, trash: out };
+}
+function opRestoreRecord_(ctx) {
+  const me = requireRole_(ctx, ['admin', 'manager']);
+  const id = String(ctx.req.id || '');
+  return withLock_(function () {
+    const x = table_('trash').rows.filter(function (t) { return t.id === id && !t.restoredAt; })[0];
+    if (!x) throw err_('not_found', 'その記録は見つかりません。すでに戻した可能性があります。');
+    if (me.perm !== 'admin' && x.removedBy !== me.id) throw err_('forbidden', '自分が取り消した記録だけ戻せます。ほかは管理者に頼んでください。');
+    const m = memberById_(x.memberId);
+    if (table_('records').rows.some(function (r) { return r.memberId === x.memberId && r.date === x.date; })) {
+      throw err_('exists', 'この日はもう記録があるので戻せません。');
+    }
+    const now = now_();
+    let target = x.target, menuIds = x.menuIds;
+    if (x.date >= today_()) { const tgt = targetMap_(x.date); target = tgt[x.memberId] ? '1' : '0'; menuIds = (tgt[x.memberId] || []).join(','); }
+    insert_('records', [{ memberId: x.memberId, date: x.date, status: x.status, target: target, menuIds: menuIds,
+      createdBy: x.createdBy, createdAt: x.createdAt, updatedBy: me.id, updatedAt: now }]);
+    x.restoredBy = me.id; x.restoredAt = now;
+    update_('trash', x);
+    log_(me, '記録を戻す', (m ? m.name : x.memberId) + ' ' + x.date + '：' + ENC.status[x.status]);
+    return { ok: true, date: x.date, records: recordsWire_(x.date, x.date) };
+  });
+}
+
+// ---------------------------------------------------------------------------
+// 部員ごとの全期間の記録（自己ベスト・称号用。だれでも見られる）
+// ---------------------------------------------------------------------------
+function opMemberHistory_(ctx) {
+  requireView_(ctx);
+  const m = memberOrThrow_(String(ctx.req.memberId || ''));
+  const recs = [];
+  table_('records').rows.forEach(function (r) {
+    if (r.memberId === m.id) recs.push([r.memberId, r.date, r.status === 'done' ? 1 : 0, r.target === '1' ? 1 : 0, r.updatedBy || r.createdBy, r.createdBy]);
+  });
+  const ex = exemptsWire_('0000-01-01', '9999-12-31', ctx.me).filter(function (e) { return e.memberId === m.id || e.memberId === 'ALL'; });
+  return { ok: true, memberId: m.id, records: recs, exempts: ex };
+}
+/** 部員ごとの通算の実施回数と最初の記録日 { id: [回数, 最初の日] } */
+function lifeWire_() {
+  const o = {};
+  table_('records').rows.forEach(function (r) {
+    if (r.status !== 'done') return;
+    const x = o[r.memberId] || (o[r.memberId] = [0, r.date]);
+    x[0]++; if (r.date < x[1]) x[1] = r.date;
+  });
+  return o;
+}
+
+// ---------------------------------------------------------------------------
+// 体重・体組成（入力は管理者・マネージャー・FWリーダー。数値はだれでも見られる。メモはスタッフだけ）
+// ---------------------------------------------------------------------------
+const BODY_RANGE = { weight: [20, 250, '体重'], fat: [1, 70, '体脂肪率'], muscle: [5, 150, '筋肉量'] };
+function bodyNum_(v, key) {
+  const s = String(v == null ? '' : v).trim().replace(/[０-９．]/g, function (c) { return String.fromCharCode(c.charCodeAt(0) - 0xfee0); });
+  if (!s) return '';
+  const n = Number(s), r = BODY_RANGE[key];
+  if (!isFinite(n) || n < r[0] || n > r[1]) throw err_('bad_number', r[2] + 'は ' + r[0] + '〜' + r[1] + ' の数で入れてください。');
+  return String(Math.round(n * 10) / 10);
+}
+function bodyWire_(me) {
+  const staff = !!(me && STAFF[me.perm]);
+  return table_('body').rows.filter(function (b) { return !b.deletedAt; })
+    .map(function (b) { return [b.id, b.memberId, b.date, b.weight === '' ? null : Number(b.weight), b.fat === '' ? null : Number(b.fat), b.muscle === '' ? null : Number(b.muscle), staff ? b.note : '']; });
+}
+function opSaveBody_(ctx) {
+  const me = requireRole_(ctx, ['admin', 'manager', 'leader']);
+  const rows = Array.isArray(ctx.req.rows) ? ctx.req.rows : [];
+  if (!rows.length) throw err_('empty', '入力がありません。');
+  if (rows.length > 200) throw err_('too_many', '一度に入れられるのは200人分までです。');
+  const today = today_();
+  const input = rows.map(function (r) {
+    const d = { memberId: String(r.memberId || ''), date: reqDate_(r.date, '測定日'),
+      weight: bodyNum_(r.weight, 'weight'), fat: bodyNum_(r.fat, 'fat'), muscle: bodyNum_(r.muscle, 'muscle'), note: text_(r.note, 100, 'メモ', false) };
+    if (d.date > today) throw err_('future_date', '未来の日付は入れられません。');
+    if (d.weight === '' && d.fat === '' && d.muscle === '') throw err_('empty', '体重・体脂肪率・筋肉量のどれかを入れてください。');
+    return d;
+  });
+  return withLock_(function () {
+    const now = now_();
+    const cur = {};
+    table_('body').rows.forEach(function (b) { if (!b.deletedAt) cur[b.memberId + '|' + b.date] = b; });
+    const ins = [], names = [];
+    let upd = 0;
+    input.forEach(function (d) {
+      const m = memberOrThrow_(d.memberId);
+      const ex = cur[d.memberId + '|' + d.date];
+      if (ex) {
+        Object.assign(ex, { weight: d.weight, fat: d.fat, muscle: d.muscle, note: d.note, updatedBy: me.id, updatedAt: now });
+        update_('body', ex); upd++;
+      } else {
+        const row = Object.assign({ id: newId_('b') }, d, { createdBy: me.id, createdAt: now, updatedBy: '', updatedAt: '', deletedBy: '', deletedAt: '' });
+        ins.push(row); cur[d.memberId + '|' + d.date] = row;
+      }
+      names.push(m.name);
+    });
+    insert_('body', ins);
+    log_(me, '体組成を記録', names.length + '人（' + names.slice(0, 10).join('、') + (names.length > 10 ? 'ほか' : '') + '）');
+    return { ok: true, added: ins.length, updated: upd, body: bodyWire_(me) };
+  });
+}
+function opDeleteBody_(ctx) {
+  const me = requireRole_(ctx, ['admin', 'manager', 'leader']);
+  const id = String(ctx.req.id || '');
+  return withLock_(function () {
+    const b = table_('body').rows.filter(function (x) { return x.id === id && !x.deletedAt; })[0];
+    if (!b) throw err_('not_found', 'その記録は見つかりません。');
+    if (me.perm !== 'admin' && b.createdBy !== me.id) throw err_('forbidden', '自分が入れた記録だけ消せます。');
+    b.deletedBy = me.id; b.deletedAt = now_();
+    update_('body', b);
+    log_(me, '体組成を削除', ((memberById_(b.memberId) || {}).name || b.memberId) + ' ' + b.date);
+    return { ok: true, id: id };
+  });
+}
+
+// ---------------------------------------------------------------------------
+// 応援スタンプ（ログイン不要。端末ごとに同じ相手・できごと・スタンプは1回。もう一度押すと取り消し）
+// ---------------------------------------------------------------------------
+const STAMP_KINDS = { clap: 1, fire: 1, muscle: 1, party: 1, hundred: 1 };
+const STAMP_DAY_MAX = 300;
+function stampsWire_(from, device) {
+  const dev = String(device || '');
+  const by = {};
+  table_('stamps').rows.forEach(function (s) {
+    if (s.at.slice(0, 10) < from) return;
+    const k = s.target + '|' + s.event;
+    const o = by[k] || (by[k] = { t: s.target, e: s.event, c: {}, f: [], mine: [], at: '' });
+    o.c[s.kind] = (o.c[s.kind] || 0) + 1;
+    if (s.fromId && o.f.indexOf(s.fromId) < 0) o.f.push(s.fromId);
+    if (dev && s.device === dev) o.mine.push(s.kind);
+    if (s.at > o.at) o.at = s.at;
+  });
+  return Object.keys(by).map(function (k) { return by[k]; });
+}
+function opStamp_(ctx) {
+  requireView_(ctx);
+  const req = ctx.req;
+  const target = String(req.target || ''), event = String(req.event || ''), kind = String(req.kind || '');
+  const device = String(req.device || ''), fromId = String(req.from || '');
+  if (!STAMP_KINDS[kind]) throw err_('bad_stamp', 'そのスタンプは使えません。');
+  if (!/^[a-z]:[0-9A-Za-z:\-]{1,40}$/.test(event)) throw err_('bad_stamp', '応援する内容が正しくありません。');
+  if (!/^[0-9a-f]{16,40}$/.test(device)) throw err_('bad_stamp', 'この端末からは送れません。画面を開き直してください。');
+  const m = memberOrThrow_(target);
+  if (!m.active || !m.player) throw err_('not_found', 'その部員には送れません。');
+  if (fromId && !memberById_(fromId)) throw err_('not_found', '送る人が見つかりません。');
+  const cache = CacheService.getScriptCache();
+  const ck = 'stamp:' + device + ':' + today_();
+  const n = parseInt(cache.get(ck) || '0', 10);
+  if (n >= STAMP_DAY_MAX) throw err_('too_many', '今日はもう送れません。また明日どうぞ。');
+  return withLock_(function () {
+    const t = table_('stamps');
+    const ex = t.rows.filter(function (s) { return s.device === device && s.target === target && s.event === event && s.kind === kind; })[0];
+    let on;
+    if (ex) { remove_('stamps', ex); on = false; }
+    else {
+      insert_('stamps', [{ id: newId_('s'), target: target, event: event, kind: kind, fromId: fromId, device: device, at: now_() }]);
+      on = true;
+      cache.put(ck, String(n + 1), 86400);
+    }
+    const mine = stampsWire_('0000-01-01', device).filter(function (o) { return o.t === target && o.e === event; })[0] || { t: target, e: event, c: {}, f: [], mine: [], at: '' };
+    return { ok: true, on: on, stamp: mine };
+  });
+}
+
+// ---------------------------------------------------------------------------
+// 暗証番号を忘れたとき：ログイン画面から管理者に再発行を頼む（ログイン不要。何度も送れないようにする）
+// ---------------------------------------------------------------------------
+const PIN_REQ_DAYS = 14;
+function opPinRequest_(ctx) {
+  const id = String(ctx.req.memberId || '');
+  const cache = CacheService.getScriptCache();
+  const all = parseInt(cache.get('pinreq:all') || '0', 10);
+  if (all >= 30) throw err_('busy', '依頼が多すぎます。しばらく待ってから送ってください。');
+  if (cache.get('pinreq:' + id)) throw err_('already', 'すでに依頼を送っています。管理者が暗証番号を出し直すのを待ってください。');
+  return withLock_(function () {
+    const m = memberById_(id);
+    if (!m || !m.active || m.gone || !STAFF[m.perm]) throw err_('not_found', 'ログインできる人の中から選んでください。');
+    const s = peopleRow_(m);
+    s.pinReqAt = now_();
+    update_('people', s);
+    log_(meOf_(m), '暗証番号の再発行を依頼', '');
+    cache.put('pinreq:' + id, '1', 1800);
+    cache.put('pinreq:all', String(all + 1), 3600);
+    return { ok: true };
+  });
+}
+function pinRequests_() {
+  const limit = nowPlusMin_(-PIN_REQ_DAYS * 1440);
+  return members_().filter(function (m) { return m.set && m.set.pinReqAt && m.set.pinReqAt > limit && m.active && !m.gone && STAFF[m.perm]; })
+    .map(function (m) { return { id: m.id, name: m.name, perm: m.perm, at: m.set.pinReqAt }; });
+}
+function opDismissPinRequest_(ctx) {
+  const me = requireRole_(ctx, ['admin']);
+  const id = String(ctx.req.id || '');
+  return withLock_(function () {
+    const m = memberOrThrow_(id);
+    const s = peopleRow_(m);
+    if (!s.pinReqAt) return { ok: true };
+    s.pinReqAt = '';
+    update_('people', s);
+    log_(me, '再発行の依頼を閉じる', m.name);
+    return { ok: true };
+  });
+}
+
+// ---------------------------------------------------------------------------
+// ログインしている端末（自分の分だけ見る・ログアウトさせる）
+// ---------------------------------------------------------------------------
+function opSessions_(ctx) {
+  const me = requireRole_(ctx, ['admin', 'manager', 'leader']);
+  const now = now_(), cur = ctx.session.tokenHash;
+  const list = table_('sessions').rows.filter(function (r) { return r.kind === 'staff' && r.memberId === me.id && r.expiresAt > now; })
+    .sort(function (a, b) { return a.createdAt < b.createdAt ? 1 : -1; })
+    .map(function (r) { return { key: r.tokenHash.slice(0, 16), device: r.device || '', createdAt: r.createdAt, expiresAt: r.expiresAt, current: r.tokenHash === cur }; });
+  return { ok: true, sessions: list };
+}
+function opLogoutSession_(ctx) {
+  const me = requireRole_(ctx, ['admin', 'manager', 'leader']);
+  const key = String(ctx.req.key || '');
+  const cur = ctx.session.tokenHash;
+  return withLock_(function () {
+    const mine = table_('sessions').rows.filter(function (r) { return r.kind === 'staff' && r.memberId === me.id && r.tokenHash !== cur; });
+    const gone = key === 'others' ? mine : mine.filter(function (r) { return key.length >= 16 && r.tokenHash.slice(0, 16) === key; });
+    if (!gone.length) throw err_('not_found', 'その端末は見つかりません（もうログアウトしているかもしれません）。');
+    removeMany_('sessions', gone);
+    log_(me, 'ほかの端末をログアウト', gone.length + '台');
+    return { ok: true, removed: gone.length };
+  });
+}
+
+// ---------------------------------------------------------------------------
+// 役職（権限）をまとめて付け替え（新年度のFWリーダー・マネージャーの交代）。管理者だけ
+//   新しくログインする人には暗証番号を発行して返す（この画面にだけ出す）。外れた人はログインできなくなる。
+// ---------------------------------------------------------------------------
+function opBulkPerms_(ctx) {
+  const me = requireRole_(ctx, ['admin']);
+  const rows = Array.isArray(ctx.req.rows) ? ctx.req.rows : [];
+  if (!rows.length) throw err_('empty', '変更がありません。');
+  if (rows.length > 200) throw err_('too_many', '一度に変えられるのは200人までです。');
+  rows.forEach(function (r) { if (!ENC.perm[r && r.perm]) throw err_('bad_perm', '権限が正しくありません。'); });
+  return withLock_(function () {
+    const now = now_();
+    const want = {};
+    rows.forEach(function (r) { want[String(r.id)] = r.perm; });
+    if (want[me.id] && want[me.id] !== 'admin') throw err_('self', '自分自身の権限はここでは変えられません。');
+    const admins = activeAdmins_().filter(function (m) { return !want[m.id] || want[m.id] === 'admin'; }).length +
+      Object.keys(want).filter(function (id) { const m = memberById_(id); return want[id] === 'admin' && m && m.active && !m.gone && m.perm !== 'admin'; }).length;
+    if (admins < 1) throw err_('last_admin', '管理者が1人もいなくなるので変更できません。');
+    const pins = [], changed = [];
+    Object.keys(want).forEach(function (id) {
+      const m = memberById_(id);
+      if (!m || !m.active || m.gone || m.perm === want[id]) return;
+      const before = m.perm;
+      applyAppFields_(m, { perm: want[id] }, me, now);
+      changed.push(m.name + '（' + ENC.perm[before] + '→' + ENC.perm[m.perm] + '）');
+      if (STAFF[m.perm] && !(m.set && m.set.pinHash)) pins.push({ id: m.id, name: m.name, perm: m.perm, pin: issuePin_(m) });
+    });
+    if (changed.length) log_(me, '役職をまとめて変更', changed.join('、') + (pins.length ? '・暗証番号を発行 ' + pins.length + '人' : ''));
+    REQ_.members = null;
+    return { ok: true, changed: changed.length, pins: pins };
   });
 }
 

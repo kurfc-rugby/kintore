@@ -286,6 +286,146 @@
     return n;
   }
 
+
+  // ---------- 自己ベスト・称号（1人の全期間の記録から） ----------
+  //  idx は buildIndex({ records: その人の全記録, exempts: その人と部全体の免除 }) で作る
+  var STREAK_MARKS = [4, 8, 12, 26, 52];
+  var MONTH_MARKS = [10, 15, 20];
+  var TOTAL_MARKS = [50, 100, 200, 300, 500];
+  function doneDates(idx, id) {
+    var out = [], k;
+    for (k in idx.rec) { if (k.indexOf(id + '|') === 0 && idx.rec[k].s === 1) out.push(k.slice(id.length + 1)); }
+    return out.sort();
+  }
+  /**
+   * 週ごと・月ごとの集計と、称号を取った日。
+   *  total … 通算の実施回数、streakMax … いちばん長い連続達成（週）、streakNow … 今の連続
+   *  bestWeek {count, from}、bestMonth {count, month('YYYY-MM')}、perfectMonths … 週の目標を全部達成した月（終わった週が3つ以上）
+   *  earned … { key: 取った日 }
+   */
+  function personal(idx, m, today, goal) {
+    goal = goalOf(goal);
+    var ds = doneDates(idx, m.id);
+    var o = { total: ds.length, first: ds[0] || '', last: ds[ds.length - 1] || '', streakMax: 0, streakNow: 0,
+      bestWeek: { count: 0, from: '' }, bestMonth: { count: 0, month: '' }, goalHits: 0, perfectMonths: [], earned: {} };
+    if (!ds.length) return o;
+    var earn = function (k, d) { if (!o.earned[k]) o.earned[k] = d; };
+    earn('first', ds[0]);
+    TOTAL_MARKS.forEach(function (n) { if (ds.length >= n) earn('t' + n, ds[n - 1]); });
+    // 月
+    var months = {};
+    ds.forEach(function (d) {
+      var k = d.slice(0, 7), x = months[k] || (months[k] = []);
+      x.push(d);
+    });
+    Object.keys(months).sort().forEach(function (k) {
+      var list = months[k];
+      if (list.length > o.bestMonth.count) o.bestMonth = { count: list.length, month: k };
+      MONTH_MARKS.forEach(function (n) { if (list.length >= n) earn('m' + n, list[n - 1]); });
+    });
+    // 週（最初の記録の週から今週まで）
+    var streak = 0, monthWeeks = {};
+    for (var ws = weekStart(ds[0]); ws <= today; ws = addDays(ws, 7)) {
+      var we = addDays(ws, 6), cnt = 0, hitDay = '';
+      var nd = weekNeed(idx, m, ws, goal);
+      for (var i = 0; i < 7; i++) {
+        var d = addDays(ws, i), r = getRec(idx, m.id, d);
+        if (r && r.s === 1) { cnt++; if (nd.need && cnt === nd.need) hitDay = d; }
+      }
+      if (cnt > o.bestWeek.count) o.bestWeek = { count: cnt, from: ws };
+      var open = we >= today;
+      var mk = ws.slice(0, 7), mw = monthWeeks[mk] || (monthWeeks[mk] = { closed: 0, hit: 0, open: false, end: '' });
+      if (nd.need === 0) { if (open) mw.open = true; continue; } // 免除の週はとばす
+      var ok = cnt >= nd.need;
+      if (open) mw.open = true; else { mw.closed++; if (ok) mw.hit++; mw.end = we; }
+      if (ok) {
+        o.goalHits++;
+        earn('goal1', hitDay);
+        streak++;
+        if (streak > o.streakMax) o.streakMax = streak;
+        STREAK_MARKS.forEach(function (n) { if (streak >= n) earn('s' + n, hitDay); });
+      } else if (!open) streak = 0;
+    }
+    o.streakNow = streakWeeks(idx, m, today, ds[0], goal);
+    Object.keys(monthWeeks).sort().forEach(function (k) {
+      var mw = monthWeeks[k];
+      // 月曜がその月にある週が全部終わり、3週以上あって全部達成
+      if (!mw.open && mw.closed >= 3 && mw.hit === mw.closed) { o.perfectMonths.push(k); earn('pm', mw.end); }
+    });
+    return o;
+  }
+  /** 称号の一覧（取った順の判定は personal の earned を見る） */
+  function badgeList(goal) {
+    goal = goalOf(goal);
+    var b = [
+      { key: 'first', name: 'はじめの一歩', desc: '初めて「実施した」がついた' },
+      { key: 'goal1', name: '週' + goal + '回クリア', desc: '初めて週' + goal + '回を達成' }
+    ];
+    STREAK_MARKS.forEach(function (n) { b.push({ key: 's' + n, name: (n === 26 ? '半年' : n === 52 ? '1年' : n + '週') + '連続', desc: '週' + goal + '回を' + n + '週続けて達成' }); });
+    MONTH_MARKS.forEach(function (n) { b.push({ key: 'm' + n, name: '月' + n + '回', desc: '1か月に' + n + '回実施' }); });
+    b.push({ key: 'pm', name: '皆勤の月', desc: '1か月の週すべてで週' + goal + '回を達成' });
+    TOTAL_MARKS.forEach(function (n) { b.push({ key: 't' + n, name: '通算' + n + '回', desc: 'これまでに' + n + '回実施' }); });
+    return b;
+  }
+
+  // ---------- 連続がピンチの人（今週まだ目標に届かず、先週までの連続が2週以上） ----------
+  function pinchList(state, idx, today, goal, minDate) {
+    goal = goalOf(goal);
+    var ws = weekStart(today), we = addDays(ws, 6), out = [];
+    var daysLeft = Math.round((parse(we) - parse(today)) / 86400000) + 1; // 今日を含めて日曜まで
+    (state.members || []).forEach(function (m) {
+      if (!inRosterRange(m, ws, we) || m.active === false) return;
+      var nd = weekNeed(idx, m, ws, goal);
+      if (nd.need === 0) return;
+      var c = weekCount(idx, m, ws);
+      if (c >= nd.need) return;
+      var pw = addDays(ws, -7), pn = weekNeed(idx, m, pw, goal);
+      if (pn.need > 0 && weekCount(idx, m, pw) < pn.need) return; // 先週で切れている
+      var st = streakWeeks(idx, m, addDays(ws, -1), minDate, goal);
+      if (st < 2) return;
+      var left = nd.need - c;
+      out.push({ id: m.id, name: m.name, sort: m.sort || 0, streak: st, count: c, need: nd.need, left: left, daysLeft: daysLeft, slack: daysLeft - left });
+    });
+    return out.sort(function (a, b) { return (a.slack - b.slack) || (b.streak - a.streak) || (a.sort - b.sort); });
+  }
+
+  // ---------- おめでとう（最近のできごと） ----------
+  //  life … { id: [通算回数, 最初の日] }（サーバーが全期間で数えたもの）。days … 何日前までを出すか
+  //  g:<週の月曜> 週の目標を達成（連続の週数つき） / c:<回数> 通算○回 / f:first 初めての記録
+  function feedEvents(state, idx, today, goal, life, days) {
+    goal = goalOf(goal);
+    var since = addDays(today, -(days || 14)), out = [];
+    var minDate = (state.range && state.range.from) || addDays(today, -100);
+    (state.members || []).forEach(function (m) {
+      if (!m.player || m.active === false) return;
+      var ds = doneDates(idx, m.id);
+      // 週の目標（今週と先週）
+      [weekStart(today), addDays(weekStart(today), -7)].forEach(function (ws) {
+        if (ws < weekStart(minDate)) return;
+        var nd = weekNeed(idx, m, ws, goal);
+        if (nd.need === 0) return;
+        var cnt = 0, hit = '';
+        for (var i = 0; i < 7; i++) { var d = addDays(ws, i), r = getRec(idx, m.id, d); if (r && r.s === 1) { cnt++; if (cnt === nd.need) hit = d; } }
+        if (!hit || hit < since) return;
+        var st = streakWeeks(idx, m, addDays(ws, 6) < today ? addDays(ws, 6) : today, minDate, goal);
+        out.push({ key: 'g:' + ws, id: m.id, name: m.name, sort: m.sort || 0, date: hit, kind: 'goal', streak: st, mark: STREAK_MARKS.indexOf(st) >= 0 });
+      });
+      // 通算（サーバーの通算から、読み込んだ期間の前の回数を引いて数える）
+      var lf = life && life[m.id];
+      if (lf && ds.length) {
+        var before = lf[0] - ds.length;
+        ds.forEach(function (d, i) {
+          var n = before + i + 1;
+          if (d < since) return;
+          if (n === 1 && lf[1] === d) out.push({ key: 'f:first', id: m.id, name: m.name, sort: m.sort || 0, date: d, kind: 'first' });
+          if (TOTAL_MARKS.indexOf(n) >= 0) out.push({ key: 'c:' + n, id: m.id, name: m.name, sort: m.sort || 0, date: d, kind: 'total', n: n });
+        });
+      }
+    });
+    var rank = { total: 0, first: 1, goal: 2 };
+    return out.sort(function (a, b) { return (a.date < b.date ? 1 : a.date > b.date ? -1 : 0) || ((b.mark ? 1 : 0) - (a.mark ? 1 : 0)) || (rank[a.kind] - rank[b.kind]) || (a.sort - b.sort); });
+  }
+
   function pct(rate) { return rate === null || rate === undefined ? '－' : Math.round(rate * 100) + '%'; }
 
   return {
@@ -294,6 +434,7 @@
     prevPeriod: prevPeriod, nextPeriod: nextPeriod,
     buildIndex: buildIndex, getRec: getRec, inRoster: inRoster, inRosterRange: inRosterRange, isTarget: isTarget, hasPosition: hasPosition,
     cellState: cellState, memberStats: memberStats, periodStats: periodStats, positionStats: positionStats, rank: rank, dayStatus: dayStatus,
-    DEFAULT_GOAL: DEFAULT_GOAL, goalOf: goalOf, weekCount: weekCount, weekNeed: weekNeed, exemptOn: exemptOn, goalWeeks: goalWeeks, goalSummary: goalSummary, streakWeeks: streakWeeks, pct: pct
+    DEFAULT_GOAL: DEFAULT_GOAL, goalOf: goalOf, weekCount: weekCount, weekNeed: weekNeed, exemptOn: exemptOn, goalWeeks: goalWeeks, goalSummary: goalSummary, streakWeeks: streakWeeks, pct: pct,
+    personal: personal, badgeList: badgeList, pinchList: pinchList, feedEvents: feedEvents, doneDates: doneDates
   };
 });
