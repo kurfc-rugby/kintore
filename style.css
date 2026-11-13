@@ -518,3 +518,12 @@ button { cursor: pointer; -webkit-tap-highlight-color: transparent; }
 .tile-v small { font-family: var(--num); font-size: 15px; font-weight: 600; color: var(--sub); margin-left: 2px; }
 .tile.t-ok { border-top-color: var(--done); }
 .tile.t-ok .tile-s { color: var(--done); font-weight: 700; }
+
+/* ---------- 進級 ---------- */
+.pm-h { font-size: 14px; margin: 14px 0 6px; }
+.pm-list { border-top: 1px solid var(--line); margin-bottom: 6px; }
+.pm-list li { padding: 8px 2px; border-bottom: 1px solid var(--line); font-size: 14px; }
+.pm-list li small { display: block; font-size: 12px; color: var(--sub); line-height: 1.5; }
+.pm-list li.pm-top { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.pm-list li.pm-top > span { flex: 1; min-width: 0; }
+.form .pm-list li.pm-top select { flex: none; width: 10em; min-height: 40px; font-size: 14px; }

@@ -323,6 +323,34 @@ r = api({ op: 'viewLogin', pass: 'kurfc2026' });
 ok(r.ok && api({ op: 'state', viewToken: r.viewToken }).members.length > 0, '正しい合言葉で見られる');
 api({ op: 'saveSettings', token: A, viewPass: '' });
 
+section('進級（学年をまとめて上げる）');
+(function () {
+  const before = api({ op: 'state', token: A });
+  const list = before.members.filter((m) => m.active).sort((x, y) => (x.id < y.id ? -1 : 1));
+  const sig = list.map((m) => m.id + ':' + (m.grade || '')).join(',');
+  const g = (n) => list.find((m) => m.name === n);
+  ok(api({ op: 'promote', token: A, sig: sig + 'x', choice: {} }).error === 'changed', '画面で見た名簿と違えば進級しない');
+  ok(api({ op: 'promote', token: LD, sig: sig, choice: {} }).ok !== true, '管理者以外は進級できない');
+  const four = list.filter((m) => m.grade === '4年').map((m) => m.name);
+  const choice = {};
+  list.filter((m) => m.grade === '4年').forEach((m) => { choice[m.id] = 'grad'; });
+  const stayName = four.find((n) => n !== '橋本 侑青');
+  if (stayName) choice[g(stayName).id] = 'M1';
+  const r = api({ op: 'promote', token: A, sig: sig, choice: choice });
+  ok(r.ok && r.notGrad.some((x) => /橋本/.test(x)), '自分自身・財務は卒業にしない（理由を返す）');
+  const after = api({ op: 'state', token: A });
+  const a = (n) => after.members.find((m) => m.name === n);
+  const ups = list.filter((m) => ({ '1年': 1, '2年': 1, '3年': 1 })[m.grade]);
+  ok(ups.length > 0 && ups.every((m) => a(m.name).grade === ({ '1年': '2年', '2年': '3年', '3年': '4年' })[m.grade]), '1〜3年は1つ上がる');
+  ok(!stayName || (a(stayName).grade === 'M1' && a(stayName).active), '4年で「M1へ」を選んだ人はM1になる');
+  const grads = four.filter((n) => n !== stayName && n !== '橋本 侑青');
+  ok(grads.every((n) => a(n).active === false && a(n).left === after.today), '4年で「卒業」を選んだ人は在籍が外れ、退部日が今日になる');
+  ok(a('橋本 侑青').grade === '4年' && a('橋本 侑青').active, '卒業にできなかった人は4年のまま');
+  const k = (n) => gas.masterSheet().data.find((row) => row[0] === n);
+  ok(ups.every((m) => k(m.name)[col('学年')] === a(m.name).grade), '会計アプリの名簿（部員シート）の学年も変わる');
+  ok(api({ op: 'promote', token: A, sig: sig, choice: choice }).error === 'changed', '同じ画面からもう一度押しても二重に上がらない');
+})();
+
 section('操作履歴');
 r = api({ op: 'logs', token: A, limit: 500 });
 const acts = r.logs.map((x) => x.action);

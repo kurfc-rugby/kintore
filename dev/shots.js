@@ -67,6 +67,10 @@ const FONT_CSS = [['Noto Sans JP', 500, 'noto-sans-jp-latin-500-normal'], ['Noto
   await go('#members'); await shot('20-members-admin', false);
   await page.click('[data-act="bulk-open"]'); await shot('21-bulk', false);
   await page.click('[data-act="sheet-close"]');
+  await page.click('[data-act="promote-open"]'); await page.waitForTimeout(300); await page.screenshot({ path: out + '/' + mode + '-21b-promote.png', fullPage: false });
+  await page.evaluate(() => { document.querySelectorAll('#sheet-root .sheet *').forEach((b) => { if (b.scrollHeight > b.clientHeight + 10) b.scrollTop = 9999; }); }); await page.waitForTimeout(200);
+  await page.screenshot({ path: out + '/' + mode + '-21c-promote.png', fullPage: false });
+  await page.click('[data-act="sheet-close"]');
   await page.locator('.mlist a').nth(2).click(); await page.waitForTimeout(400);
   await page.click('[data-act="member-edit"]'); await shot('22-member-form', false);
   await page.click('[data-act="sheet-close"]');
