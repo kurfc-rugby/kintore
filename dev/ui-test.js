@@ -25,9 +25,16 @@ const ok = (c, label) => { if (c) { pass++; console.log('  ✓ ' + label); } els
   console.log('■ 初めて開いた人');
   await page.goto(BASE); await page.waitForSelector('.guide');
   ok((await text('.guide h2')).includes('ようこそ'), '初めて開くと使い方ガイドが出る');
-  for (let i = 0; i < 4; i++) { await page.click('[data-act="guide-next"]'); await page.waitForTimeout(80); }
-  ok((await text('.guide-n')) === '5 / 5' && await count('.guide-prefs .seg') === 2, '5つの説明があり、最後で文字の大きさ・明るさを選べる');
-  await page.click('.guide [data-act="guide-close"]');
+  await page.click('[data-act="guide-next"]'); await page.click('[data-act="guide-next"]');
+  ok(await count('.guide select[data-act-change="pref-self"]') === 1, '紹介の中で自分の名前を選べる');
+  await page.click('[data-act="guide-next"]');
+  ok((await text('.guide')).includes('ホーム画面に追加') && await count('.guide .steps li, .guide [data-act="pwa-install"]') >= 1, 'ホーム画面に追加の手順が出る');
+  await page.click('[data-act="guide-prev"]'); ok((await text('.guide h2')).includes('自分の名前'), '「戻る」で前の説明に戻れる');
+  await page.click('[data-act="guide-next"]'); await page.click('[data-act="guide-next"]');
+  ok((await text('.guide h2')).includes('通知'), '通知の説明がある');
+  await page.click('[data-act="guide-next"]');
+  ok((await text('.guide-n')).startsWith('6 / 6') && await count('.guide-prefs .seg') === 2, '6つの説明があり、最後で文字の大きさ・明るさを選べる');
+  await page.click('.guide .actions [data-act="guide-close"]');
   ok(await count('.guide') === 0, 'ガイドを閉じられる');
   await page.reload(); await page.waitForSelector('.board'); await page.waitForTimeout(300);
   ok(await count('.guide') === 0, '2回目からはガイドが出ない');
@@ -87,6 +94,20 @@ const ok = (c, label) => { if (c) { pass++; console.log('  ✓ ' + label); } els
   await go('#settings'); await page.click('[data-act="login"]'); await page.click('[data-act="pinreq-open"]');
   ok(await count('form[data-form="pinreq"] select[name="memberId"]') === 1, 'ログイン画面から「暗証番号を忘れたとき」の依頼を開ける');
   await page.click('[data-act="sheet-close"]').catch(() => {}); await page.keyboard.press('Escape');
+
+  console.log('■ 使い方ガイド');
+  await page.click('.top-help'); await page.waitForTimeout(400);
+  ok(page.url().endsWith('#help') && await count('.hsec') >= 10, '上の「？」から使い方ガイドを開ける（みんな向けの項目が並ぶ）');
+  await page.click('#h-install summary');
+  ok((await text('#h-install')).includes('ホーム画面に追加') && await count('#h-install .steps li') >= 8, 'ホーム画面に追加の手順（iPhone・Android）が開く');
+  await page.click('[data-act="help-role"][data-v="manager"]');
+  ok((await text('.help')).includes('実施記録をつける') && !(await text('.help')).includes('メニューを作る'), 'マネージャー向けに切り替えられる');
+  await page.click('[data-act="help-role"][data-v="leader"]');
+  ok((await text('.help')).includes('型と繰り返し'), 'FWリーダー向けに切り替えられる');
+  await page.click('[data-act="help-role"][data-v="all"]');
+  await go('#help/push'); await page.waitForTimeout(300);
+  ok(await page.locator('#h-push').getAttribute('open') !== null, '項目を指定して開ける（#help/push）');
+  await go('#home');
 
   console.log('■ マネージャー（「実施した」を押すだけ）');
   await login('マネ 花子（マネージャー）', 'test-mgr-01');

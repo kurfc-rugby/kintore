@@ -3,7 +3,7 @@
   'use strict';
   const L = window.KLogic;
   const API = window.KINTORE_API;
-  const VERSION = '2.7.0';
+  const VERSION = '2.7.1';
   const WD = ['日', '月', '火', '水', '木', '金', '土'];
   const PERM = { admin: '管理者', manager: 'マネージャー', leader: 'FWリーダー', member: '一般部員' };
   const MODE = { leader: 'メニュー参加', self: '自主トレ' };
@@ -166,11 +166,15 @@
     else if (isIOS()) h += '<ol class="howto"><li><b>Safari</b> でこのページを開く（LINEの中で開いているときは、右下のメニューから「Safariで開く」）</li><li>下の<b>共有ボタン</b>（□に↑）を押す</li><li><b>「ホーム画面に追加」</b>→ 右上の「追加」</li></ol>' +
       '<p class="note">ホーム画面から開くと、ログインや自分の名前・文字の大きさの設定はもう一度必要です（Safari とは別に保存されます）。</p>';
     else h += '<ol class="howto"><li><b>Chrome</b> でこのページを開く</li><li>右上の<b>︙</b>を押す</li><li><b>「ホーム画面に追加」</b>または<b>「アプリをインストール」</b></li></ol>';
-    return h + '</section>';
+    return h + '<p class="note"><a href="#help/install">くわしい手順（絵つき）</a></p></section>';
   }
 
   const ICON = {
     copy: '<path d="M9 9h10v12H9zM5 3h10v3H8v11H5z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>',
+    share: '<path d="M12 3v12M8 7l4-4 4 4M6 11H5v10h14V11h-1" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>',
+    dots: '<circle cx="12" cy="5" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="12" cy="19" r="2"/>',
+    bell: '<path d="M6 17V11a6 6 0 0 1 12 0v6l2 2H4zM10 21h4" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>',
+    help: '<circle cx="12" cy="12" r="9.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M9.5 9.5a2.6 2.6 0 0 1 5 .9c0 1.8-2.5 2.2-2.5 3.8" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="12" cy="17.3" r="1.2"/>',
     star: '<path d="m12 3 2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1-4.4-4.3 6.1-.9z"/>',
     play: '<path d="M8 5v14l11-7z"/>',
     scale: '<path d="M5 4h14a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2zm7 3a5 5 0 0 0-4.6 3h3.1l1.5-2 .5.4-1 1.6H16.6A5 5 0 0 0 12 7z" fill-rule="evenodd"/>',
@@ -1466,7 +1470,7 @@
       SIZES.map((x) => '<button data-act="pref-size" data-v="' + x[0] + '" aria-pressed="' + (PREF.size === x[0]) + '">' + x[1] + '</button>').join('') + '</div></div>' +
       '<label class="prefrow form"><span>自分の名前<small>ホームに自分の状況と、届いた「おめでとう」が出ます。応援を送るときの名前にもなります</small></span>' +
       '<select data-act-change="pref-self"><option value="">選ばない</option>' + players.map((x) => '<option value="' + x.id + '"' + (PREF.self === x.id ? ' selected' : '') + '>' + esc(x.name) + '</option>').join('') + '</select></label>' +
-      '<div class="toolbar"><button class="btn small" data-act="guide">使い方ガイドをもう一度見る</button></div></section>';
+      '<div class="toolbar"><a class="btn small" href="#help">' + icon('help') + '使い方ガイド（くわしく）</a><button class="btn small" data-act="guide">30秒の紹介をもう一度</button></div></section>';
     h += installBlock() + pushBlock();
     if (can('admin')) {
       h += '<section class="block"><div class="block-h"><h2>管理者メニュー</h2></div><ul class="links">' +
@@ -1535,27 +1539,207 @@
       '<p class="form-err" hidden></p><div class="actions"><button type="button" class="btn" data-act="login">戻る</button><button class="btn primary" type="submit">依頼を送る</button></div></form>');
   }
 
+  // ---------- 使い方（くわしいガイド） ----------
+  const HELP_ROLES = [['all', 'みんな'], ['manager', 'マネージャー'], ['leader', 'FWリーダー'], ['admin', '管理者']];
+  const kbd = (t) => '<span class="kbd">' + t + '</span>';
+  const steps = (list) => '<ol class="steps">' + list.map((x) => '<li>' + x + '</li>').join('') + '</ol>';
+  const tip = (t) => '<p class="tip">' + icon('star') + '<span>' + t + '</span></p>';
+  const goBtn = (href, label) => '<a class="btn small" href="' + href + '">' + label + icon('next') + '</a>';
+  function helpInstall() {
+    const ios = isIOS();
+    const iosSteps = steps([
+      '<b>Safari</b> でこのページを開く。LINE の中で開いているときは、右下の ' + kbd('…') + ' や ' + kbd('⤴') + ' から「Safariで開く」',
+      '画面の下（iPad は上）の <b>共有ボタン</b> ' + kbd(icon('share')) + ' を押す',
+      '下へ動かして <b>「ホーム画面に追加」</b> を押す（無ければ一番下の「アクションを編集」から追加できます）',
+      '右上の <b>「追加」</b> を押す → ホーム画面に「筋トレ」のアイコンができます',
+      '<b>これからはアイコンから開く</b>（ホーム画面版は Safari と別なので、自分の名前・ログイン・文字の大きさはもう一度設定します）'
+    ]);
+    const andSteps = steps([
+      '<b>Chrome</b> でこのページを開く。LINE の中で開いているときは、右上の ' + kbd('⋮') + ' から「ブラウザで開く」',
+      '右上の ' + kbd(icon('dots')) + ' を押す',
+      '<b>「ホーム画面に追加」</b>または<b>「アプリをインストール」</b>を押す',
+      '<b>「インストール」</b>（または「追加」）を押す → ホーム画面に「筋トレ」のアイコンができます'
+    ]);
+    let h = '';
+    if (isStandalone()) h += '<p class="okline">' + icon('check') + 'いまホーム画面のアプリから開いています。設定は済んでいます。</p>';
+    else if (PWA.prompt) h += '<div class="toolbar"><button class="btn primary" data-act="pwa-install">' + icon('plus') + 'いますぐホーム画面に追加</button></div>';
+    h += '<div class="devtabs">' + (ios ? '<h4>iPhone・iPad（あなたの端末）</h4>' + iosSteps + '<h4>Android</h4>' + andSteps : '<h4>Android' + (/Android/.test(navigator.userAgent) ? '（あなたの端末）' : '') + '</h4>' + andSteps + '<h4>iPhone・iPad</h4>' + iosSteps) + '</div>';
+    return h + tip('ホーム画面から開くと、アドレスバーなしの全画面で、起動も速くなります。電波が弱くても、前に読み込んだ情報は見られます。') +
+      '<p class="small-note">新しい版が出ると、画面の下に「新しい版があります［更新する］」が出ます。押すだけで最新になります（入れ直しは不要）。</p>';
+  }
+  function helpPush() {
+    const iosNeedsHome = isIOS() && !isStandalone();
+    return (iosNeedsHome ? '<p class="warnline">' + icon('lock') + '<span>iPhone では、<b>ホーム画面に追加したアプリから</b>でないと通知を受け取れません（iOS 16.4 以上）。先に「ホーム画面に追加」をしてください。</span></p>' : '') +
+      steps([
+        '先に <b>自分の名前</b> を選ぶ（「今週あと○回」「応援」は、選んだ名前の人に届きます）',
+        '「設定」→ 下のほうの <b>「通知」</b> で、受け取りたいものにチェック',
+        '<b>「通知をオンにする」</b> → スマホの確認で <b>「許可」</b>',
+        '<b>「テスト通知を送る」</b> で、数秒で届けばOK'
+      ]) +
+      '<table class="htable"><thead><tr><th>通知</th><th>いつ</th></tr></thead><tbody>' +
+      '<tr><td><b>今週あと○回</b><small>まだ週' + goal() + '回に届いていない本人だけ</small></td><td>土曜18時・日曜9時</td></tr>' +
+      '<tr><td><b>応援が届いた</b><small>だれからか・どのスタンプか</small></td><td>1時間ごとにまとめて（夜10時〜朝7時は送らない）</td></tr>' +
+      '<tr><td><b>暗証番号の再発行の依頼</b><small>管理者だけ（ログインして設定）</small></td><td>依頼が来たらすぐ</td></tr></tbody></table>' +
+      '<div class="toolbar">' + goBtn('#settings/push', '通知の設定を開く') + '</div>' +
+      '<details class="faq"><summary>通知が来ないとき</summary><ul class="dots">' +
+      '<li>「テスト通知を送る」で届くか確かめる。届かなければ「通知をオフにする」→ もう一度「オンにする」</li>' +
+      '<li>「許可しない」を押してしまった：<b>Android</b> は Chrome の ' + kbd('⋮') + '→「設定」→「サイトの設定」→「通知」で許可。<b>iPhone</b> は「設定」アプリ →「通知」→「筋トレ」で許可</li>' +
+      '<li>省電力モード・おやすみモード（集中モード）だと遅れたり出なかったりします</li>' +
+      '<li>iPhone でホーム画面のアイコンを消すと、通知の設定も消えます（追加し直して、もう一度オン）</li>' +
+      '<li>機種変更したら、新しいスマホでもう一度オンにしてください</li></ul></details>';
+  }
+  function helpSelf() {
+    const players = sortMembers(S.data.members.filter((x) => x.active && x.player));
+    return '<p>自分の名前を選んでおくと、こうなります。</p><ul class="dots">' +
+      '<li>ホームの一番上に <b>「わたし」</b>（今週あと何回・何週連続・届いた応援）が出る</li>' +
+      '<li>応援スタンプを送ると、<b>あなたから届いた</b>ことが相手に伝わる</li>' +
+      '<li>「今週あと○回」「応援が届いた」の <b>通知</b> を受け取れる</li></ul>' +
+      '<label class="guide-self">自分の名前<span>（この端末だけ・あとで変えられます）</span><select data-act-change="pref-self"><option value="">選ばない</option>' +
+      players.map((x) => '<option value="' + x.id + '"' + (PREF.self === x.id ? ' selected' : '') + '>' + esc(x.name) + '</option>').join('') + '</select></label>' +
+      tip('ログインとは関係ありません。見るだけの部員も選べます。');
+  }
+  function helpSections() {
+    const g = goal();
+    return [
+      ['about', 'all', 'このアプリでできること', '30秒でわかる全体の流れ',
+        '<ul class="dots"><li>マネージャーが、Setlog などを見て <b>筋トレをした人に「実施した」</b>を付けます</li>' +
+        '<li>部員は <b>見るだけ</b>。ログインはいりません（URLを知っていれば見られます）</li>' +
+        '<li><b>週' + g + '回以上（月曜〜日曜）がマスト</b>。ホームで「まだの人」、ランキングで回数がわかります</li>' +
+        '<li>FWリーダーのメニュー・自己ベスト・称号・体重の変化・応援スタンプ・通知もあります</li></ul>' +
+        '<div class="flow"><span>筋トレ<small>Setlog で撮る</small></span>' + icon('next') + '<span>マネージャー<small>「実施した」を押す</small></span>' + icon('next') + '<span>みんな<small>アプリで見る</small></span></div>'],
+      ['install', 'all', 'ホーム画面に追加する', 'アプリのように1タップで開ける', helpInstall()],
+      ['self', 'all', '自分の名前を選ぶ', '「わたし」・応援・通知に使う', helpSelf()],
+      ['push', 'all', '通知を受け取る', '今週あと○回・応援が届いた', helpPush()],
+      ['home', 'all', 'ホームの見かた', '赤い板・まだの人・ピンチ・おめでとう',
+        '<dl class="defs">' +
+        '<dt>赤い板</dt><dd>部全体の実施回数、メニュー参加者の実施率、<b>週' + g + '回を達成した人数</b>。上の「週間／月間」と ' + kbd('‹') + kbd('›') + ' で期間を変えられます</dd>' +
+        '<dt>週' + g + '回（マスト）まだの人</dt><dd>今週まだ届いていない人と、あと何回か。<b>怪我などで免除の日</b>がある人は、そのぶん必要な回数が減ります</dd>' +
+        '<dt>連続記録がピンチ</dt><dd>先週まで2週以上続けて達成していて、今週まだの人。声をかけて連続を守りましょう</dd>' +
+        '<dt>ランキング</dt><dd>実施回数の多い順。ジャージの背番号が順位です</dd>' +
+        '<dt>おめでとう</dt><dd>最近10日に週' + g + '回を達成した人・通算○回になった人。<b>応援スタンプ</b>を送れます</dd>' +
+        '<dt>ポジション別</dt><dd>1人あたりの回数が多いポジションほどジャージが濃い。押すとそのポジションのランキングへ</dd></dl>'],
+      ['rank', 'all', 'ランキング・カレンダー', '並べ替え・ポジションで絞る・○×の意味',
+        '<ul class="dots"><li>上の <b>FW／BK</b> や <b>ポジション</b>（PR・LO など）を押すと絞れます。サブポジションの人も入ります</li>' +
+        '<li>「実施回数順／実施率順」で並べ替え。<b>実施率</b>はメニュー参加の人だけ（自主トレの人は「－」）</li></ul>' +
+        '<div class="legend-h">' + ['done', 'not', 'today', 'planned', 'ex', 'none'].map((k) => '<span>' + cellHtml(k) + CELL[k][1] + '</span>').join('') + '</div>' +
+        tip('「×（実施していない）」はメニューの対象日に記録が無かった日です。翌日から×になります。')],
+      ['member', 'all', '部員のページ', '自己ベスト・称号・体重・届いた応援',
+        '<p>ランキングやカレンダーの<b>名前を押す</b>と開きます。</p><ul class="dots">' +
+        '<li><b>今週・今月</b>の回数、週' + g + '回の連続達成</li>' +
+        '<li><b>自己ベスト</b>：通算・いちばん長い連続・いちばん多い月／週</li>' +
+        '<li><b>称号</b>：はじめの一歩・週' + g + '回クリア・4週連続〜1年連続・月10/15/20回・皆勤の月・通算50〜500回（全16種）</li>' +
+        '<li><b>体重・体組成</b>：測った記録とグラフ（入力はスタッフ）</li><li><b>月ごとのカレンダー</b>と履歴</li></ul>'],
+      ['cheer', 'all', '応援スタンプを送る', '👏🔥💪🎉💯 ログインなしでOK',
+        steps(['ホームの<b>「おめでとう」</b>、または部員ページの<b>称号</b>の下のスタンプを押す', '数字が増えれば送れています。<b>もう一度押すと取り消し</b>', '相手が通知をオンにしていれば、1時間以内に「応援が届きました」が届きます']) +
+        tip('自分の名前を選んでおくと「○○さんから」と伝わります。自分あてのスタンプは押せません。')],
+      ['view', 'all', '見やすくする', '文字の大きさ・ダークモード',
+        '<p>「設定」→「見やすさ・自分の名前」で変えられます（この端末だけ）。</p><ul class="dots"><li><b>文字の大きさ</b>：小・標準・大・特大</li><li><b>画面の明るさ</b>：ライト（はじめはこれ）・ダーク・スマホに合わせる</li></ul>' +
+        '<div class="toolbar">' + goBtn('#settings', '設定を開く') + '</div>'],
+      ['exempt', 'all', '怪我・病気で休むとき', '免除してもらう',
+        '<p>怪我・病気・就活などで筋トレできない期間は、<b>マネージャーに伝えてください</b>。「免除」に登録されると、その日数ぶん週' + g + '回の必要回数が減り、メニューの×にもなりません。</p>' +
+        tip('免除の理由やメモは、スタッフにしか見えません（みんなの画面には「免除」とだけ出ます）。')],
+      ['faq', 'all', 'よくある質問', '記録がちがう・数え方・古いまま',
+        '<dl class="defs"><dt>自分の記録がちがう</dt><dd>マネージャーに伝えてください（取り消しや追加ができます）</dd>' +
+        '<dt>週' + g + '回の「週」はいつから？</dt><dd>月曜〜日曜です。月曜にその週の回数が0に戻ります</dd>' +
+        '<dt>自主トレの人の実施率が「－」</dt><dd>実施率はFWリーダーのメニューに参加している人だけ。自主トレの人は回数で見ます</dd>' +
+        '<dt>情報が古いまま</dt><dd>「設定」→「最新の情報に更新」。ホーム画面版で「新しい版があります」が出たら「更新する」</dd>' +
+        '<dt>機種変更した</dt><dd>新しいスマホで開き直し、自分の名前・通知・ホーム画面への追加をもう一度</dd></dl>'],
+      // スタッフ
+      ['login', 'staff', 'ログインする', '暗証番号・忘れたとき',
+        steps(['「設定」→ <b>「ログイン」</b>', '自分の名前を選び、<b>暗証番号</b>を入れる（最初は管理者からもらった番号）', '最初のログインでは、<b>自分だけの暗証番号（半角6文字以上）</b>に変える']) +
+        '<ul class="dots"><li>忘れたとき：ログイン画面の<b>「暗証番号を忘れたとき」</b>→ 名前を選んで依頼 → 管理者が新しい番号を出してくれます</li>' +
+        '<li>5回まちがえると15分ログインできません</li><li>なくしたスマホは「設定」→「ログインしている端末」からログアウトできます</li></ul>'],
+      ['record', 'manager', '実施記録をつける', '押すだけ・まとめて・確認して保存',
+        steps(['下の <b>「記録」</b> を開く（日付は今日。' + kbd('‹') + ' で前の日にも付けられます）', 'やった人の <b>「実施した」</b> を押す（もう一度押すと戻る）。ポジションで絞って <b>「表示中の全員を実施した」</b> も便利', '<b>「保存する」</b>→ 内容を確かめて <b>「この内容で保存」</b>']) +
+        '<ul class="dots"><li>押していない人は「実施していない」になります（メニューの対象日だけ。翌日から）</li>' +
+        '<li>並び順：ポジション・学年・名前・<b>最近やった順</b>（よくやる人が上）</li>' +
+        '<li>ほかのマネージャーが付けた記録は鍵マーク（変えるのは管理者）</li></ul>'],
+      ['trash', 'manager', 'まちがえて取り消したとき', '取り消した記録を戻す',
+        steps(['「記録」の上の <b>「取り消した記録」</b>', '戻したい記録の <b>「戻す」</b>']) + tip('マネージャーは自分が取り消したものだけ戻せます。ほかは管理者へ。')],
+      ['exreg', 'manager', '免除を登録する', '怪我・病気の期間',
+        steps(['部員のページを開く →「免除」の <b>「免除を追加」</b>', '開始日・終了日・理由（メモは任意）を入れて <b>「登録する」</b>']) + tip('部全体のオフ（試験期間・合宿など）は管理者が「設定」から登録します。')],
+      ['body', 'staff', '体重・体組成を入れる', 'まとめて／1人ずつ',
+        steps(['「部員」→ <b>「体重・体組成をまとめて入れる」</b>（1人だけなら部員ページの「入れる」）', '測定日を選び、測った人だけ体重・体脂肪率・筋肉量を入れる → <b>「保存」</b>']) + tip('同じ日にもう一度入れると上書き。数値は部員みんなが見られます（メモはスタッフだけ）。')],
+      ['line', 'manager', 'LINEで「まだの人」を送る', '文章を自動で作る',
+        steps(['ホーム（週間・今週）の「週' + g + '回（マスト）まだの人」の下', '<b>「LINE用の文章をコピー」</b>→ LINEに貼る、または <b>「LINEで送る」</b>']) + tip('月間のホームでは、MVP・皆勤の<b>表彰カード（画像）</b>も作れます。')],
+      ['menu', 'leader', 'メニューを作る', '対象・種目ライブラリ・動画',
+        steps(['「メニュー」→ <b>「メニューを作成」</b>', '実施予定日と <b>対象</b>（FW／BK／全体、またはポジション）を選ぶ。対象人数の目安が出ます', 'メニュー名と内容を書く。<b>「種目のライブラリから足す」</b>で押すだけで種目と回数の目安が入ります', 'フォームの見本の <b>動画のURL</b>（YouTube など）も付けられます → <b>「メニューを登録」</b>']) +
+        tip('対象は「メニュー参加」の人だけ。自主トレの人は入りません。')],
+      ['tpl', 'leader', '型と繰り返し', '毎週のメニューを自動で作る',
+        steps(['「メニュー」→ <b>「型・繰り返し」</b>→ <b>「型を作る」</b>（今あるメニューの「型にする」からも）', '<b>繰り返す曜日</b>を選ぶ → 4週間先まで自動で作られ、毎日のびます', '型を直すと、手で直していない今日以降の分もそろいます']) +
+        '<ul class="dots"><li>曜日を選ばなければ、作るときに「型から作る」で選ぶだけの型になります</li><li>1回だけ別の日にしたいとき：メニューを開いて <b>「別の日にコピー」</b></li></ul>'],
+      ['archive', 'leader', 'FWリーダーの引き継ぎ', 'これまでのメニューを全部見る',
+        steps(['「メニュー」→ <b>「これまでのメニュー一覧（引き継ぎ）」</b>', '種目名で探す・作った人で絞る。良いメニューは <b>「型にする」</b>', '<b>「表（CSV）で保存」</b>で、Excel やスプレッドシートに残せます'])],
+      ['members', 'admin', '部員の管理', '追加・まとめて編集・進級',
+        '<ul class="dots"><li><b>まとめて編集</b>：ポジション（メイン・サブ）と取り組み方を一度に</li><li><b>一覧を貼り付け</b>：「名前, PR, 参加」の形で何人でも</li>' +
+        '<li><b>進級</b>：新年度に1回。1年→2年…、4年・M2は卒業／進学／そのままを選ぶ（留年は「そのまま」）</li><li>名簿は会計アプリと共通です</li></ul>'],
+      ['roles', 'admin', '役職の交代・暗証番号', '新年度のFWリーダー・マネージャー',
+        steps(['「設定」→ <b>「役職をまとめて付け替え」</b>', '新しいFWリーダー・マネージャーを選んで保存 → <b>最初の暗証番号</b>がまとめて出るので本人に伝える']) +
+        '<ul class="dots"><li>暗証番号の<b>再発行の依頼</b>はホームと設定に出ます →「発行」</li><li>通知の「暗証番号の再発行の依頼」をオンにすると、スマホにも届きます</li></ul>'],
+      ['settings', 'admin', '部のルールの設定', '週の目標回数・オフ期間・合言葉',
+        '<ul class="dots"><li><b>週の目標回数</b>：いまは週' + g + '回（1〜7回）</li><li><b>部全体のオフ期間</b>：試験期間・合宿など、全員の目標をなしに</li>' +
+        '<li><b>閲覧の合言葉</b>：設定すると、知っている人だけ見られる</li><li><b>操作履歴</b>：だれが・いつ・何を変えたか</li></ul>']
+    ];
+  }
+  function vHelp() {
+    if (!S.helpRole) { const m = me(); S.helpRole = m ? (m.perm === 'admin' ? 'admin' : m.perm) : 'all'; }
+    const role = S.helpRole, open = S.route.arg || '';
+    const show = (r) => role === 'all' ? r === 'all' : (r === role || r === 'staff' || (role === 'admin' && r !== 'all'));
+    let h = '<div class="sub-h"><a class="ibtn" href="#settings" data-act="go-back" aria-label="戻る">' + icon('back') + '</a><h1>使い方ガイド</h1></div>' +
+      '<div class="fbar"><div class="seg small" role="group" aria-label="だれ向け">' + HELP_ROLES.map((x) => '<button data-act="help-role" data-v="' + x[0] + '" aria-pressed="' + (role === x[0]) + '">' + x[1] + '</button>').join('') + '</div></div>' +
+      (role === 'all' ? '<p class="note is-top">知りたいところを押すと開きます。マネージャー・FWリーダー・管理者の使い方は、上で切り替えてください。</p>' : '<p class="note is-top">ログインしてできることです。みんな向けの使い方は「みんな」にあります。</p>') +
+      '<div class="help">';
+    helpSections().filter((x) => show(x[1])).forEach((x, i) => {
+      h += '<details class="hsec" id="h-' + x[0] + '"' + (open === x[0] ? ' open' : '') + '><summary><span class="hnum">' + (i + 1) + '</span><span class="ht"><b>' + x[2] + '</b><small>' + x[3] + '</small></span></summary><div class="hb">' + x[4] + '</div></details>';
+    });
+    h += '</div><div class="toolbar center"><button class="btn" data-act="guide">30秒の紹介をもう一度見る</button></div>';
+    return h;
+  }
+
   // ---------- はじめて開いた人への使い方ガイド（30秒） ----------
+  // 30秒の紹介（初めて開いたとき）。それぞれの画面で、その場で設定もできる
   const GUIDE = [
-    ['KURFC 筋トレへようこそ', '部員みんなの筋トレの記録を見るアプリです。<b>見るだけならログインは不要</b>。30秒で使い方を紹介します。', 'home'],
-    ['週' + '{g}' + '回がマスト', 'ホームの赤い板が部全体の回数。月曜〜日曜に<b>週{g}回以上</b>筋トレすれば達成です。「まだの人」「連続がピンチの人」もホームで分かります。', 'check'],
-    ['ランキングと自分の記録', 'ランキングやカレンダーの名前を押すと、その人の記録・<b>自己ベスト・称号</b>・体重の変化が見られます。', 'rank'],
-    ['友達に「おめでとう」', 'ホームの「おめでとう」で、達成した友達に<b>応援スタンプ</b>を送れます。下で自分の名前を選ぶと、自分あての応援がホームに出ます。', 'star'],
-    ['見やすく使う', '設定で<b>文字の大きさ</b>と<b>ダークモード</b>を変えられます。設定の「ホーム画面に追加」で、アプリのように1タップで開けます。マネージャー・FWリーダーは設定からログインして記録やメニューを入れます。', 'gear']
+    { t: 'KURFC 筋トレへようこそ', i: 'home', p: () => '部員みんなの筋トレの記録を見るアプリです。<b>見るだけならログインは不要</b>。かんたんに使い方を紹介します（1分）。' },
+    { t: '週{g}回がマスト', i: 'check', p: () => 'マネージャーが「実施した」を付けると、ホームに回数が出ます。<b>月曜〜日曜に週{g}回以上</b>で達成。「まだの人」「連続がピンチの人」もホームでわかります。名前を押すと、その人の<b>自己ベスト・称号・体重の変化</b>が見られます。' },
+    { t: '自分の名前を選ぶ', i: 'users', p: () => '選ぶと、ホームに<b>「わたし」</b>（今週あと何回・届いた応援）が出て、通知も受け取れます。応援スタンプを送るときの名前にもなります。', x: 'self' },
+    { t: 'ホーム画面に追加', i: 'plus', p: () => isStandalone() ? 'いまホーム画面のアプリから開いています。このままで大丈夫です。' : 'アイコンを置くと、アプリのように<b>1タップ</b>で開けます。', x: 'install' },
+    { t: '通知を受け取る', i: 'bell', p: () => (isIOS() && !isStandalone()) ? 'iPhone は、<b>ホーム画面に追加したアプリ</b>から設定すると、「今週あと○回」「応援が届いた」が通知で届きます。' : '「今週あと○回」（土曜18時・日曜9時）と「応援が届いた」を、スマホに通知できます。', x: 'push' },
+    { t: '見やすく・くわしく', i: 'gear', p: () => '文字の大きさと明るさは、いつでも「設定」で変えられます。わからないときは、上の ' + kbd('?') + ' の<b>「使い方ガイド」</b>を見てください。マネージャー・FWリーダーの使い方もあります。', x: 'view' }
   ];
   let guideStep = 0;
+  function guideExtra(x) {
+    if (x === 'self') {
+      const players = S.data && S.data.members ? sortMembers(S.data.members.filter((m) => m.active && m.player)) : [];
+      return players.length ? '<label class="guide-self">自分の名前<span>（あとで設定で変えられます）</span><select data-act-change="pref-self"><option value="">選ばない</option>' + players.map((m) => '<option value="' + m.id + '"' + (PREF.self === m.id ? ' selected' : '') + '>' + esc(m.name) + '</option>').join('') + '</select></label>' : '';
+    }
+    if (x === 'install') {
+      if (isStandalone()) return '';
+      if (PWA.prompt) return '<div class="guide-acts"><button class="btn primary" data-act="pwa-install">' + icon('plus') + 'いますぐ追加</button></div>';
+      return '<ol class="steps small">' + (isIOS()
+        ? '<li><b>Safari</b> で開いて、共有ボタン ' + kbd(icon('share')) + '</li><li><b>「ホーム画面に追加」</b>→「追加」</li><li>これからは<b>アイコンから</b>開く</li>'
+        : '<li>Chrome の右上 ' + kbd(icon('dots')) + '</li><li><b>「ホーム画面に追加」</b>または<b>「アプリをインストール」</b></li>') + '</ol>';
+    }
+    if (x === 'push') {
+      if (isIOS() && !isStandalone()) return '<div class="guide-acts"><button class="btn" data-act="guide-help" data-v="install">追加のしかたを見る</button></div>';
+      return pushSupported() ? '<div class="guide-acts"><button class="btn primary" data-act="guide-push">' + icon('bell') + '通知の設定を開く</button></div>' : '';
+    }
+    if (x === 'view') {
+      return '<div class="guide-prefs"><div class="seg small" role="group" aria-label="文字の大きさ">' + SIZES.map((z) => '<button data-act="pref-size" data-v="' + z[0] + '" aria-pressed="' + (PREF.size === z[0]) + '">' + z[1] + '</button>').join('') + '</div>' +
+        '<div class="seg small" role="group" aria-label="画面の明るさ">' + [['light', 'ライト'], ['dark', 'ダーク'], ['auto', 'スマホに合わせる']].map((z) => '<button data-act="pref-theme" data-v="' + z[0] + '" aria-pressed="' + (PREF.theme === z[0]) + '">' + z[1] + '</button>').join('') + '</div></div>' +
+        '<div class="guide-acts"><button class="btn" data-act="guide-help" data-v="">くわしい使い方ガイドを開く</button></div>';
+    }
+    return '';
+  }
   function openGuide(step) {
-    guideStep = step || 0;
+    guideStep = Math.max(0, Math.min(GUIDE.length - 1, step || 0));
     const g = GUIDE[guideStep], last = guideStep === GUIDE.length - 1;
-    const players = S.data && S.data.members ? sortMembers(S.data.members.filter((x) => x.active && x.player)) : [];
-    $('#guide-root').innerHTML = '<div class="guide-bg"></div><section class="guide" role="dialog" aria-modal="true" aria-label="使い方ガイド">' +
-      '<div class="guide-i" aria-hidden="true">' + icon(g[2]) + '</div><h2>' + esc(g[0].replace('{g}', goal())) + '</h2><p>' + g[1].replace(/\{g\}/g, goal()) + '</p>' +
-      (guideStep === 3 && players.length ? '<label class="guide-self">自分の名前<span>（あとで設定で変えられます）</span><select data-act-change="pref-self"><option value="">選ばない</option>' + players.map((x) => '<option value="' + x.id + '"' + (PREF.self === x.id ? ' selected' : '') + '>' + esc(x.name) + '</option>').join('') + '</select></label>' : '') +
-      (guideStep === 4 ? '<div class="guide-prefs"><div class="seg small" role="group" aria-label="文字の大きさ">' + SIZES.map((x) => '<button data-act="pref-size" data-v="' + x[0] + '" aria-pressed="' + (PREF.size === x[0]) + '">' + x[1] + '</button>').join('') + '</div>' +
-        '<div class="seg small" role="group" aria-label="画面の明るさ">' + [['light', 'ライト'], ['dark', 'ダーク'], ['auto', 'スマホに合わせる']].map((x) => '<button data-act="pref-theme" data-v="' + x[0] + '" aria-pressed="' + (PREF.theme === x[0]) + '">' + x[1] + '</button>').join('') + '</div></div>' : '') +
+    const sub = (t) => t.replace(/\{g\}/g, goal());
+    $('#guide-root').innerHTML = '<div class="guide-bg"></div><section class="guide" role="dialog" aria-modal="true" aria-label="使い方の紹介">' +
+      '<div class="guide-i" aria-hidden="true">' + icon(g.i) + '</div><h2>' + esc(sub(g.t)) + '</h2><p>' + sub(g.p()) + '</p>' + guideExtra(g.x) +
       '<div class="guide-dots" aria-hidden="true">' + GUIDE.map((x, i) => '<i class="' + (i === guideStep ? 'on' : '') + '"></i>').join('') + '</div>' +
-      '<div class="actions"><button class="btn" data-act="guide-close">' + (last ? '閉じる' : 'スキップ') + '</button><button class="btn primary" data-act="' + (last ? 'guide-close' : 'guide-next') + '" autofocus>' + (last ? 'はじめる' : '次へ') + '</button></div>' +
-      '<p class="guide-n">' + (guideStep + 1) + ' / ' + GUIDE.length + '</p></section>';
+      '<div class="actions">' + (guideStep ? '<button class="btn" data-act="guide-prev">戻る</button>' : '<button class="btn" data-act="guide-close">スキップ</button>') +
+      '<button class="btn primary" data-act="' + (last ? 'guide-close' : 'guide-next') + '" autofocus>' + (last ? 'はじめる' : '次へ') + '</button></div>' +
+      '<p class="guide-n">' + (guideStep + 1) + ' / ' + GUIDE.length + (guideStep ? '・<button class="linkbtn inline" data-act="guide-close">閉じる</button>' : '') + '</p></section>';
     document.body.classList.add('sheet-open');
     const b = $('#guide-root [autofocus]'); if (b) b.focus();
   }
@@ -1747,13 +1931,14 @@
 
   // ---------- 全体の描画 ----------
   const NAV = [['home', 'ホーム', 'home'], ['rank', 'ランキング', 'rank'], ['record', '記録', 'check'], ['cal', 'カレンダー', 'cal'], ['menus', 'メニュー', 'menu'], ['members', '部員', 'users']];
-  const TITLE = { home: 'ホーム', rank: 'ランキング', record: '実施記録', cal: 'カレンダー', menus: 'メニュー', members: '部員', member: '部員', settings: '設定', logs: '操作履歴', archive: 'これまでのメニュー' };
+  const TITLE = { home: 'ホーム', rank: 'ランキング', record: '実施記録', cal: 'カレンダー', menus: 'メニュー', members: '部員', member: '部員', settings: '設定', logs: '操作履歴', archive: 'これまでのメニュー', help: '使い方' };
   function shell(inner) {
     const r = S.route.name, m = me();
-    const navOn = r === 'member' ? 'members' : r === 'logs' ? 'settings' : r === 'archive' ? 'menus' : r;
+    const navOn = r === 'member' ? 'members' : (r === 'logs' || r === 'help') ? 'settings' : r === 'archive' ? 'menus' : r;
     const items = NAV.filter((n) => n[0] !== 'record' || can('record'));
     return '<header class="top"><a class="brand" href="#home" aria-label="ホーム"><img class="mark" src="crest.webp?v=1" alt="" width="30" height="32"><span class="brand-t"><b>KURFC</b>筋トレ</span></a>' +
       '<span class="top-title">' + (TITLE[r] || '') + '</span>' +
+      '<a class="top-help' + (r === 'help' ? ' on' : '') + '" href="#help" aria-label="使い方ガイド">' + icon('help') + '</a>' +
       '<a class="top-acct' + (navOn === 'settings' ? ' on' : '') + '" href="#settings" aria-label="設定">' + (m ? '<span class="who">' + PERM[m.perm] + '</span>' : '') + icon('gear') + '</a></header>' +
       '<div class="hoops" aria-hidden="true"></div>' +
       '<nav class="nav n' + items.length + '" aria-label="メニュー">' + items.map((n) =>
@@ -1788,10 +1973,14 @@
     }
     if (S.data.locked) { app.innerHTML = lockedView(); return; }
     const r = S.route;
-    const fn = { home: vHome, rank: vRank, cal: vCal, menus: vMenus, members: vMembers, record: vRecord, settings: vSettings, logs: vLogs, archive: vArchive };
+    const fn = { home: vHome, rank: vRank, cal: vCal, menus: vMenus, members: vMembers, record: vRecord, settings: vSettings, logs: vLogs, archive: vArchive, help: vHelp };
     app.innerHTML = shell(r.name === 'member' ? vMember(r.arg) : (fn[r.name] || vHome)());
     document.title = (TITLE[r.name] ? TITLE[r.name] + '｜' : '') + 'KURFC 筋トレ';
     if (r.name === 'home') countUp();
+    if ((r.name === 'help' || r.name === 'settings') && r.arg) {
+      const el = document.getElementById(r.name === 'help' ? 'h-' + r.arg : r.arg);
+      if (el) setTimeout(() => el.scrollIntoView({ block: 'start', behavior: reduceMotion() ? 'auto' : 'smooth' }), 60);
+    }
     if (r.name === 'home' || r.name === 'rank' || r.name === 'cal') {
       const p = curPeriod(), pv = L.prevPeriod(S.kind, p.from);
       ensureRange(r.name === 'home' ? pv.from : p.from, p.to > S.data.today ? S.data.today : p.to);
@@ -1990,6 +2179,10 @@
     'sw-update': (el) => { el.disabled = true; if (PWA.waiting) PWA.waiting.postMessage('skipWaiting'); else location.reload(); },
     'pwa-install': async () => { const p = PWA.prompt; if (!p) return; PWA.prompt = null; p.prompt(); try { await p.userChoice; } catch (e) { /* noop */ } render(); },
     'guide-next': () => openGuide(guideStep + 1),
+    'guide-prev': () => openGuide(guideStep - 1),
+    'guide-push': () => { closeGuide(); location.hash = '#settings/push'; },
+    'guide-help': (el) => { closeGuide(); location.hash = '#help' + (el.dataset.v ? '/' + el.dataset.v : ''); },
+    'help-role': (el) => { S.helpRole = el.dataset.v; render(); },
     'guide-close': () => closeGuide(),
     'sessions-open': () => openSessions(),
     'sess-out': async (el) => {
