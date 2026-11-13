@@ -35,6 +35,7 @@ function create(opts) {
     }
     getValue() { return this.getValues()[0][0]; }
     setValues(vals) {
+      if (this.r - 1 + this.nr > this.sh.maxRows) throw new Error('範囲の座標がシートの大きさを超えています（' + (this.r - 1 + this.nr) + '行目 > ' + this.sh.maxRows + '行）');
       if (vals.length !== this.nr || vals.some((v) => v.length !== this.nc)) throw new Error('setValues: 大きさが合いません');
       for (let i = 0; i < this.nr; i++) {
         while (this.sh.data.length < this.r + i) this.sh.data.push([]);
@@ -60,18 +61,19 @@ function create(opts) {
     insertCheckboxes() { this.sh.checkboxCells = (this.sh.checkboxCells || 0) + 1; return this; }
   }
   class Sheet {
-    constructor(name) { this.name = name; this.data = []; this.writes = 0; }
+    constructor(name) { this.name = name; this.data = []; this.writes = 0; this.maxRows = 1000; }
     getName() { return this.name; }
     setName(n) { this.name = n; return this; }
     getLastRow() { let n = this.data.length; while (n > 0 && this.data[n - 1].every((v) => v === '' || v === undefined)) n--; return n; }
     getLastColumn() { let m = 0; this.data.forEach((r) => { for (let i = r.length; i > 0; i--) if (r[i - 1] !== '' && r[i - 1] !== undefined) { if (i > m) m = i; break; } }); return m; }
-    getMaxRows() { return Math.max(1000, this.data.length); }
+    getMaxRows() { return this.maxRows; }
+    insertRowsAfter(after, n) { this.maxRows += n; if (after < this.data.length) this.data.splice(after, 0, ...Array.from({ length: n }, () => [])); return this; }
     getMaxColumns() { return 26; }
     getDataRange() { return new Range(this, 1, 1, Math.max(this.getLastRow(), 1), Math.max(this.getLastColumn(), 1)); }
     getRange(r, c, nr, nc) { return new Range(this, r, c, nr || 1, nc || 1); }
     appendRow(arr) { new Range(this, this.getLastRow() + 1, 1, 1, arr.length).setValues([arr]); return this; }
-    deleteRow(r) { this.data.splice(r - 1, 1); this.writes++; }
-    deleteRows(r, n) { this.data.splice(r - 1, n); this.writes++; }
+    deleteRow(r) { this.data.splice(r - 1, 1); this.maxRows--; this.writes++; }
+    deleteRows(r, n) { this.data.splice(r - 1, n); this.maxRows -= n; this.writes++; }
     setFrozenRows() {}
   }
   class Spreadsheet {
@@ -164,7 +166,7 @@ function create(opts) {
   if (opts.withLibrary !== false) sandbox.KurfcRoster = KurfcRoster;
   vm.createContext(sandbox);
   const code = fs.readFileSync(path.join(__dirname, '..', 'gas', 'Code.gs'), 'utf8');
-  vm.runInContext(code + '\n;this.__fn = {handle_, setup, registerAdmin_, doPost, doGet, onOpen, menuRegisterAdmin, pinHash_, today_, pushHourly, setupPush, ecSign_, utf8_};', sandbox, { filename: 'Code.gs' });
+  vm.runInContext(code + '\n;this.__fn = {handle_, setup, registerAdmin_, doPost, doGet, onOpen, menuRegisterAdmin, pinHash_, today_, pushHourly, setupPush, ecSign_, utf8_, pruneStamps_: function (d) { REQ_ = { tables: {}, ss: null, roster: null }; try { pruneStamps_(d); } finally { REQ_ = null; } }};', sandbox, { filename: 'Code.gs' });
   const fn = sandbox.__fn;
 
   const api = {

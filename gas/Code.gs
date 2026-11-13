@@ -10,7 +10,7 @@
  * 最初にやること：スプレッドシートのメニュー「筋トレ管理」→「管理者を登録」
  * 詳しくは 04_ドキュメント/筋トレ管理アプリ_使い方と引き継ぎ.md
  */
-const APP_VERSION = '2.7.0';
+const APP_VERSION = '2.7.1';
 const SCHEMA_VERSION = '5';
 const TZ = 'Asia/Tokyo';
 const SESSION_DAYS = 90;
@@ -125,7 +125,7 @@ function handle_(req) {
     const ctx = { req: req, me: null, view: false };
     resolveSession_(ctx);
     const op = String(req.op || '');
-    const open = { ping: 1, state: 1, login: 1, logout: 1, viewLogin: 1, changePin: 1, memberHistory: 1, stamp: 1, pinRequest: 1, pushRegister: 1, pushUnregister: 1, pushTest: 1, pushInbox: 1 };
+    const open = { ping: 1, state: 1, login: 1, logout: 1, viewLogin: 1, changePin: 1, memberHistory: 1, stamp: 1, pinRequest: 1, pushRegister: 1, pushUnregister: 1, pushTest: 1, pushInbox: 1, pushMove: 1 };
     if (!open[op] && ctx.me && ctx.me.mustChange) {
       throw err_('must_change_pin', '先に暗証番号を変更してください。');
     }
@@ -169,6 +169,7 @@ function handle_(req) {
       case 'pushUnregister': return opPushUnregister_(ctx);
       case 'pushTest': return opPushTest_(ctx);
       case 'pushInbox': return opPushInbox_(ctx);
+      case 'pushMove': return opPushMove_(ctx);
       default: throw err_('unknown_op', '不明な操作です。');
     }
   } catch (x) {
@@ -288,7 +289,12 @@ function insert_(tkey, objs) {
   if (!objs.length) return;
   const t = table_(tkey);
   const rows = objs.map(function (o) { return rowArray_(t, o); });
-  t.sheet.getRange(t.lastRow + 1, 1, rows.length, t.width).setValues(rows);
+  // シートの行が足りなければ足す（新しいシートは1000行。足りないまま書くとエラーになる）
+  const lack = t.lastRow + rows.length - t.sheet.getMaxRows();
+  if (lack > 0) t.sheet.insertRowsAfter(t.sheet.getMaxRows(), lack + 200);
+  const range = t.sheet.getRange(t.lastRow + 1, 1, rows.length, t.width);
+  range.setNumberFormat('@'); // 日付や数字に勝手に変えられないよう、文字として書く
+  range.setValues(rows);
   objs.forEach(function (o, i) { o._r = t.lastRow + 1 + i; t.rows.push(o); });
   t.lastRow += rows.length;
 }
@@ -1461,7 +1467,7 @@ function pruneStamps_(today) {
   let n = 0;
   for (let i = 0; i < t.rows.length && t.rows[i].at.slice(0, 10) < limit; i++) n++;
   if (!n) return;
-  t.sheet.deleteRows(2, n);
+  t.sheet.deleteRows(2, t.rows[n - 1]._r - 1); // 途中に空の行があっても、n件目の行までまとめて消す
   REQ_.tables.stamps = null; delete REQ_.tables.stamps;
 }
 
@@ -1694,7 +1700,7 @@ function bodyNum_(v, key) {
 function bodyWire_(me) {
   const staff = !!(me && STAFF[me.perm]);
   return table_('body').rows.filter(function (b) { return !b.deletedAt; })
-    .map(function (b) { return [b.id, b.memberId, b.date, b.weight === '' ? null : Number(b.weight), b.fat === '' ? null : Number(b.fat), b.muscle === '' ? null : Number(b.muscle), staff ? b.note : '']; });
+    .map(function (b) { return [b.id, b.memberId, b.date, b.weight === '' ? null : Number(b.weight), b.fat === '' ? null : Number(b.fat), b.muscle === '' ? null : Number(b.muscle), staff ? b.note : '', staff ? b.createdBy : '']; });
 }
 function opSaveBody_(ctx) {
   const me = requireRole_(ctx, ['admin', 'manager', 'leader']);
@@ -2011,7 +2017,7 @@ function ecKeygen_() {
 //   種類：goal＝今週あと○回（土曜18時・日曜9時）／cheer＝応援が届いた（7〜22時に1時間ごとにまとめて）／pinreq＝暗証番号の再発行の依頼（管理者）
 // ---------------------------------------------------------------------------
 const PUSH_KINDS = { goal: 1, cheer: 1, pinreq: 1 };
-const PUSH_HOSTS = /^(fcm\.googleapis\.com|updates\.push\.services\.mozilla\.com|web\.push\.apple\.com|[a-z0-9-]+\.push\.apple\.com|[a-z0-9.-]+\.notify\.windows\.com)$/;
+const PUSH_HOSTS = /^(([a-z0-9-]+\.)*(googleapis|google)\.com|updates\.push\.services\.mozilla\.com|([a-z0-9-]+\.)*push\.apple\.com|[a-z0-9.-]+\.notify\.windows\.com)$/;
 const PUSH_MAX = 400;
 const PUSH_SUB = 'https://kurfc-rugby.github.io/kintore/';
 function vapidKeys_() {
@@ -2147,6 +2153,20 @@ function opPushInbox_(ctx) {
   try { box = JSON.parse(cache.get(k) || '[]'); } catch (x) { box = []; }
   cache.remove(k);
   return { ok: true, messages: box };
+}
+/** 通知の宛先がブラウザの都合で変わったとき（Service Worker から）。前の宛先を知っている端末だけが移せる */
+function opPushMove_(ctx) {
+  const oldEp = String(ctx.req.old || '');
+  const ep = cleanEndpoint_((ctx.req.sub || {}).endpoint);
+  return withLock_(function () {
+    const t = table_('push');
+    const r = t.rows.filter(function (x) { return x.endpoint === oldEp; })[0];
+    if (!r) return { ok: true, moved: false };
+    if (t.rows.some(function (x) { return x.endpoint === ep; })) { remove_('push', r); return { ok: true, moved: false }; }
+    r.endpoint = ep; r.updatedAt = now_(); r.failCount = '0';
+    update_('push', r);
+    return { ok: true, moved: true };
+  });
 }
 function pushTargets_(kind) {
   return table_('push').rows.filter(function (r) { return (',' + r.kinds + ',').indexOf(',' + kind + ',') >= 0; });

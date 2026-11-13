@@ -3,7 +3,7 @@
   'use strict';
   const L = window.KLogic;
   const API = window.KINTORE_API;
-  const VERSION = '2.7.2';
+  const VERSION = '2.7.3';
   const WD = ['日', '月', '火', '水', '木', '金', '土'];
   const PERM = { admin: '管理者', manager: 'マネージャー', leader: 'FWリーダー', member: '一般部員' };
   const MODE = { leader: 'メニュー参加', self: '自主トレ' };
@@ -265,6 +265,13 @@
     (d.stamps || []).forEach((x) => { S.stampMap[x.t + '|' + x.e] = x; });
     if (S.token && !d.me) { S.token = ''; store.del('token'); }
     if (!d.locked) { d.savedAt = Date.now(); store.set('state2', d); }
+  }
+  /** その日の記録を入れ替え、通算（life）もそろえる（「通算○回」のおめでとうがずれないように） */
+  function replaceDay(date, recs) {
+    const life = S.data.life || (S.data.life = {});
+    S.data.records.filter((x) => x[1] === date && +x[2] === 1).forEach((x) => { const l = life[x[0]]; if (l && --l[0] <= 0) delete life[x[0]]; });
+    recs.filter((x) => +x[2] === 1).forEach((x) => { const l = life[x[0]] || (life[x[0]] = [0, x[1]]); l[0]++; if (x[1] < l[1]) l[1] = x[1]; });
+    S.data.records = S.data.records.filter((x) => x[1] !== date).concat(recs);
   }
   async function loadState(range) {
     S.loading = true; S.loadError = '';
@@ -714,7 +721,7 @@
     const ids = [];
     list.forEach((x) => (x.f || []).forEach((id) => { if (ids.indexOf(id) < 0) ids.push(id); }));
     const names = ids.map(nameOf).filter(Boolean);
-    return names.length ? names.slice(0, 3).join('、') + (names.length > 3 ? 'ほか' : '') + ' から' : '';
+    return names.length ? names.slice(0, 3).map(esc).join('、') + (names.length > 3 ? 'ほか' : '') + ' から' : '';
   }
 
   /** 「わたし」：設定で自分の名前を選んだ人だけに出す */
@@ -1007,7 +1014,7 @@
     h += bodyChart(list, 3, 'kg');
     h += '<details class="goal-more"><summary>これまでの記録（' + list.length + '回）</summary><ul class="blist">' + list.slice().reverse().map((b) =>
       '<li><span class="ex-d">' + b[2].replace(/-/g, '/') + '</span><span>' + BODY_K.map((k) => (b[k[3]] === null ? '' : k[1] + ' ' + b[k[3]] + k[2])).filter(Boolean).join('・') + (b[6] ? '<small>' + esc(b[6]) + '</small>' : '') + '</span>' +
-      (staff ? '<button class="textbtn" data-act="body-del" data-id="' + esc(b[0]) + '">消す</button>' : '') + '</li>').join('') + '</ul></details>';
+      (staff && (can('admin') || b[7] === me().id) ? '<button class="textbtn" data-act="body-del" data-id="' + esc(b[0]) + '">消す</button>' : '') + '</li>').join('') + '</ul></details>';
     return h + '</section>';
   }
   function bodyInputs(prefix, v) {
@@ -1233,10 +1240,13 @@
     if (!w) return;
     const today = S.data.today, start = L.weekStart(today);
     let cal = '<div class="mcal-w">' + ['月', '火', '水', '木', '金', '土', '日'].map((x) => '<span>' + x + '</span>').join('') + '</div><div class="mcal-g copycal">';
+    let first = true;
     for (let i = 0; i < 42; i++) {
       const d = L.addDays(start, i);
       const past = d < today, same = d === w.date;
-      cal += past ? '<span class="mday blank"></span>' : '<label class="cday' + (same ? ' src' : '') + '"><input type="checkbox" name="dates" value="' + d + '"' + (same ? ' disabled' : '') + '><span><b>' + +d.slice(8, 10) + '</b>' + (d.slice(8, 10) === '01' || i === 0 || (i === L.dow(today) - 1) ? '<small>' + +d.slice(5, 7) + '月</small>' : '') + '</span></label>';
+      if (past) { cal += '<span class="mday blank"></span>'; continue; }
+      cal += '<label class="cday' + (same ? ' src' : '') + '"><input type="checkbox" name="dates" value="' + d + '"' + (same ? ' disabled' : '') + '><span><b>' + +d.slice(8, 10) + '</b>' + (d.slice(8, 10) === '01' || first ? '<small>' + +d.slice(5, 7) + '月</small>' : '') + '</span></label>';
+      first = false;
     }
     cal += '</div>';
     openSheet('別の日にコピー',
@@ -2198,7 +2208,7 @@
       await busy(el, async () => {
         try {
           const r = await api('restoreRecord', { id: el.dataset.id });
-          S.data.records = S.data.records.filter((x) => x[1] !== r.date).concat(r.records);
+          replaceDay(r.date, r.records);
           setData(S.data); S.hist = {}; render(); openTrash(); toast(mdw(r.date) + ' の記録を戻しました');
         } catch (e) { toast(e.message, 'err'); }
       });
@@ -2261,7 +2271,7 @@
       await busy(el, async () => {
         try {
           const r = await api('deleteRecord', { memberId: m.id, date: date });
-          S.data.records = S.data.records.filter((x) => x[1] !== date).concat(r.records);
+          replaceDay(date, r.records);
           setData(S.data); S.hist = {}; render(); toast('取り消しました');
         } catch (e) { toast(e.message, 'err'); }
       });
@@ -2287,7 +2297,7 @@
       await busy(el, async () => {
         try {
           const r = await api('saveRecords', { date: date, items: items });
-          S.data.records = S.data.records.filter((x) => x[1] !== date).concat(r.records);
+          replaceDay(date, r.records);
           setData(S.data); S.hist = {};
           S.rec.edits = {};
           closeSheet(); render();
@@ -2560,7 +2570,7 @@
     const t = ev.target;
     if (t.dataset && t.dataset.actInput === 'arch-q') {
       clearTimeout(archTimer);
-      archTimer = setTimeout(() => { S.archive.q = t.value; render(); const el = $('.search'); if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); } }, 250);
+      archTimer = setTimeout(() => { if (!S.archive || S.route.name !== 'archive') return; S.archive.q = t.value; render(); const el = $('.search'); if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); } }, 250);
     }
   });
   document.addEventListener('keydown', (ev) => {

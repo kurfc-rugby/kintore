@@ -517,6 +517,8 @@ section('体重・体組成');
   ok(api({ op: 'saveBody', rows: [{ memberId: ps[0].id, date: '2026-11-10', weight: 70 }] }).error === 'auth', '一般部員（ログインなし）は入れられない');
   const b1 = api({ op: 'state', token: LD }).body.find((b) => b[1] === ps[1].id);
   ok(api({ op: 'deleteBody', token: MX, id: b1[0] }).error === 'forbidden', 'ほかの人が入れた記録は（管理者以外）消せない');
+  const lb = api({ op: 'state', token: LD }).body, me = api({ op: 'state', token: LD }).me;
+  ok(lb.find((b) => b[1] === ps[1].id)[7] === me.id && api({ op: 'state' }).body[0][7] === '', 'スタッフには入れた人が分かる（「消す」を出し分けるため。一般には見せない）');
   ok(api({ op: 'deleteBody', token: LD, id: b1[0] }).ok && api({ op: 'state' }).body.length === 1, '自分が入れた記録は消せる');
 })();
 
@@ -640,7 +642,30 @@ section('通知（Web Push）');
   ok(gas.sheet('通知の宛先').data.length === 2, '通知サービスが「もう無い」と返した宛先は消す');
   gas.push.respond = () => 201;
   ok(api({ op: 'pushUnregister', sub: { endpoint: AP } }).ok && gas.sheet('通知の宛先').data.length === 1, '通知をオフにすると宛先を消す');
+  // ブラウザが宛先を作り直したとき（Service Worker から）
+  const EP2 = 'https://fcm.googleapis.com/fcm/send/zzzz-new-endpoint';
+  api({ op: 'pushRegister', sub: { endpoint: EP }, memberId: p.id, kinds: ['goal'] });
+  ok(api({ op: 'pushMove', old: 'https://fcm.googleapis.com/fcm/send/unknown', sub: { endpoint: EP2 } }).moved === false, '知らない宛先からは移さない');
+  ok(api({ op: 'pushMove', old: EP, sub: { endpoint: 'http://evil.example/x' } }).error === 'bad_push', '移し先も決まった通知サービスだけ');
+  ok(api({ op: 'pushMove', old: EP, sub: { endpoint: EP2 } }).moved && gas.sheet('通知の宛先').data.some((r) => r.includes(EP2)) && !gas.sheet('通知の宛先').data.some((r) => r.includes(EP)), '前の宛先を知っていれば新しい宛先に移せる（種類や名前はそのまま）');
+  ok(api({ op: 'pushRegister', sub: { endpoint: 'https://jmt17.google.com/fcm/send/abc' }, memberId: p.id, kinds: ['goal'] }).ok, 'Google の別のサーバー名の宛先も登録できる');
   gas.setToday('2026-11-13');
+})();
+
+section('シートの行が足りなくなったとき');
+(function () {
+  const sh = gas.sheet('応援');
+  const head = sh.data[0], at = head.indexOf('日時');
+  sh.maxRows = 1000;
+  while (sh.data.length < sh.maxRows) { const row = head.map(() => 'x'); row[at] = '2026-11-12 10:00:00'; row[0] = 'ST' + sh.data.length; sh.data.push(row); }
+  const r = api({ op: 'stamp', target: api({ op: 'state' }).members.find((m) => m.player && m.active).id, event: 'g:2026-11-02', kind: 'clap', device: '0f0f0f0f0f0f0f0f' });
+  ok(r.ok && sh.maxRows > 1000 && sh.data.length === 1001, '1000行を超えても書ける（行を足してから書く）');
+  // 古い応援を消すとき、途中に空いた行があっても正しく消す
+  sh.data.length = 1; sh.maxRows = 1000;
+  const mk = (id, d) => { const row = head.map(() => ''); row[0] = id; row[at] = d + ' 10:00:00'; head.forEach((h, i) => { if (!row[i]) row[i] = 'x'; }); return row; };
+  sh.data.push(mk('S1', '2024-01-01'), head.map(() => ''), mk('S2', '2024-01-02'), mk('S3', '2026-11-12'));
+  gas.run('pruneStamps_', '2026-11-13');
+  eq(sh.data.slice(1).map((x) => x[0]), ['S3'], '400日より古い応援は、間に空の行があってもまとめて消す（新しいものは残す）');
 })();
 
 section('操作履歴');

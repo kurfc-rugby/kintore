@@ -5,7 +5,7 @@
  *  サーバー（script.google.com）への通信 … 触らない（いつもネット）
  *  通知（push）… 中身は来ないので、サーバー（pushInbox）に取りに行って表示する
  * 版を上げるときは VERSION と、index.html の ?v= を一緒に変える。 */
-const VERSION = '2.7.2';
+const VERSION = '2.7.3';
 const CACHE = 'kintore-' + VERSION;
 try { importScripts('config.js?v=' + VERSION); } catch (e) { /* 読めなくても画面はしまっておいたもので動く */ }
 const SHELL = ['./', 'style.css?v=' + VERSION, 'app.js?v=' + VERSION, 'logic.js?v=' + VERSION, 'config.js?v=' + VERSION,
@@ -62,6 +62,16 @@ self.addEventListener('push', (e) => {
     for (const m of msgs.slice(-3)) {
       await self.registration.showNotification(m.title, { body: m.body || '', tag: m.tag || undefined, renotify: !!m.tag, icon: 'icons/icon-192.png', badge: 'icons/badge-96.png', lang: 'ja', data: { url: m.url || './' } });
     }
+  })());
+});
+// ブラウザが通知の宛先を作り直したとき、サーバーの登録を新しい宛先に移す
+self.addEventListener('pushsubscriptionchange', (e) => {
+  e.waitUntil((async () => {
+    const old = e.oldSubscription;
+    let sub = e.newSubscription;
+    if (!sub && old && old.options) { try { sub = await self.registration.pushManager.subscribe(old.options); } catch (x) { return; } }
+    if (!sub || !old || !self.KINTORE_API) return;
+    try { await fetch(self.KINTORE_API, { method: 'POST', body: JSON.stringify({ op: 'pushMove', old: old.endpoint, sub: sub.toJSON() }), redirect: 'follow' }); } catch (x) { /* 次に画面を開いたときに登録し直す */ }
   })());
 });
 self.addEventListener('notificationclick', (e) => {
