@@ -290,6 +290,31 @@ ok(api({ op: 'state', token: M2 }).me === null, '会計アプリで在籍を外�
 const dump = JSON.stringify(gas.dump());
 ok(!dump.includes('manager-1-pin') && !dump.includes('leader-pin-1') && !dump.includes(A), '暗証番号とトークンはそのままの形では保存しない');
 
+section('週の目標回数（週3回以上がマスト）');
+(function () {
+  const m = { id: 'g', name: 'g', player: true, active: true, start: '', left: '' };
+  const recs = (ds) => ds.map((d) => ['g', d, 1, 0, '']);
+  // 11/2(月)〜8(日)に3回、11/9〜15に2回（今日は11/13金）、10/26の週に1回
+  const s = { members: [m], menus: [], records: recs(['2026-10-27', '2026-11-02', '2026-11-04', '2026-11-08', '2026-11-10', '2026-11-12']) };
+  const ix = L.buildIndex(s);
+  eq(L.weekCount(ix, m, '2026-11-02'), 3, '週の回数（月曜〜日曜）');
+  const gw = L.goalWeeks(ix, m, '2026-11-01', '2026-11-30', '2026-11-13', 3);
+  eq(gw.map((w) => [w.from, w.count, w.ok, w.open]), [['2026-11-02', 3, true, false], ['2026-11-09', 2, false, true]], '月の週は「月曜がその月にある週」だけ、今週は途中');
+  const sm = L.goalSummary(ix, m, '2026-11-01', '2026-11-30', '2026-11-13', 3);
+  ok(sm.closed === 1 && sm.hit === 1 && sm.every && sm.now.left === 1, '終わった週1つで達成、今週はあと1回');
+  eq(L.streakWeeks(ix, m, '2026-11-13', '2026-01-01', 3), 1, '連続達成：今週が未達なら先週から数える');
+  eq(L.streakWeeks(ix, m, '2026-11-13', '2026-01-01', 2), 2, '目標2回なら今週も入れて2週連続');
+  const ps = L.periodStats(s, ix, '2026-10-26', '2026-11-01', '2026-11-13', { goal: 3 });
+  ok(ps.team.goalClosed === 1 && ps.team.goalHit === 0 && ps.rows[0].goal.weeks[0].left === 2, '過去の週で足りなければ未達');
+  eq(L.goalOf(undefined), 3, '目標の設定が無ければ3回');
+})();
+st = api({ op: 'state' });
+eq(st.weekGoal, 3, 'サーバーの初期値は週3回');
+ok(api({ op: 'saveSettings', token: A, weekGoal: 4 }).weekGoal === 4 && api({ op: 'state' }).weekGoal === 4, '管理者が週の目標回数を変えられる');
+ok(api({ op: 'saveSettings', token: A, weekGoal: 9 }).error === 'bad_goal', '1〜7回以外は保存しない');
+ok(api({ op: 'saveSettings', token: LD, weekGoal: 2 }).ok !== true, '管理者以外は変えられない');
+api({ op: 'saveSettings', token: A, weekGoal: 3 });
+
 section('閲覧の合言葉');
 ok(api({ op: 'saveSettings', token: A, viewPass: 'kurfc2026' }).viewLock === true, '管理者が合言葉を設定できる');
 st = api({ op: 'state' });

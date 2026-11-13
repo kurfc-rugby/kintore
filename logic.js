@@ -126,14 +126,17 @@
   }
   function periodStats(state, idx, from, to, today, opt) {
     opt = opt || {};
-    var rows = [], team = { done: 0, notDone: 0, targetDays: 0, doneT: 0, rate: null, active: 0, members: 0, leaderMembers: 0, todayOpen: 0 };
+    var rows = [], team = { done: 0, notDone: 0, targetDays: 0, doneT: 0, rate: null, active: 0, members: 0, leaderMembers: 0, todayOpen: 0, goal: goalOf(opt.goal), goalClosed: 0, goalHit: 0, goalNow: 0, goalNowOk: 0 };
     (state.members || []).forEach(function (m) {
       if (!inRosterRange(m, from, to)) return;
       if (!matches(m, opt)) return;
       var s = memberStats(idx, m, from, to, today);
       s.name = m.name; s.group = m.group; s.mode = m.mode; s.sort = m.sort || 0;
       s.position = m.position || ''; s.subs = m.subs || []; s.grade = m.grade || '';
+      s.goal = goalSummary(idx, m, from, to, today, opt.goal);
       rows.push(s);
+      team.goalClosed += s.goal.closed; team.goalHit += s.goal.hit;
+      if (s.goal.now) { team.goalNow++; if (s.goal.now.ok) team.goalNowOk++; }
       team.members++;
       if (m.mode === 'leader') team.leaderMembers++;
       team.done += s.done; team.notDone += s.notDone; team.targetDays += s.targetDays; team.doneT += s.doneT; team.todayOpen += s.todayOpen;
@@ -207,40 +210,43 @@
     return o;
   }
 
-  // ---------- 継続状況 ----------
-  // 月の中の「週」（月曜始まり・月内に切り詰め・今日まで）ごとに1回以上実施したか
-  function monthWeeks(from, to, today) {
-    var out = [], end = to < today ? to : today;
-    for (var a = from; a <= end;) {
-      var b = addDays(weekStart(a), 6);
-      if (b > to) b = to;
-      out.push({ from: a, to: b > end ? end : b });
-      a = addDays(b, 1);
+  // ---------- 週の目標（週◯回以上がマスト。週は月曜〜日曜） ----------
+  var DEFAULT_GOAL = 3;
+  function goalOf(g) { g = Number(g); return g >= 1 && g <= 7 ? Math.floor(g) : DEFAULT_GOAL; }
+  /** その週（月曜 ws から7日）に「実施した」日数 */
+  function weekCount(idx, m, ws) {
+    var n = 0;
+    for (var i = 0; i < 7; i++) { var r = getRec(idx, m.id, addDays(ws, i)); if (r && r.s === 1) n++; }
+    return n;
+  }
+  /**
+   * 期間の中の週（月曜が期間内にあり、今日までに始まった週）ごとの達成状況。週の途中で期間が終わっても、週はまるごと数える。
+   * 在籍していない週は入れない。open … まだ終わっていない週（今日が日曜でもまだ終わっていない扱い）
+   */
+  function goalWeeks(idx, m, from, to, today, goal) {
+    goal = goalOf(goal);
+    var out = [];
+    for (var ws = weekStart(from); ws <= to && ws <= today; ws = addDays(ws, 7)) {
+      if (ws < from) continue; // 月の初めの週は、月曜が前の月なら前の月に入れる
+      var we = addDays(ws, 6);
+      if (!inRosterRange(m, ws, we)) continue;
+      var c = weekCount(idx, m, ws);
+      out.push({ from: ws, to: we, count: c, ok: c >= goal, open: we >= today, left: Math.max(0, goal - c) });
     }
     return out;
   }
-  function continuity(idx, m, from, to, today) {
-    var weeks = monthWeeks(from, to, today), hit = 0, marks = [];
-    weeks.forEach(function (w) {
-      var got = false;
-      for (var d = w.from; d <= w.to; d = addDays(d, 1)) {
-        var r = getRec(idx, m.id, d);
-        if (r && r.s === 1) { got = true; break; }
-      }
-      if (got) hit++;
-      marks.push(got);
-    });
-    return { weeks: weeks.length, hit: hit, every: weeks.length > 0 && hit === weeks.length, marks: marks };
+  /** 週の目標のまとめ。closed … 終わった週の数、hit … そのうち達成した週、now … 終わっていない週（無ければ null） */
+  function goalSummary(idx, m, from, to, today, goal) {
+    var ws = goalWeeks(idx, m, from, to, today, goal), closed = 0, hit = 0, now = null;
+    ws.forEach(function (w) { if (w.open) now = w; else { closed++; if (w.ok) hit++; } });
+    return { weeks: ws, closed: closed, hit: hit, now: now, every: closed > 0 && hit === closed };
   }
-  // 連続で実施している週の数（今週まだ実施が無ければ先週から数える）。minDate より前は数えない
-  function streakWeeks(idx, m, today, minDate) {
-    function has(ws) {
-      for (var i = 0; i < 7; i++) { var d = addDays(ws, i); if (d > today) break; var r = getRec(idx, m.id, d); if (r && r.s === 1) return true; }
-      return false;
-    }
+  // 続けて目標を達成している週の数（今週がまだ未達なら先週から数える）。minDate より前は数えない
+  function streakWeeks(idx, m, today, minDate, goal) {
+    goal = goalOf(goal);
     var ws = weekStart(today), n = 0;
-    if (!has(ws)) ws = addDays(ws, -7);
-    while (ws >= weekStart(minDate) && has(ws)) { n++; ws = addDays(ws, -7); }
+    if (weekCount(idx, m, ws) < goal) ws = addDays(ws, -7);
+    while (ws >= weekStart(minDate) && weekCount(idx, m, ws) >= goal) { n++; ws = addDays(ws, -7); }
     return n;
   }
 
@@ -252,6 +258,6 @@
     prevPeriod: prevPeriod, nextPeriod: nextPeriod,
     buildIndex: buildIndex, getRec: getRec, inRoster: inRoster, inRosterRange: inRosterRange, isTarget: isTarget, hasPosition: hasPosition,
     cellState: cellState, memberStats: memberStats, periodStats: periodStats, positionStats: positionStats, rank: rank, dayStatus: dayStatus,
-    monthWeeks: monthWeeks, continuity: continuity, streakWeeks: streakWeeks, pct: pct
+    DEFAULT_GOAL: DEFAULT_GOAL, goalOf: goalOf, weekCount: weekCount, goalWeeks: goalWeeks, goalSummary: goalSummary, streakWeeks: streakWeeks, pct: pct
   };
 });

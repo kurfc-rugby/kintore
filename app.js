@@ -3,7 +3,7 @@
   'use strict';
   const L = window.KLogic;
   const API = window.KINTORE_API;
-  const VERSION = '2.1.0';
+  const VERSION = '2.2.0';
   const WD = ['日', '月', '火', '水', '木', '金', '土'];
   const PERM = { admin: '管理者', manager: 'マネージャー', leader: 'FWリーダー', member: '一般部員' };
   const MODE = { leader: 'メニュー参加', self: '自主トレ' };
@@ -89,6 +89,7 @@
     if (what === 'admin') return m.perm === 'admin';
     return false;
   };
+  const goal = () => L.goalOf(S.data && S.data.weekGoal);
   const positions = () => (S.data && S.data.positions && S.data.positions.length ? S.data.positions : FALLBACK_POS);
   const posOf = (code) => positions().find((p) => p.code === code) || null;
   const memberById = (id) => (S.data.members || []).find((m) => m.id === id) || null;
@@ -205,7 +206,7 @@
       pos.map((p) => '<button class="pchip g-' + p.group + '" data-act="' + act + '-pos" data-v="' + esc(p.code) + '" aria-pressed="' + (position === p.code) + '">' + esc(p.code) + '</button>').join('') +
       '</div></div>';
   }
-  function filterOpt() { return { group: S.position ? 'ALL' : S.group, position: S.position }; }
+  function filterOpt() { return { group: S.position ? 'ALL' : S.group, position: S.position, goal: goal() }; }
   function filterNote() {
     if (S.position) { const p = posOf(S.position); return p ? p.code + '（' + p.name + '・背番号' + p.numbers.join('・') + '）。サブが' + p.code + 'の人も入ります' : ''; }
     return '';
@@ -220,8 +221,8 @@
   // ---------- ホーム ----------
   function vHome() {
     const d = S.data, today = d.today, p = curPeriod(), pv = L.prevPeriod(S.kind, p.from);
-    const cur = L.periodStats(d, S.idx, p.from, p.to, today);
-    const pre = L.periodStats(d, S.idx, pv.from, pv.to, today);
+    const cur = L.periodStats(d, S.idx, p.from, p.to, today, { goal: goal() });
+    const pre = L.periodStats(d, S.idx, pv.from, pv.to, today, { goal: goal() });
     const rk = L.rank(cur.rows, 'count');
     const ranked = rk.filter((r) => r.rank !== null);
     const isNow = today >= p.from && today <= p.to;
@@ -236,11 +237,10 @@
       '<div class="board-cell"><div class="board-k">メニュー参加者の実施率</div><div class="board-v2"><span class="num">' + (t.rate === null ? '－' : Math.round(t.rate * 100)) + '</span>' + (t.rate === null ? '' : '<span class="unit">%</span>') + '</div>' +
       '<div class="board-s">' + (t.rate === null ? 'まだ対象日がありません' : t.doneT + '/' + t.targetDays + '日') +
       (t.rate !== null && pre.team.rate !== null ? ' ' + delta(Math.round(t.rate * 100), Math.round(pre.team.rate * 100), 'pt') : '') + '</div></div>' +
-      '<div class="board-cell"><div class="board-k">実施した部員</div><div class="board-v2"><span class="num">' + t.active + '</span><span class="unit">/' + t.members + '人</span></div>' +
-      '<div class="meter" role="img" aria-label="' + (t.members ? Math.round(t.active / t.members * 100) : 0) + '%"><i style="width:' + (t.members ? Math.round(t.active / t.members * 100) : 0) + '%"></i></div>' +
-      '<div class="board-s">1回以上「実施した」の人</div></div>' +
+      goalCell(t) +
       '</div></section>';
     if (isNow) h += todayCard();
+    if (S.kind === 'week') h += goalBlock(cur.rows, isNow);
     h += '<section class="block"><div class="block-h"><h2>ランキング</h2><a class="more" href="#rank">すべて見る</a></div>';
     if (!ranked.length) h += '<p class="empty">この期間の実施記録はまだありません。' + (can('record') ? '<br><a href="#record">記録をつける</a>' : '') + '</p>';
     else {
@@ -250,8 +250,37 @@
     }
     h += '</section>';
     h += formationBlock(p);
-    if (S.kind === 'month') h += continuityBlock(cur.rows, p);
+    if (S.kind === 'month') h += continuityBlock(cur.rows);
     return h;
+  }
+
+  // 週◯回（マスト）の達成。週間は人数、月間は「終わった週」の達成率
+  function goalCell(t) {
+    const g = t.goal;
+    if (S.kind === 'week') {
+      const n = t.goalNow + t.goalClosed, ok = t.goalNowOk + t.goalHit, w = n ? Math.round(ok / n * 100) : 0;
+      return '<div class="board-cell"><div class="board-k">週' + g + '回の達成（マスト）</div><div class="board-v2"><span class="num">' + ok + '</span><span class="unit">/' + n + '人</span></div>' +
+        '<div class="meter" role="img" aria-label="' + w + '%"><i style="width:' + w + '%"></i></div>' +
+        '<div class="board-s">' + (t.goalNow ? '日曜までに' + g + '回で達成' : 'この週に' + g + '回以上の人') + '</div></div>';
+    }
+    const r = t.goalClosed ? Math.round(t.goalHit / t.goalClosed * 100) : null;
+    return '<div class="board-cell"><div class="board-k">週' + g + '回の達成率（マスト）</div><div class="board-v2"><span class="num">' + (r === null ? '－' : r) + '</span>' + (r === null ? '' : '<span class="unit">%</span>') + '</div>' +
+      '<div class="board-s">' + (r === null ? 'まだ終わった週がありません' : '終わった週 ' + t.goalHit + '/' + t.goalClosed + '（人×週）') + '</div></div>';
+  }
+  function goalBlock(rows, isNow) {
+    const g = goal();
+    const list = rows.filter((r) => r.goal.weeks.length).map((r) => Object.assign({ w: r.goal.weeks[0] }, r));
+    if (!list.length) return '';
+    const miss = list.filter((r) => !r.w.ok).sort((a, b) => (b.w.count - a.w.count) || (a.sort - b.sort));
+    let h = '<section class="block goal"><div class="block-h"><h2>週' + g + '回（マスト）' + (isNow ? 'まだの人' : '未達の人') + '</h2><span class="count">' + miss.length + '人</span></div>';
+    if (!miss.length) return h + '<p class="goal-all">' + icon('check') + '全員が週' + g + '回を達成' + (isNow ? 'しています' : 'しました') + '。</p></section>';
+    const li = (r) => '<li><a href="#member/' + r.id + '"><span class="goal-n">' + esc(r.name) + '</span>' +
+      '<span class="goal-c"><b class="num">' + r.w.count + '</b>/' + g + '</span>' +
+      '<span class="goal-s' + (isNow ? '' : ' ng') + '">' + (isNow ? 'あと' + r.w.left : '未達') + '</span></a></li>';
+    const FIRST = 8;
+    h += '<ul class="goal-list">' + miss.slice(0, FIRST).map(li).join('') + '</ul>';
+    if (miss.length > FIRST) h += '<details class="goal-more"><summary>ほか ' + (miss.length - FIRST) + '人を見る</summary><ul class="goal-list">' + miss.slice(FIRST).map(li).join('') + '</ul></details>';
+    return h + '<p class="note">週は月曜〜日曜。' + (isNow ? '日曜までに' + g + '回以上で達成です。' : '') + '</p></section>';
   }
 
   function todayCard() {
@@ -277,15 +306,24 @@
     return '<ol class="podium n' + top.length + '">' + order.map((r) =>
       '<li class="pod r' + r.rank + (r === top[0] ? ' lead' : '') + '"><a href="#member/' + r.id + '" aria-label="' + r.rank + '位 ' + esc(r.name) + ' ' + r.done + '回">' +
       jersey({ num: r.rank, name: r.name.split(/\s+/)[0] }) +
-      '<span class="pod-name">' + esc(r.name) + '</span>' +
+      '<span class="pod-rank">' + r.rank + '位</span><span class="pod-name">' + esc(r.name) + '</span>' +
       '<span class="pod-val"><span class="num">' + r.done + '</span>回' + (r.rate !== null ? '<small>' + Math.round(r.rate * 100) + '%</small>' : '') + '</span>' +
       '</a></li>').join('') + '</ol>';
   }
+  function goalTag(r) {
+    const gs = r.goal;
+    if (!gs || !gs.weeks.length) return '';
+    if (S.kind === 'week') {
+      const w = gs.weeks[0];
+      return w.ok ? '<small class="gt ok">達成</small>' : w.open ? '<small class="gt">あと' + w.left + '</small>' : '<small class="gt ng">未達</small>';
+    }
+    return gs.closed ? '<small class="gt' + (gs.every ? ' ok' : '') + '">達成' + gs.hit + '/' + gs.closed + '週</small>' : '';
+  }
   function rankRow(r) {
     return '<li class="rrank' + (r.rank && r.rank <= 3 ? ' is-top' : '') + '"><a href="#member/' + r.id + '">' +
-      '<span class="rk">' + (r.rank === null ? '－' : r.rank) + '</span>' +
+      '<span class="rk">' + (r.rank === null ? '－' : r.rank + '<small>位</small>') + '</span>' +
       '<span class="rname"><b>' + esc(r.name) + '</b><small><span class="pos-tag g-' + (r.group || 'X') + '">' + posLabel(r) + '</span>' + (r.grade ? esc(r.grade) + '・' : '') + MODE[r.mode] + '</small></span>' +
-      '<span class="rcount"><span class="num">' + r.done + '</span>回</span>' +
+      '<span class="rcount"><span class="num">' + r.done + '</span>回' + goalTag(r) + '</span>' +
       '<span class="rrate">' + (r.rate === null ? '<span class="dash">－</span>' : '<span class="num">' + Math.round(r.rate * 100) + '</span>%<small>' + r.doneT + '/' + r.targetDays + '</small>') + '</span>' +
       '</a></li>';
   }
@@ -315,20 +353,22 @@
     return h;
   }
 
-  function continuityBlock(rows, p) {
-    const d = S.data;
-    const list = rows.map((r) => Object.assign({ c: L.continuity(S.idx, memberById(r.id), p.from, p.to, d.today) }, r)).filter((r) => r.c.weeks > 0);
+  function continuityBlock(rows) {
+    const g = goal();
+    const list = rows.filter((r) => r.goal.weeks.length);
     if (!list.length) return '';
-    list.sort((a, b) => (b.c.hit - a.c.hit) || (b.done - a.done) || (a.name < b.name ? -1 : 1));
-    const every = list.filter((r) => r.c.every);
-    let h = '<section class="block"><div class="block-h"><h2>継続状況</h2></div>' +
-      '<p class="lead-line"><span class="num">' + every.length + '</span>人が、ここまでの' + list[0].c.weeks + '週すべてで実施しています。</p><ul class="cont">';
+    list.sort((a, b) => (b.goal.hit - a.goal.hit) || (b.done - a.done) || (a.sort - b.sort));
+    const closed = Math.max(...list.map((r) => r.goal.closed));
+    const every = list.filter((r) => r.goal.every);
+    let h = '<section class="block"><div class="block-h"><h2>週' + g + '回の達成（マスト）</h2></div>' +
+      (closed ? '<p class="lead-line"><span class="num">' + every.length + '</span>人が、終わった' + closed + '週すべてで週' + g + '回を達成しています。</p>' : '<p class="lead-line small">この月はまだ終わった週がありません。</p>') + '<ul class="cont">';
     list.forEach((r) => {
+      const gs = r.goal;
       h += '<li><a href="#member/' + r.id + '"><span class="cont-n">' + esc(r.name) + '</span>' +
-        '<span class="cont-w" role="img" aria-label="' + r.c.weeks + '週のうち' + r.c.hit + '週で実施">' + r.c.marks.map((m) => '<i class="' + (m ? 'on' : '') + '"></i>').join('') + '</span>' +
-        '<span class="cont-v">' + r.c.hit + '/' + r.c.weeks + '週</span></a></li>';
+        '<span class="cont-w" role="img" aria-label="' + gs.closed + '週のうち' + gs.hit + '週で達成">' + gs.weeks.map((w) => '<i class="' + (w.ok ? 'on' : w.open ? 'open' : 'ng') + '" title="' + mdw(w.from) + '〜 ' + w.count + '回"></i>').join('') + '</span>' +
+        '<span class="cont-v">' + gs.hit + '/' + gs.closed + '週</span></a></li>';
     });
-    return h + '</ul><p class="note">月曜始まりの週ごとに、1回でも「実施した」があれば ■ になります。</p></section>';
+    return h + '</ul><p class="note">月曜始まりの週ごとに、' + g + '回以上「実施した」なら ■（達成）、足りなければ赤枠、終わっていない週は点線。月曜がその月にある週を、その月に数えます。</p></section>';
   }
 
   // ---------- ランキング ----------
@@ -353,6 +393,7 @@
       '<li>自主トレの人は実施率を出さず「－」。実施回数で比べます。</li>' +
       '<li>実施率が同じときは、実施回数の多い人が上です。</li>' +
       '<li>ポジションで絞ると、メインかサブがそのポジションの人が入ります。</li>' +
+      '<li><b>週' + goal() + '回以上がマスト</b>：月曜〜日曜の週ごとに' + goal() + '回以上「実施した」で達成。週間ではその週の達成、月間では終わった週のうち達成した週の数を出します。</li>' +
       '<li>週は月曜〜日曜、月は1日〜月末（日本時間）。</li></ul></section>';
     return h;
   }
@@ -445,7 +486,9 @@
     const mo = L.monthRange(S.memberMonth), wk = L.weekRange(today), tm = L.monthRange(today);
     const sw = L.memberStats(S.idx, m, wk.from, wk.to, today);
     const sm = L.memberStats(S.idx, m, tm.from, tm.to, today);
-    const streak = m.player ? L.streakWeeks(S.idx, m, today, d.range.from) : 0;
+    const g = goal();
+    const streak = m.player ? L.streakWeeks(S.idx, m, today, d.range.from, g) : 0;
+    const wc = L.weekCount(S.idx, m, wk.from);
     const pos = posOf(m.position);
     let h = '<div class="profile"><a class="ibtn back" href="#members" data-act="go-back" aria-label="戻る">' + icon('back') + '</a>' +
       '<div class="profile-j">' + jersey({ num: pos ? pos.numbers[0] : '', name: m.name.split(/\s+/)[0] }) + '</div>' +
@@ -456,11 +499,12 @@
       (can('admin') ? '<button class="btn small" data-act="member-edit" data-id="' + m.id + '">編集</button>' : '') + '</div>';
     if (!m.player) return h + '<p class="empty">選手ではないため、筋トレの記録はありません。</p>';
     h += '<div class="tiles">' +
-      '<div class="tile"><div class="tile-k">今週</div><div class="tile-v"><span class="num">' + sw.done + '</span>回</div></div>' +
+      '<div class="tile' + (wc >= g ? ' t-ok' : '') + '"><div class="tile-k">今週</div><div class="tile-v"><span class="num">' + sw.done + '</span>回<small>/' + g + '</small></div>' +
+      '<div class="tile-s">' + (wc >= g ? '週' + g + '回 達成' : '週' + g + '回まで あと' + (g - wc) + '回') + '</div></div>' +
       '<div class="tile"><div class="tile-k">今月</div><div class="tile-v"><span class="num">' + sm.done + '</span>回</div></div>' +
       '<div class="tile"><div class="tile-k">今月の実施率</div><div class="tile-v">' + (sm.rate === null ? '<span class="dash">－</span>' : '<span class="num">' + Math.round(sm.rate * 100) + '</span>%') + '</div>' +
       '<div class="tile-s">' + (sm.rate === null ? (m.mode === 'self' ? '自主トレは回数で見ます' : 'まだ対象日がありません') : sm.doneT + '/' + sm.targetDays + '日') + '</div></div>' +
-      '<div class="tile"><div class="tile-k">連続</div><div class="tile-v"><span class="num">' + streak + '</span>週</div></div></div>';
+      '<div class="tile"><div class="tile-k">週' + g + '回の連続達成</div><div class="tile-v"><span class="num">' + streak + '</span>週</div></div></div>';
     const atNow = mo.from === tm.from;
     h += '<section class="block"><div class="mcal-nav"><button class="ibtn" data-act="mmonth" data-v="-1" aria-label="前の月">' + icon('back') + '</button>' +
       '<b>' + ymLabel(mo.from) + '</b><button class="ibtn" data-act="mmonth" data-v="1" aria-label="次の月"' + (atNow ? ' disabled' : '') + '>' + icon('next') + '</button></div>' +
@@ -696,6 +740,7 @@
       h += '<section class="block"><div class="block-h"><h2>管理者メニュー</h2></div><ul class="links">' +
         '<li><a href="#members">部員の追加・編集・権限<small>ポジション・取り組み方の設定は「まとめて編集」が便利です</small></a></li>' +
         '<li><a href="#logs">操作履歴<small>だれが・いつ・何を変えたか</small></a></li>' +
+        '<li><button data-act="goal-open">週の目標回数（マスト）<small>いまは週' + goal() + '回以上</small></button></li>' +
         '<li><button data-act="viewlock">閲覧の合言葉<small>' + (S.data.viewLock ? '設定中：合言葉を知っている人だけ見られます' : '未設定：URLを知っていれば誰でも見られます') + '</small></button></li>' +
         '</ul></section>';
     }
@@ -703,6 +748,7 @@
       '<li>マネージャーが Setlog などを確認して、筋トレをした人に「実施した」を付けます。</li>' +
       '<li>取り組み方は2つ。<b>メニュー参加</b>（FWリーダーのメニューに沿う）と<b>自主トレ</b>（自分で決める）。どちらも実施記録の対象です。</li>' +
       '<li>メニューの対象日に「実施した」が無ければ、翌日から<b>実施していない</b>（×）になります。メニューが無い日・自主トレの人は×になりません。</li>' +
+      '<li><b>週' + goal() + '回以上の筋トレがマスト</b>です（月曜〜日曜）。ホームで「まだの人」、ランキングで達成・未達が分かります。</li>' +
       '<li><b>実施率</b>はメニュー参加の人だけ。実施した対象日 ÷ 対象日。自主トレの人は実施回数で見ます。</li>' +
       '<li>部員名簿は会計アプリと共通です。進級や入部・退部は、どちらで直しても両方に反映されます。</li></ul></section>';
     h += '<div class="toolbar"><button class="btn" data-act="reload">最新の情報に更新</button></div>' +
@@ -838,6 +884,14 @@
     });
     return { rows: rows, errs: errs };
   }
+  function openGoal() {
+    const g = goal();
+    openSheet('週の目標回数',
+      '<form data-form="goal" class="form"><p class="lead-line small">月曜〜日曜の1週間に、何回以上の筋トレをマストにするか。変えると、過去の週の達成もこの回数で数え直します。</p>' +
+      '<label>週の回数<select name="goal">' + [1, 2, 3, 4, 5, 6, 7].map((n) => '<option value="' + n + '"' + (n === g ? ' selected' : '') + '>' + n + '回以上</option>').join('') + '</select></label>' +
+      '<p class="form-err" hidden></p>' +
+      '<div class="actions"><button type="button" class="btn" data-act="sheet-close">やめる</button><button class="btn primary" type="submit">保存</button></div></form>');
+  }
   function openViewLock() {
     openSheet('閲覧の合言葉',
       '<form data-form="viewlock" class="form"><p class="lead-line small">' + (S.data.viewLock
@@ -855,7 +909,7 @@
     const r = S.route.name, m = me();
     const navOn = r === 'member' ? 'members' : r === 'logs' ? 'settings' : r;
     const items = NAV.filter((n) => n[0] !== 'record' || can('record'));
-    return '<header class="top"><a class="brand" href="#home" aria-label="ホーム"><span class="mark" aria-hidden="true">' + jersey({ num: '', kind: 'mark' }) + '</span><span class="brand-t"><b>KURFC</b>筋トレ</span></a>' +
+    return '<header class="top"><a class="brand" href="#home" aria-label="ホーム"><img class="mark" src="crest.webp?v=1" alt="" width="30" height="32"><span class="brand-t"><b>KURFC</b>筋トレ</span></a>' +
       '<span class="top-title">' + (TITLE[r] || '') + '</span>' +
       '<a class="top-acct' + (navOn === 'settings' ? ' on' : '') + '" href="#settings" aria-label="設定">' + (m ? '<span class="who">' + PERM[m.perm] + '</span>' : '') + icon('gear') + '</a></header>' +
       '<div class="hoops" aria-hidden="true"></div>' +
@@ -1013,6 +1067,7 @@
       closeSheet(); await loadState(); render(); toast('ログアウトしました');
     },
     'pin-change': () => openPinChange(false),
+    'goal-open': () => openGoal(),
     viewlock: () => openViewLock(),
     reload: async (el) => { await busy(el, async () => { await loadState(); render(); if (!S.loadError) toast('最新の情報に更新しました'); }); },
     'logs-more': (el) => busy(el, () => loadLogs(S.logs.list.length)),
@@ -1158,6 +1213,14 @@
           const r = await api('importMembers', { rows: p.rows });
           closeSheet(); await loadState(); render();
           toast('追加 ' + r.added + '人・更新 ' + r.updated + '人' + (r.skipped.length ? '（そのままの人：' + r.skipped.join('、') + '）' : ''));
+        } catch (e) { sheetError(e.message); }
+      });
+    },
+    goal: async (f, btn) => {
+      await busy(btn, async () => {
+        try {
+          await api('saveSettings', { weekGoal: Number(f.goal.value) });
+          closeSheet(); await loadState(); render(); toast('週の目標を ' + f.goal.value + '回以上にしました');
         } catch (e) { sheetError(e.message); }
       });
     },

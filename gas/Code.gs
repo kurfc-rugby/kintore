@@ -10,7 +10,7 @@
  * 最初にやること：スプレッドシートのメニュー「筋トレ管理」→「管理者を登録」
  * 詳しくは 04_ドキュメント/筋トレ管理アプリ_使い方と引き継ぎ.md
  */
-const APP_VERSION = '2.0.0';
+const APP_VERSION = '2.2.0';
 const SCHEMA_VERSION = '2';
 const TZ = 'Asia/Tokyo';
 const SESSION_DAYS = 90;
@@ -286,6 +286,12 @@ function withLock_(fn) {
 function setting_(key) {
   const row = table_('settings').rows.filter(function (r) { return r.key === key; })[0];
   return row ? row.value : '';
+}
+/** 週の目標回数（週◯回以上がマスト）。設定が無ければ3 */
+const DEFAULT_WEEK_GOAL = 3;
+function weekGoal_() {
+  const v = parseInt(setting_('weekGoal'), 10);
+  return v >= 1 && v <= 7 ? v : DEFAULT_WEEK_GOAL;
 }
 function setSetting_(key, value) {
   const row = table_('settings').rows.filter(function (r) { return r.key === key; })[0];
@@ -786,7 +792,7 @@ function recordsWire_(from, to) {
 function opState_(ctx) {
   const today = today_();
   const locked = !!setting_('viewPassHash') && !ctx.me && !ctx.view;
-  const base = { ok: true, version: APP_VERSION, today: today, me: ctx.me, staff: staffList_(), viewLock: !!setting_('viewPassHash'), positions: positionsList_() };
+  const base = { ok: true, version: APP_VERSION, today: today, me: ctx.me, staff: staffList_(), viewLock: !!setting_('viewPassHash'), weekGoal: weekGoal_(), positions: positionsList_() };
   if (locked) { base.locked = true; return base; }
   let from = ctx.req.from ? reqDate_(ctx.req.from, '開始日') : addDays_(today, -DEFAULT_BACK_DAYS);
   let to = ctx.req.to ? reqDate_(ctx.req.to, '終了日') : addDays_(today, DEFAULT_AHEAD_DAYS);
@@ -1218,6 +1224,15 @@ function opLogs_(ctx) {
 function opSaveSettings_(ctx) {
   const me = requireRole_(ctx, ['admin']);
   return withLock_(function () {
+    if (ctx.req.weekGoal !== undefined) {
+      const g = Number(ctx.req.weekGoal);
+      if (!(g >= 1 && g <= 7 && Math.floor(g) === g)) throw err_('bad_goal', '週の目標回数は1〜7回で選んでください。');
+      const before = weekGoal_();
+      if (g !== before) {
+        setSetting_('weekGoal', String(g));
+        log_(me, '週の目標回数を変更', '週' + before + '回 → 週' + g + '回');
+      }
+    }
     if (ctx.req.viewPass !== undefined) {
       const p = String(ctx.req.viewPass == null ? '' : ctx.req.viewPass);
       if (p === '') {
@@ -1231,7 +1246,7 @@ function opSaveSettings_(ctx) {
         log_(me, '閲覧の合言葉を設定', '');
       }
     }
-    return { ok: true, viewLock: !!setting_('viewPassHash') };
+    return { ok: true, viewLock: !!setting_('viewPassHash'), weekGoal: weekGoal_() };
   });
 }
 
