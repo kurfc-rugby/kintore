@@ -3,9 +3,11 @@
  *  css・js・画像（?v=版 付き）… しまっておいたもの優先。無ければ取りに行ってしまう
  *  フォント … しまっておいたもの優先
  *  サーバー（script.google.com）への通信 … 触らない（いつもネット）
+ *  通知（push）… 中身は来ないので、サーバー（pushInbox）に取りに行って表示する
  * 版を上げるときは VERSION と、index.html の ?v= を一緒に変える。 */
-const VERSION = '2.6.0';
+const VERSION = '2.7.0';
 const CACHE = 'kintore-' + VERSION;
+try { importScripts('config.js?v=' + VERSION); } catch (e) { /* 読めなくても画面はしまっておいたもので動く */ }
 const SHELL = ['./', 'style.css?v=' + VERSION, 'app.js?v=' + VERSION, 'logic.js?v=' + VERSION, 'config.js?v=' + VERSION,
   'crest.webp?v=1', 'manifest.webmanifest', 'icons/icon-192.png', 'icons/apple-touch-icon.png'];
 
@@ -41,4 +43,33 @@ self.addEventListener('fetch', (e) => {
   if (req.mode === 'navigate') { e.respondWith(networkFirst(req)); return; }
   if (/\/sw\.js$/.test(url.pathname)) return;
   e.respondWith(fromCacheFirst(req));
+});
+
+// ---------- 通知 ----------
+self.addEventListener('push', (e) => {
+  e.waitUntil((async () => {
+    let msgs = [];
+    try { if (e.data) { const j = e.data.json(); if (j && j.title) msgs = [j]; } } catch (x) { /* 中身なし */ }
+    if (!msgs.length && self.KINTORE_API) {
+      try {
+        const sub = await self.registration.pushManager.getSubscription();
+        const r = await fetch(self.KINTORE_API, { method: 'POST', body: JSON.stringify({ op: 'pushInbox', endpoint: sub ? sub.endpoint : '' }), redirect: 'follow' });
+        const j = await r.json();
+        msgs = (j && j.messages) || [];
+      } catch (x) { msgs = []; }
+    }
+    if (!msgs.length) msgs = [{ title: 'KURFC 筋トレ', body: '新しいお知らせがあります。開いて確かめてください。', url: './', tag: 'kintore' }];
+    for (const m of msgs.slice(-3)) {
+      await self.registration.showNotification(m.title, { body: m.body || '', tag: m.tag || undefined, renotify: !!m.tag, icon: 'icons/icon-192.png', badge: 'icons/badge-96.png', lang: 'ja', data: { url: m.url || './' } });
+    }
+  })());
+});
+self.addEventListener('notificationclick', (e) => {
+  e.notification.close();
+  const url = new URL((e.notification.data && e.notification.data.url) || './', self.registration.scope).href;
+  e.waitUntil((async () => {
+    const list = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+    for (const c of list) { if (c.url.indexOf(self.registration.scope) === 0 && 'focus' in c) { await c.focus(); if ('navigate' in c) { try { await c.navigate(url); } catch (x) { /* noop */ } } return; } }
+    await self.clients.openWindow(url);
+  })());
 });

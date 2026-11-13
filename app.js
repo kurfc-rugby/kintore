@@ -3,7 +3,7 @@
   'use strict';
   const L = window.KLogic;
   const API = window.KINTORE_API;
-  const VERSION = '2.6.0';
+  const VERSION = '2.7.0';
   const WD = ['日', '月', '火', '水', '木', '金', '土'];
   const PERM = { admin: '管理者', manager: 'マネージャー', leader: 'FWリーダー', member: '一般部員' };
   const MODE = { leader: 'メニュー参加', self: '自主トレ' };
@@ -40,7 +40,7 @@
   const reduceMotion = () => window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
   // ---------- 表示の設定（端末ごと） ----------
-  const PREF = { theme: store.get('theme', 'auto'), size: store.get('size', 'm'), self: store.get('self', '') };
+  const PREF = { theme: store.get('theme', 'light'), size: store.get('size', 'm'), self: store.get('self', '') };
   const SIZES = [['s', '小'], ['m', '標準'], ['l', '大'], ['xl', '特大']];
   const darkMQ = window.matchMedia ? window.matchMedia('(prefers-color-scheme: dark)') : null;
   function applyPrefs() {
@@ -81,6 +81,7 @@
     if (/^(localhost|127\.0\.0\.1)$/.test(location.hostname) && !store.get('swdev', 0)) return;
     navigator.serviceWorker.register('sw.js').then((reg) => {
       PWA.reg = reg;
+      if (S.data && !S.data.locked) loadPush().then(() => { if (S.route.name === 'settings') render(); });
       const watch = (w) => { if (!w) return; w.addEventListener('statechange', () => { if (w.state === 'installed' && navigator.serviceWorker.controller) { PWA.waiting = w; showUpdate(); } }); };
       if (reg.waiting && navigator.serviceWorker.controller) { PWA.waiting = reg.waiting; showUpdate(); }
       watch(reg.installing);
@@ -96,6 +97,68 @@
     el.innerHTML = '<span>新しい版があります</span><button class="btn small" data-act="sw-update">更新する</button>';
     document.body.appendChild(el);
   }
+  // ---------- 通知 ----------
+  const PUSH = { endpoint: null, ready: false };
+  const PUSH_KINDS = [
+    ['goal', '今週あと○回のお知らせ', '土曜18時・日曜9時。まだ届いていない週だけ', 'self'],
+    ['cheer', '応援が届いたとき', '1時間ごとにまとめて。夜10時〜朝7時は送りません', 'self'],
+    ['pinreq', '暗証番号の再発行の依頼', '管理者だけ。依頼が来たらすぐ', 'admin']
+  ];
+  const pushSupported = () => 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
+  function b64uBytes(s) {
+    const b = atob(s.replace(/-/g, '+').replace(/_/g, '/') + '==='.slice((s.length + 3) % 4));
+    const out = new Uint8Array(b.length); for (let i = 0; i < b.length; i++) out[i] = b.charCodeAt(i); return out;
+  }
+  async function loadPush() {
+    if (PUSH.loading) return PUSH.loading;
+    PUSH.loading = loadPush0();
+    try { await PUSH.loading; } finally { PUSH.loading = null; }
+  }
+  async function loadPush0() {
+    if (!PWA.reg || !pushSupported()) { PUSH.ready = true; return; }
+    try { const sub = await PWA.reg.pushManager.getSubscription(); PUSH.endpoint = sub ? sub.endpoint : ''; } catch (e) { PUSH.endpoint = ''; }
+    PUSH.ready = true;
+    // 1日1回、登録を新しくしておく（名前を変えたとき・サーバーで消えたとき用）
+    if (PUSH.endpoint && store.get('pushSync', '') !== L.todayJST()) { store.set('pushSync', L.todayJST()); registerPush(store.get('pushKinds', []), true).catch(() => {}); }
+  }
+  async function registerPush(kinds, quiet) {
+    let sub = await PWA.reg.pushManager.getSubscription();
+    if (!sub) {
+      try { sub = await PWA.reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64uBytes(S.data.pushKey) }); }
+      catch (e) {
+        if (Notification.permission === 'denied') throw { message: '通知が「許可しない」になっています。下の方法で許可してから、もう一度押してください。' };
+        throw { message: '通知を登録できませんでした（' + (e && e.name || 'エラー') + '）。少し待ってもう一度試してください。' };
+      }
+    }
+    const r = await api('pushRegister', { sub: sub.toJSON(), memberId: PREF.self || '', kinds: kinds, deviceName: deviceName() });
+    PUSH.endpoint = sub.endpoint; store.set('pushKinds', r.push.kinds); store.set('pushSync', L.todayJST());
+    if (!quiet && S.route.name === 'settings') render();
+    return r.push;
+  }
+  function pushBlock() {
+    let h = '<section class="block" id="push"><div class="block-h"><h2>通知</h2><span class="count">この端末</span></div>';
+    if (!pushSupported()) {
+      if (isIOS() && !isStandalone()) return h + '<p class="lead-line small">iPhone では、<b>ホーム画面に追加したアプリ</b>からだけ通知を受け取れます（iOS 16.4 以上）。上の手順で追加して、ホーム画面のアイコンから開き、ここで設定してください。</p></section>';
+      return h + '<p class="lead-line small">このブラウザでは通知を受け取れません。LINE の中で開いているときは、Chrome か Safari で開き直してください。</p></section>';
+    }
+    if (!PWA.reg) return h + '<p class="lead-line small">準備中です。少し待ってから開き直してください。</p></section>';
+    if (!PUSH.ready) { loadPush().then(() => { if (S.route.name === 'settings') render(); }); return h + '<p class="empty small">読み込み中…</p></section>'; }
+    const on = !!PUSH.endpoint, cur = on ? store.get('pushKinds', []) : ['goal', 'cheer', 'pinreq'];
+    const denied = Notification.permission === 'denied';
+    h += '<p class="lead-line small">' + (on ? icon('check') + '<b>この端末で通知を受け取っています。</b>' : 'スマホに通知を出せます。受け取りたいものを選んで「通知をオンにする」を押してください。') + '</p>';
+    if (!PREF.self) h += '<p class="hint strong">「今週あと○回」「応援」は、上の「自分の名前」を選ぶと受け取れます。</p>';
+    h += '<form data-form="push" class="form"><ul class="pushk">' + PUSH_KINDS.filter((k) => k[3] !== 'admin' || can('admin')).map((k) => {
+      const dis = k[3] === 'self' && !PREF.self;
+      return '<li><label class="pk' + (dis ? ' dis' : '') + '"><input type="checkbox" name="kinds" value="' + k[0] + '"' + (cur.indexOf(k[0]) >= 0 && !dis ? ' checked' : '') + (dis ? ' disabled' : '') + '><span><b>' + k[1] + '</b><small>' + k[2] + '</small></span></label></li>';
+    }).join('') + '</ul>' +
+      (denied ? '<p class="form-err">通知が「許可しない」になっています。' + (isIOS() ? 'iPhone の「設定」→「通知」→「筋トレ」で許可してください。' : 'Chrome の右上「︙」→「設定」→「サイトの設定」→「通知」で、このサイトを「許可」にしてください。') + '</p>' : '<p class="form-err" hidden></p>') +
+      '<div class="toolbar">' + (on
+        ? '<button class="btn primary" type="submit">設定を保存</button><button type="button" class="btn" data-act="push-test">テスト通知を送る</button><button type="button" class="btn danger" data-act="push-off">通知をオフにする</button>'
+        : '<button class="btn primary" type="submit"' + (denied ? ' disabled' : '') + '>' + icon('check') + '通知をオンにする</button>') + '</div></form>' +
+      '<p class="note">通知はこの端末だけの設定です。だれが何回やったかは本人にしか届きません（未達の人をみんなに知らせることはしません）。</p>';
+    return h + '</section>';
+  }
+
   function installBlock() {
     if (isStandalone()) return '<section class="block"><div class="block-h"><h2>ホーム画面のアプリ</h2></div><p class="lead-line small">' + icon('check') + 'ホーム画面から開いています。新しい版が出ると、画面の下に「更新する」が出ます。</p></section>';
     let h = '<section class="block"><div class="block-h"><h2>ホーム画面に追加</h2></div><p class="lead-line small">ホーム画面にアイコンを置くと、アプリのように1タップで開けます（App Store は使いません）。</p>';
@@ -241,6 +304,10 @@
     if (f) setTimeout(() => f.focus(), 50);
   }
   function closeSheet() { sheetLocked = false; $('#sheet-root').innerHTML = ''; document.body.classList.remove('sheet-open'); }
+  function sheetErrorIn(f, msg) {
+    const el = f && $('.form-err', f);
+    if (el) { el.textContent = msg; el.hidden = !msg; } else if (msg) toast(msg, 'err');
+  }
   function sheetError(msg) {
     const el = $('#sheet-root .form-err');
     if (el) { el.textContent = msg; el.hidden = !msg; } else if (msg) toast(msg, 'err');
@@ -1394,13 +1461,13 @@
     const players = sortMembers(S.data.members.filter((x) => x.active && x.player));
     h += '<section class="block"><div class="block-h"><h2>見やすさ・自分の名前</h2><span class="count">この端末だけ</span></div>' +
       '<div class="prefrow"><span>画面の明るさ</span><div class="seg small" role="group" aria-label="画面の明るさ">' +
-      [['auto', '自動'], ['light', 'ライト'], ['dark', 'ダーク']].map((x) => '<button data-act="pref-theme" data-v="' + x[0] + '" aria-pressed="' + (PREF.theme === x[0]) + '">' + x[1] + '</button>').join('') + '</div></div>' +
+      [['light', 'ライト'], ['dark', 'ダーク'], ['auto', 'スマホに合わせる']].map((x) => '<button data-act="pref-theme" data-v="' + x[0] + '" aria-pressed="' + (PREF.theme === x[0]) + '">' + x[1] + '</button>').join('') + '</div></div>' +
       '<div class="prefrow"><span>文字の大きさ</span><div class="seg small" role="group" aria-label="文字の大きさ">' +
       SIZES.map((x) => '<button data-act="pref-size" data-v="' + x[0] + '" aria-pressed="' + (PREF.size === x[0]) + '">' + x[1] + '</button>').join('') + '</div></div>' +
       '<label class="prefrow form"><span>自分の名前<small>ホームに自分の状況と、届いた「おめでとう」が出ます。応援を送るときの名前にもなります</small></span>' +
       '<select data-act-change="pref-self"><option value="">選ばない</option>' + players.map((x) => '<option value="' + x.id + '"' + (PREF.self === x.id ? ' selected' : '') + '>' + esc(x.name) + '</option>').join('') + '</select></label>' +
       '<div class="toolbar"><button class="btn small" data-act="guide">使い方ガイドをもう一度見る</button></div></section>';
-    h += installBlock();
+    h += installBlock() + pushBlock();
     if (can('admin')) {
       h += '<section class="block"><div class="block-h"><h2>管理者メニュー</h2></div><ul class="links">' +
         '<li><a href="#members">部員の追加・編集・権限<small>ポジション・取り組み方の設定は「まとめて編集」が便利です</small></a></li>' +
@@ -1485,7 +1552,7 @@
       '<div class="guide-i" aria-hidden="true">' + icon(g[2]) + '</div><h2>' + esc(g[0].replace('{g}', goal())) + '</h2><p>' + g[1].replace(/\{g\}/g, goal()) + '</p>' +
       (guideStep === 3 && players.length ? '<label class="guide-self">自分の名前<span>（あとで設定で変えられます）</span><select data-act-change="pref-self"><option value="">選ばない</option>' + players.map((x) => '<option value="' + x.id + '"' + (PREF.self === x.id ? ' selected' : '') + '>' + esc(x.name) + '</option>').join('') + '</select></label>' : '') +
       (guideStep === 4 ? '<div class="guide-prefs"><div class="seg small" role="group" aria-label="文字の大きさ">' + SIZES.map((x) => '<button data-act="pref-size" data-v="' + x[0] + '" aria-pressed="' + (PREF.size === x[0]) + '">' + x[1] + '</button>').join('') + '</div>' +
-        '<div class="seg small" role="group" aria-label="画面の明るさ">' + [['auto', '自動'], ['light', 'ライト'], ['dark', 'ダーク']].map((x) => '<button data-act="pref-theme" data-v="' + x[0] + '" aria-pressed="' + (PREF.theme === x[0]) + '">' + x[1] + '</button>').join('') + '</div></div>' : '') +
+        '<div class="seg small" role="group" aria-label="画面の明るさ">' + [['light', 'ライト'], ['dark', 'ダーク'], ['auto', 'スマホに合わせる']].map((x) => '<button data-act="pref-theme" data-v="' + x[0] + '" aria-pressed="' + (PREF.theme === x[0]) + '">' + x[1] + '</button>').join('') + '</div></div>' : '') +
       '<div class="guide-dots" aria-hidden="true">' + GUIDE.map((x, i) => '<i class="' + (i === guideStep ? 'on' : '') + '"></i>').join('') + '</div>' +
       '<div class="actions"><button class="btn" data-act="guide-close">' + (last ? '閉じる' : 'スキップ') + '</button><button class="btn primary" data-act="' + (last ? 'guide-close' : 'guide-next') + '" autofocus>' + (last ? 'はじめる' : '次へ') + '</button></div>' +
       '<p class="guide-n">' + (guideStep + 1) + ' / ' + GUIDE.length + '</p></section>';
@@ -1905,6 +1972,21 @@
     'pref-theme': (el) => { PREF.theme = el.dataset.v; store.set('theme', PREF.theme); applyPrefs(); rerenderKeepGuide(); },
     'pref-size': (el) => { PREF.size = el.dataset.v; store.set('size', PREF.size); applyPrefs(); rerenderKeepGuide(); },
     guide: () => openGuide(0),
+    'push-test': async (el) => {
+      await busy(el, async () => {
+        try { await api('pushTest', { endpoint: PUSH.endpoint }); toast('テスト通知を送りました。数秒で届きます'); }
+        catch (e) { toast(e.message, 'err'); }
+      });
+    },
+    'push-off': async (el) => {
+      await busy(el, async () => {
+        try {
+          const sub = await PWA.reg.pushManager.getSubscription();
+          if (sub) { await api('pushUnregister', { sub: { endpoint: sub.endpoint } }).catch(() => {}); await sub.unsubscribe(); }
+          PUSH.endpoint = ''; store.del('pushKinds'); render(); toast('通知をオフにしました');
+        } catch (e) { toast('オフにできませんでした', 'err'); }
+      });
+    },
     'sw-update': (el) => { el.disabled = true; if (PWA.waiting) PWA.waiting.postMessage('skipWaiting'); else location.reload(); },
     'pwa-install': async () => { const p = PWA.prompt; if (!p) return; PWA.prompt = null; p.prompt(); try { await p.userChoice; } catch (e) { /* noop */ } render(); },
     'guide-next': () => openGuide(guideStep + 1),
@@ -2127,6 +2209,20 @@
         } catch (e) { sheetError(e.message); }
       });
     },
+    push: async (f, btn) => {
+      const kinds = $$('input[name="kinds"]:checked', f).map((x) => x.value);
+      if (!kinds.length) { sheetErrorIn(f, '受け取る通知を1つ以上選んでください。（すべてやめるときは「通知をオフにする」）'); return; }
+      // 許可の確認は、押した直後に出す（iPhone は押した操作の中でないと出せない）
+      if (Notification.permission === 'default') {
+        let perm = 'default';
+        try { perm = await Notification.requestPermission(); } catch (e) { perm = 'denied'; }
+        if (perm !== 'granted') { sheetErrorIn(f, '通知が許可されませんでした。「許可」を押すと受け取れます。'); render(); return; }
+      }
+      await busy(btn, async () => {
+        try { const r = await registerPush(kinds); toast(r.kinds.length ? '通知をオンにしました。「テスト通知を送る」で確かめられます' : '受け取れる通知がありません（自分の名前を選んでください）'); }
+        catch (e) { sheetErrorIn(f, e.message); }
+      });
+    },
     template: async (f, btn) => {
       const v = menuFormValues(f);
       const t = { id: f.id ? f.id.value : '', group: v.group, positions: v.poss, title: f.title.value, content: f.content.value, detail: f.detail.value, note: f.note.value, video: f.video.value.trim(),
@@ -2242,6 +2338,7 @@
     }
     if (t.dataset && t.dataset.actChange === 'pref-self') {
       PREF.self = t.value; if (PREF.self) store.set('self', PREF.self); else store.del('self');
+      if (PUSH.endpoint) registerPush(store.get('pushKinds', []), true).catch(() => {});
       if (!$('#guide-root').innerHTML) render();
       return;
     }

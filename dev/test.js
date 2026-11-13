@@ -576,6 +576,73 @@ section('役職をまとめて付け替え');
   ok(api({ op: 'bulkPerms', token: A, rows: [{ id: kon.id, perm: 'boss' }] }).error === 'bad_perm', '決まった権限以外は入れない');
 })();
 
+section('通知（Web Push）');
+(function () {
+  const crypto = require('crypto');
+  gas.setToday('2026-11-13');
+  let st = api({ op: 'state' });
+  ok(/^[A-Za-z0-9_-]{87}$/.test(st.pushKey), '画面に通知の公開鍵（65バイト）を渡す');
+  // ES256 の署名がほかの実装（Node）で検証できる
+  const pub = Buffer.from(st.pushKey, 'base64url');
+  const jwk = { kty: 'EC', crv: 'P-256', x: pub.subarray(1, 33).toString('base64url'), y: pub.subarray(33).toString('base64url') };
+  const key = crypto.createPublicKey({ key: jwk, format: 'jwk' });
+  const p = st.members.find((m) => m.player && m.active);
+  const EP = 'https://fcm.googleapis.com/fcm/send/abcdefghijklmnop:APA91b-test';
+  ok(api({ op: 'pushRegister', sub: { endpoint: 'http://evil.example/x' }, memberId: p.id, kinds: ['goal'] }).error === 'bad_push', '知らない宛先（決まった通知サービス以外）は登録しない');
+  let r = api({ op: 'pushRegister', sub: { endpoint: EP }, memberId: p.id, kinds: ['goal', 'cheer', 'pinreq', 'evil'], deviceName: 'Android・Chrome' });
+  eq(r.push.kinds, ['goal', 'cheer'], 'ログインなしでは「暗証番号の依頼」は受け取れない（ほかの種類は登録できる）');
+  const AP = 'https://web.push.apple.com/QGzE-admin-device-token';
+  r = api({ op: 'pushRegister', token: A, sub: { endpoint: AP }, memberId: '', kinds: ['pinreq', 'goal'] });
+  eq(r.push.kinds, ['pinreq'], '管理者は「暗証番号の依頼」を受け取れる（名前を選ばなければ本人向けの通知は無し）');
+  gas.push.sent.length = 0;
+  ok(api({ op: 'pushTest', endpoint: EP }).ok && gas.push.sent.length === 1, 'テスト通知を送れる');
+  const q = gas.push.sent[0];
+  const m = /^vapid t=([^,]+), k=(.+)$/.exec(q.headers.Authorization);
+  ok(m && m[2] === st.pushKey && q.headers.TTL && q.payload === '' && q.url === EP, '中身は空で、VAPID の署名つきで通知サービスに送る');
+  const parts = m[1].split('.');
+  const claims = JSON.parse(Buffer.from(parts[1], 'base64url').toString());
+  ok(claims.aud === 'https://fcm.googleapis.com' && claims.exp > 1.7e9 && /^https:/.test(claims.sub), '署名の中身（宛先のサービス・期限・連絡先）');
+  ok(crypto.verify('sha256', Buffer.from(parts[0] + '.' + parts[1]), { key, dsaEncoding: 'ieee-p1363' }, Buffer.from(parts[2], 'base64url')), 'ES256 の署名が正しい（Node の暗号で検証できる）');
+  r = api({ op: 'pushInbox', endpoint: EP });
+  ok(r.messages.length === 1 && /テスト/.test(r.messages[0].body), '端末が中身を取りに来ると、届いた内容を返す');
+  ok(api({ op: 'pushInbox', endpoint: EP }).messages.length === 0, '一度読んだら消える');
+  ok(api({ op: 'pushInbox', endpoint: 'https://fcm.googleapis.com/fcm/send/other' }).messages.length === 0, 'ほかの端末の中身は読めない');
+  // 暗証番号の依頼 → 管理者の端末へ
+  gas.push.sent.length = 0;
+  api({ op: 'pinRequest', memberId: id['村上 樹'] });
+  ok(gas.push.sent.length === 1 && gas.push.sent[0].url === AP && /村上/.test(api({ op: 'pushInbox', endpoint: AP }).messages[0].body), '暗証番号の再発行の依頼が、管理者の端末に通知される');
+  // トリガー
+  gas.run('setupPush'); gas.run('setupPush');
+  ok(gas.push.triggers.length === 1, '1時間ごとのトリガーは1つだけ入る（何度実行しても）');
+  gas.clock.offset += 60000;
+  api({ op: 'stamp', target: p.id, event: 'g:2026-11-09', kind: 'fire', device: '1234567890abcdef1234', from: id['村上 樹'] });
+  api({ op: 'stamp', target: p.id, event: 'g:2026-11-09', kind: 'clap', device: '1234567890abcdef5678' });
+  gas.clock.offset += 60000;
+  gas.push.sent.length = 0;
+  gas.run('pushHourly');
+  let box = api({ op: 'pushInbox', endpoint: EP }).messages;
+  ok(gas.push.sent.length === 1 && box.length === 1 && /🔥/.test(box[0].title) && /👏/.test(box[0].title) && /村上 樹/.test(box[0].body), '応援が届くと、本人の端末に1時間ごとにまとめて通知（送った人の名前つき）');
+  gas.push.sent.length = 0; gas.run('pushHourly');
+  ok(gas.push.sent.length === 0, '同じ応援で二度は通知しない');
+  // 土曜18時の「今週あと○回」
+  gas.setToday('2026-11-14'); gas.clock.offset += 6 * 3600000; // 土曜 18時台
+  const wk = api({ op: 'state' }).records.filter((x) => x[0] === p.id && x[1] >= '2026-11-09' && x[2] === 1).length;
+  gas.push.sent.length = 0; gas.run('pushHourly');
+  box = api({ op: 'pushInbox', endpoint: EP }).messages;
+  if (wk < 3) ok(box.length === 1 && box[0].title === '今週あと' + (3 - wk) + '回', '土曜18時に、まだ届いていない本人へ「今週あと○回」');
+  else ok(box.length === 0, '週3回に届いている人には送らない');
+  gas.push.sent.length = 0; gas.run('pushHourly');
+  ok(gas.push.sent.filter((x) => x.url === EP).length === 0, '同じ時間に二度は送らない');
+  // 宛先が無くなったら消す
+  gas.push.respond = (q) => (q.url === EP ? 410 : 201);
+  api({ op: 'pushTest', endpoint: AP });
+  api({ op: 'pushTest', endpoint: EP });
+  ok(gas.sheet('通知の宛先').data.length === 2, '通知サービスが「もう無い」と返した宛先は消す');
+  gas.push.respond = () => 201;
+  ok(api({ op: 'pushUnregister', sub: { endpoint: AP } }).ok && gas.sheet('通知の宛先').data.length === 1, '通知をオフにすると宛先を消す');
+  gas.setToday('2026-11-13');
+})();
+
 section('操作履歴');
 r = api({ op: 'logs', token: A, limit: 500 });
 const acts = r.logs.map((x) => x.action);

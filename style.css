@@ -762,3 +762,13 @@ html[data-theme="dark"] .board-streaks { opacity: .8; }
 .howto li { margin-bottom: 4px; }
 .lead-line .ic { width: 18px; height: 18px; vertical-align: -4px; margin-right: 4px; color: var(--done); }
 @media (min-width: 960px) { .update-bar { left: calc(50% + 98px); bottom: 20px; } }
+
+/* ---------- 通知 ---------- */
+.pushk { margin: 4px 0 6px; border-top: 1px solid var(--line); }
+.pushk li { border-bottom: 1px solid var(--line); }
+.form .pk { display: flex; align-items: flex-start; gap: 12px; padding: 10px 2px; margin: 0; cursor: pointer; }
+.pk input { width: 22px; height: 22px; margin: 2px 0 0; accent-color: var(--enji-bg); flex: none; }
+.pk span { display: block; font-size: 14px; }
+.pk small { display: block; font-size: 12px; font-weight: 500; color: var(--sub); }
+.pk.dis { opacity: .5; cursor: default; }
+#push .lead-line .ic { color: var(--done); }

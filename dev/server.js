@@ -123,7 +123,7 @@ http.createServer((req, res) => {
     });
     return;
   }
-  if (url === '/config.js') { res.writeHead(200, { 'Content-Type': TYPES['.js'] }); res.end("window.KINTORE_API = '/exec';"); return; }
+  if (url === '/config.js') { res.writeHead(200, { 'Content-Type': TYPES['.js'] }); res.end("self.KINTORE_API = '/exec';"); return; }
   // フォントは開発用に手元から（FONTS_DIR に @fontsource のフォルダがあるとき）
   if (url.startsWith('/fonts/') && process.env.FONTS_DIR) {
     const f = path.join(process.env.FONTS_DIR, path.basename(url));

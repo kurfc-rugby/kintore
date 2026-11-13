@@ -244,6 +244,42 @@ const ok = (c, label) => { if (c) { pass++; console.log('  ✓ ' + label); } els
     await c2.setOffline(false);
     await p2.evaluate(() => { location.hash = '#settings'; }); await p2.waitForTimeout(400);
     ok((await p2.locator('.main').innerText()).includes('ホーム画面に追加'), '設定に「ホーム画面に追加」の案内が出る');
+    // 通知（本物の通知サービスには出られないので、登録だけ置きかえて、サーバーとService Workerの動きを確かめる）
+    await c2.grantPermissions(['notifications'], { origin: BASE.replace(/\/$/, '') });
+    await p2.evaluate(() => {
+      const fake = { endpoint: 'https://fcm.googleapis.com/fcm/send/ui-test-device', toJSON() { return { endpoint: this.endpoint, keys: {} }; }, unsubscribe: async () => { window.__sub = null; return true; } };
+      PushManager.prototype.getSubscription = async function () { return window.__sub || null; };
+      PushManager.prototype.subscribe = async function () { window.__sub = fake; return fake; };
+    });
+    await p2.evaluate(() => { localStorage.setItem('kintore.self', JSON.stringify(document.querySelector('select[data-act-change="pref-self"] option:nth-child(3)').value)); });
+    await p2.reload(); await p2.waitForSelector('.main');
+    await p2.evaluate(() => {
+      const fake = { endpoint: 'https://fcm.googleapis.com/fcm/send/ui-test-device', toJSON() { return { endpoint: this.endpoint, keys: {} }; }, unsubscribe: async () => { window.__sub = null; return true; } };
+      PushManager.prototype.getSubscription = async function () { return window.__sub || null; };
+      PushManager.prototype.subscribe = async function () { window.__sub = fake; return fake; };
+    });
+    await p2.evaluate(() => { location.hash = '#settings'; }); await p2.waitForSelector('#push form');
+    ok(await p2.locator('#push input[name="kinds"]:checked').count() === 2, '通知の設定（今週あと○回・応援）が出る');
+    await p2.click('#push button[type="submit"]'); await p2.waitForSelector('[data-act="push-test"]', { timeout: 5000 });
+    ok((await p2.locator('#push').innerText()).includes('受け取っています'), '通知をオンにできる（サーバーに登録）');
+    await p2.click('[data-act="push-test"]'); await p2.waitForTimeout(800);
+    ok((await p2.locator('.toast').allInnerTexts()).some((t) => t.includes('テスト通知を送りました')), 'テスト通知を送れる');
+    // Service Worker に「お知らせあり（中身なし）」を届けて、中身を取りに行って表示するか
+    const cdp = await c2.newCDPSession(p2);
+    const regs = [];
+    cdp.on('ServiceWorker.workerRegistrationUpdated', (e) => { e.registrations.forEach((r) => regs.push(r)); });
+    await cdp.send('ServiceWorker.enable'); await p2.waitForTimeout(500);
+    const reg = regs.find((r) => !r.isDeleted);
+    await cdp.send('ServiceWorker.deliverPushMessage', { origin: BASE.replace(/\/$/, ''), registrationId: reg.registrationId, data: '' });
+    await p2.waitForTimeout(2500);
+    const notes = await p2.evaluate(async () => (await (await navigator.serviceWorker.ready).getNotifications()).map((n) => n.title + '|' + n.body));
+    ok(notes.length === 1, '通知が来ると、Service Worker がサーバーに中身を聞いてから表示する（中身が無ければ「新しいお知らせ」）');
+    await cdp.send('ServiceWorker.deliverPushMessage', { origin: BASE.replace(/\/$/, ''), registrationId: reg.registrationId, data: JSON.stringify({ title: '今週あと1回', body: 'テスト本文', tag: 'goal', url: './#home' }) });
+    await p2.waitForTimeout(1500);
+    const notes2 = await p2.evaluate(async () => (await (await navigator.serviceWorker.ready).getNotifications()).map((n) => n.title));
+    ok(notes2.indexOf('今週あと1回') >= 0, '届いた内容（題名・本文）で通知を出す');
+    await p2.click('[data-act="push-off"]'); await p2.waitForTimeout(800);
+    ok((await p2.locator('#push').innerText()).includes('通知をオンにする'), '通知をオフにできる');
     await c2.close();
   }
   ok(errors.length === 0, '画面のエラーなし' + (errors.length ? ': ' + errors.join(' / ') : ''));

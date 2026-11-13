@@ -10,8 +10,8 @@
  * 最初にやること：スプレッドシートのメニュー「筋トレ管理」→「管理者を登録」
  * 詳しくは 04_ドキュメント/筋トレ管理アプリ_使い方と引き継ぎ.md
  */
-const APP_VERSION = '2.5.0';
-const SCHEMA_VERSION = '4';
+const APP_VERSION = '2.7.0';
+const SCHEMA_VERSION = '5';
 const TZ = 'Asia/Tokyo';
 const SESSION_DAYS = 90;
 const VIEW_SESSION_DAYS = 180;
@@ -68,7 +68,10 @@ const DEF = {
     ['createdBy', '記録者ID'], ['createdAt', '記録日時'], ['updatedBy', '修正者ID'], ['updatedAt', '修正日時'],
     ['deletedBy', '削除者ID'], ['deletedAt', '削除日時']] },
   stamps: { name: '応援', cols: [
-    ['id', 'ID'], ['target', '相手の部員ID'], ['event', 'できごと'], ['kind', 'スタンプ'], ['fromId', '送った部員ID'], ['device', '端末'], ['at', '日時']] }
+    ['id', 'ID'], ['target', '相手の部員ID'], ['event', 'できごと'], ['kind', 'スタンプ'], ['fromId', '送った部員ID'], ['device', '端末'], ['at', '日時']] },
+  push: { name: '通知の宛先', cols: [
+    ['id', 'ID'], ['endpoint', '宛先'], ['memberId', '部員ID（本人が選んだ名前）'], ['staffId', 'ログインした人のID'], ['kinds', '受け取る通知'],
+    ['device', '端末'], ['createdAt', '登録日時'], ['updatedAt', '更新日時'], ['okAt', '最後に届いた日時'], ['failCount', '失敗回数']] }
 };
 const DATE_COLS = { start: 1, left: 1, effDate: 1, date: 1, from: 1, to: 1, repeatFrom: 1, repeatTo: 1 };
 
@@ -122,7 +125,7 @@ function handle_(req) {
     const ctx = { req: req, me: null, view: false };
     resolveSession_(ctx);
     const op = String(req.op || '');
-    const open = { ping: 1, state: 1, login: 1, logout: 1, viewLogin: 1, changePin: 1, memberHistory: 1, stamp: 1, pinRequest: 1 };
+    const open = { ping: 1, state: 1, login: 1, logout: 1, viewLogin: 1, changePin: 1, memberHistory: 1, stamp: 1, pinRequest: 1, pushRegister: 1, pushUnregister: 1, pushTest: 1, pushInbox: 1 };
     if (!open[op] && ctx.me && ctx.me.mustChange) {
       throw err_('must_change_pin', '先に暗証番号を変更してください。');
     }
@@ -162,6 +165,10 @@ function handle_(req) {
       case 'sessions': return opSessions_(ctx);
       case 'logoutSession': return opLogoutSession_(ctx);
       case 'bulkPerms': return opBulkPerms_(ctx);
+      case 'pushRegister': return opPushRegister_(ctx);
+      case 'pushUnregister': return opPushUnregister_(ctx);
+      case 'pushTest': return opPushTest_(ctx);
+      case 'pushInbox': return opPushInbox_(ctx);
       default: throw err_('unknown_op', '不明な操作です。');
     }
   } catch (x) {
@@ -834,7 +841,7 @@ function recordsWire_(from, to) {
 function opState_(ctx) {
   const today = today_();
   const locked = !!setting_('viewPassHash') && !ctx.me && !ctx.view;
-  const base = { ok: true, version: APP_VERSION, today: today, me: ctx.me, staff: staffList_(), viewLock: !!setting_('viewPassHash'), weekGoal: weekGoal_(), positions: positionsList_() };
+  const base = { ok: true, version: APP_VERSION, today: today, me: ctx.me, staff: staffList_(), viewLock: !!setting_('viewPassHash'), weekGoal: weekGoal_(), positions: positionsList_(), pushKey: vapidKeys_().pub };
   if (locked) { base.locked = true; return base; }
   let from = ctx.req.from ? reqDate_(ctx.req.from, '開始日') : addDays_(today, -DEFAULT_BACK_DAYS);
   let to = ctx.req.to ? reqDate_(ctx.req.to, '終了日') : addDays_(today, DEFAULT_AHEAD_DAYS);
@@ -1798,7 +1805,7 @@ function opPinRequest_(ctx) {
   const all = parseInt(cache.get('pinreq:all') || '0', 10);
   if (all >= 30) throw err_('busy', '依頼が多すぎます。しばらく待ってから送ってください。');
   if (cache.get('pinreq:' + id)) throw err_('already', 'すでに依頼を送っています。管理者が暗証番号を出し直すのを待ってください。');
-  return withLock_(function () {
+  const m = withLock_(function () {
     const m = memberById_(id);
     if (!m || !m.active || m.gone || !STAFF[m.perm]) throw err_('not_found', 'ログインできる人の中から選んでください。');
     const s = peopleRow_(m);
@@ -1807,8 +1814,10 @@ function opPinRequest_(ctx) {
     log_(meOf_(m), '暗証番号の再発行を依頼', '');
     cache.put('pinreq:' + id, '1', 1800);
     cache.put('pinreq:all', String(all + 1), 3600);
-    return { ok: true };
+    return m;
   });
+  notifyPinRequest_(m);
+  return { ok: true };
 }
 function pinRequests_() {
   const limit = nowPlusMin_(-PIN_REQ_DAYS * 1440);
@@ -1885,6 +1894,335 @@ function opBulkPerms_(ctx) {
     REQ_.members = null;
     return { ok: true, changed: changed.length, pins: pins };
   });
+}
+
+// ---------------------------------------------------------------------------
+// Web Push の署名（VAPID・ES256）。Apps Script には楕円曲線の署名が無いので、P-256 の ECDSA をここで計算する
+//   秘密鍵はスクリプトのプロパティ（VAPID_D）にだけ置く。公開鍵（VAPID_PUB）は画面に渡す。
+//   k は RFC 6979（決定的）で作るので、乱数の質に頼らない。
+// ---------------------------------------------------------------------------
+const EC_P = BigInt('0xffffffff00000001000000000000000000000000ffffffffffffffffffffffff');
+const EC_N = BigInt('0xffffffff00000000ffffffffffffffffbce6faada7179e84f3b9cac2fc632551');
+const EC_G = [BigInt('0x6b17d1f2e12c4247f8bce6e563a440f277037d812deb33a0f4a13945d898c296'), BigInt('0x4fe342e2fe1a7f9b8ee7eb4a7c0f9e162bce33576b315ececbb6406837bf51f5')];
+function ecMod_(a, m) { const r = a % m; return r < 0n ? r + m : r; }
+function ecInv_(a, m) {
+  let t = 0n, nt = 1n, r = m, nr = ecMod_(a, m);
+  while (nr !== 0n) { const q = r / nr; [t, nt] = [nt, t - q * nt]; [r, nr] = [nr, r - q * nr]; }
+  return ecMod_(t, m);
+}
+// ヤコビアン座標 [X, Y, Z]（Z=0 は無限遠点）
+function ecDbl_(P) {
+  const [X, Y, Z] = P, p = EC_P;
+  if (Z === 0n || Y === 0n) return [0n, 1n, 0n];
+  const YY = ecMod_(Y * Y, p), S = ecMod_(4n * X * YY, p), ZZ = ecMod_(Z * Z, p);
+  const M = ecMod_(3n * (X - ZZ) * (X + ZZ), p); // a = -3
+  const X3 = ecMod_(M * M - 2n * S, p);
+  const Y3 = ecMod_(M * (S - X3) - 8n * YY * YY, p);
+  const Z3 = ecMod_(2n * Y * Z, p);
+  return [X3, Y3, Z3];
+}
+function ecAdd_(P, Q) {
+  if (P[2] === 0n) return Q;
+  if (Q[2] === 0n) return P;
+  const p = EC_P;
+  const Z1Z1 = ecMod_(P[2] * P[2], p), Z2Z2 = ecMod_(Q[2] * Q[2], p);
+  const U1 = ecMod_(P[0] * Z2Z2, p), U2 = ecMod_(Q[0] * Z1Z1, p);
+  const S1 = ecMod_(P[1] * Q[2] * Z2Z2, p), S2 = ecMod_(Q[1] * P[2] * Z1Z1, p);
+  if (U1 === U2) return S1 === S2 ? ecDbl_(P) : [0n, 1n, 0n];
+  const H = ecMod_(U2 - U1, p), R = ecMod_(S2 - S1, p);
+  const HH = ecMod_(H * H, p), HHH = ecMod_(H * HH, p), V = ecMod_(U1 * HH, p);
+  const X3 = ecMod_(R * R - HHH - 2n * V, p);
+  const Y3 = ecMod_(R * (V - X3) - S1 * HHH, p);
+  const Z3 = ecMod_(H * P[2] * Q[2], p);
+  return [X3, Y3, Z3];
+}
+function ecMul_(k, G) {
+  let R = [0n, 1n, 0n], A = [G[0], G[1], 1n];
+  while (k > 0n) { if (k & 1n) R = ecAdd_(R, A); A = ecDbl_(A); k >>= 1n; }
+  if (R[2] === 0n) return null;
+  const zi = ecInv_(R[2], EC_P), zi2 = ecMod_(zi * zi, EC_P);
+  return [ecMod_(R[0] * zi2, EC_P), ecMod_(R[1] * zi2 * zi, EC_P)];
+}
+function bytesU_(arr) { return Array.prototype.map.call(arr, function (b) { return b & 255; }); }
+function bytesS_(arr) { return arr.map(function (b) { return b > 127 ? b - 256 : b; }); }
+function bigToBytes_(x, len) { const out = []; for (let i = len - 1; i >= 0; i--) { out[i] = Number(x & 255n); x >>= 8n; } return out; }
+function bytesToBig_(arr) { let x = 0n; for (let i = 0; i < arr.length; i++) x = (x << 8n) | BigInt(arr[i] & 255); return x; }
+function utf8_(s) {
+  const out = [];
+  for (let i = 0; i < s.length; i++) {
+    let c = s.charCodeAt(i);
+    if (c >= 0xd800 && c < 0xdc00 && i + 1 < s.length) { c = 0x10000 + ((c - 0xd800) << 10) + (s.charCodeAt(++i) - 0xdc00); }
+    if (c < 0x80) out.push(c);
+    else if (c < 0x800) out.push(0xc0 | c >> 6, 0x80 | c & 63);
+    else if (c < 0x10000) out.push(0xe0 | c >> 12, 0x80 | c >> 6 & 63, 0x80 | c & 63);
+    else out.push(0xf0 | c >> 18, 0x80 | c >> 12 & 63, 0x80 | c >> 6 & 63, 0x80 | c & 63);
+  }
+  return out;
+}
+const B64U_ = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
+function b64u_(bytes) {
+  let s = '';
+  for (let i = 0; i < bytes.length; i += 3) {
+    const n = (bytes[i] << 16) | ((bytes[i + 1] || 0) << 8) | (bytes[i + 2] || 0);
+    s += B64U_[n >> 18 & 63] + B64U_[n >> 12 & 63] + (i + 1 < bytes.length ? B64U_[n >> 6 & 63] : '') + (i + 2 < bytes.length ? B64U_[n & 63] : '');
+  }
+  return s;
+}
+function sha256_(bytes) { return bytesU_(Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, bytesS_(bytes))); }
+function hmac_(key, msg) { return bytesU_(Utilities.computeHmacSha256Signature(bytesS_(msg), bytesS_(key))); }
+/** ES256 の署名（r||s の64バイト）。d は秘密鍵（BigInt） */
+function ecSign_(d, msgBytes) {
+  const h1 = sha256_(msgBytes);
+  const e = ecMod_(bytesToBig_(h1), EC_N);
+  const x = bigToBytes_(d, 32), h1o = bigToBytes_(e, 32);
+  let V = [], K = [];
+  for (let i = 0; i < 32; i++) { V.push(1); K.push(0); }
+  K = hmac_(K, V.concat([0], x, h1o)); V = hmac_(K, V);
+  K = hmac_(K, V.concat([1], x, h1o)); V = hmac_(K, V);
+  for (let tries = 0; tries < 64; tries++) {
+    V = hmac_(K, V);
+    const k = bytesToBig_(V);
+    if (k >= 1n && k < EC_N) {
+      const R = ecMul_(k, EC_G);
+      const r = ecMod_(R[0], EC_N);
+      if (r !== 0n) {
+        const s = ecMod_(ecInv_(k, EC_N) * (e + r * d), EC_N);
+        if (s !== 0n) return bigToBytes_(r, 32).concat(bigToBytes_(s, 32));
+      }
+    }
+    K = hmac_(K, V.concat([0])); V = hmac_(K, V);
+  }
+  throw new Error('署名を作れませんでした');
+}
+/** 鍵を作る（d と、公開鍵 0x04||X||Y の base64url） */
+function ecKeygen_() {
+  let seed = [];
+  for (let i = 0; i < 4; i++) seed = seed.concat(utf8_(Utilities.getUuid() + ':' + Date.now() + ':' + Math.random()));
+  const d = ecMod_(bytesToBig_(sha256_(seed)), EC_N - 1n) + 1n;
+  const Q = ecMul_(d, EC_G);
+  return { d: d.toString(16), pub: b64u_([4].concat(bigToBytes_(Q[0], 32), bigToBytes_(Q[1], 32))) };
+}
+
+// ---------------------------------------------------------------------------
+// 通知（Web Push）。中身は送らず「お知らせがある」とだけ押し、端末が pushInbox で中身を取りに来る
+//   （中身を暗号化しなくてよいので、Apps Script だけで送れる）。届いた中身はキャッシュに6時間だけ置く。
+//   種類：goal＝今週あと○回（土曜18時・日曜9時）／cheer＝応援が届いた（7〜22時に1時間ごとにまとめて）／pinreq＝暗証番号の再発行の依頼（管理者）
+// ---------------------------------------------------------------------------
+const PUSH_KINDS = { goal: 1, cheer: 1, pinreq: 1 };
+const PUSH_HOSTS = /^(fcm\.googleapis\.com|updates\.push\.services\.mozilla\.com|web\.push\.apple\.com|[a-z0-9-]+\.push\.apple\.com|[a-z0-9.-]+\.notify\.windows\.com)$/;
+const PUSH_MAX = 400;
+const PUSH_SUB = 'https://kurfc-rugby.github.io/kintore/';
+function vapidKeys_() {
+  const props = PropertiesService.getScriptProperties();
+  let d = props.getProperty('VAPID_D'), pub = props.getProperty('VAPID_PUB');
+  if (d && pub) return { d: d, pub: pub };
+  const lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    d = props.getProperty('VAPID_D'); pub = props.getProperty('VAPID_PUB');
+    if (!(d && pub)) { const k = ecKeygen_(); props.setProperty('VAPID_D', k.d); props.setProperty('VAPID_PUB', k.pub); d = k.d; pub = k.pub; }
+  } finally { lock.releaseLock(); }
+  return { d: d, pub: pub };
+}
+function vapidHeader_(endpoint) {
+  const aud = endpoint.match(/^https:\/\/[^\/]+/)[0];
+  const cache = CacheService.getScriptCache();
+  const ck = 'vapid:' + aud;
+  const hit = cache.get(ck);
+  const keys = vapidKeys_();
+  if (hit) return 'vapid t=' + hit + ', k=' + keys.pub;
+  const head = b64u_(utf8_(JSON.stringify({ typ: 'JWT', alg: 'ES256' })));
+  const body = b64u_(utf8_(JSON.stringify({ aud: aud, exp: Math.floor(Date.now() / 1000) + 12 * 3600, sub: PUSH_SUB })));
+  const jwt = head + '.' + body + '.' + b64u_(ecSign_(BigInt('0x' + keys.d), utf8_(head + '.' + body)));
+  cache.put(ck, jwt, 6 * 3600);
+  return 'vapid t=' + jwt + ', k=' + keys.pub;
+}
+function pushKey_(endpoint) { return 'inbox:' + sha256Hex_(endpoint).slice(0, 40); }
+function cleanEndpoint_(v) {
+  const s = String(v || '');
+  const m = s.match(/^https:\/\/([^\/?#]+)\/[^\s<>"']{4,1500}$/);
+  if (!m || !PUSH_HOSTS.test(m[1])) throw err_('bad_push', 'この端末の通知の宛先を読み取れませんでした。');
+  return s;
+}
+/**
+ * 通知を送る。rows＝宛先の行、msgOf(row)＝{title, body, url, tag}（null なら送らない）
+ * ロックの外から呼んでよい（宛先の行の更新だけロックを取る）
+ */
+function sendPush_(rows, msgOf) {
+  const cache = CacheService.getScriptCache();
+  const reqs = [], used = [];
+  rows.forEach(function (r) {
+    const m = msgOf(r);
+    if (!m) return;
+    const k = pushKey_(r.endpoint);
+    let box = [];
+    try { box = JSON.parse(cache.get(k) || '[]'); } catch (x) { box = []; }
+    box.push({ title: String(m.title).slice(0, 60), body: String(m.body || '').slice(0, 200), url: m.url || './', tag: m.tag || '' });
+    cache.put(k, JSON.stringify(box.slice(-5)), 6 * 3600);
+    reqs.push({ url: r.endpoint, method: 'post', headers: { Authorization: vapidHeader_(r.endpoint), TTL: '86400', Urgency: 'normal' }, payload: '', muteHttpExceptions: true });
+    used.push(r);
+  });
+  if (!reqs.length) return { sent: 0, gone: 0 };
+  let res = [];
+  try { res = UrlFetchApp.fetchAll(reqs); } catch (x) { console.error(x); return { sent: 0, gone: 0, error: true }; }
+  const now = now_();
+  let sent = 0;
+  const gone = [], touched = [];
+  res.forEach(function (rr, i) {
+    const code = rr.getResponseCode(), row = used[i];
+    if (code >= 200 && code < 300) { sent++; row.okAt = now; row.failCount = '0'; touched.push(row); }
+    else if (code === 404 || code === 410) gone.push(row.endpoint);
+    else { row.failCount = String((parseInt(row.failCount, 10) || 0) + 1); touched.push(row); if (+row.failCount >= 6) gone.push(row.endpoint); }
+  });
+  withLock_(function () {
+    const t = table_('push');
+    const by = {};
+    t.rows.forEach(function (x) { by[x.endpoint] = x; });
+    touched.forEach(function (x) { const y = by[x.endpoint]; if (y && gone.indexOf(x.endpoint) < 0) { y.okAt = x.okAt || y.okAt; y.failCount = x.failCount; update_('push', y); } });
+    removeMany_('push', gone.map(function (e) { return by[e]; }).filter(Boolean));
+  });
+  return { sent: sent, gone: gone.length };
+}
+function pushRowWire_(r) {
+  return r ? { memberId: r.memberId, kinds: r.kinds ? r.kinds.split(',') : [], staff: !!r.staffId, okAt: r.okAt } : null;
+}
+function opPushRegister_(ctx) {
+  requireView_(ctx);
+  const sub = ctx.req.sub || {};
+  const endpoint = cleanEndpoint_(sub.endpoint);
+  const memberId = String(ctx.req.memberId || '');
+  const want = (Array.isArray(ctx.req.kinds) ? ctx.req.kinds : []).map(String).filter(function (k, i, a) { return PUSH_KINDS[k] && a.indexOf(k) === i; });
+  return withLock_(function () {
+    if (memberId) { const m = memberById_(memberId); if (!m || m.gone || !m.active) throw err_('not_found', '自分の名前をもう一度選んでください。'); }
+    const kinds = want.filter(function (k) {
+      if (k === 'pinreq') return !!(ctx.me && ctx.me.perm === 'admin');
+      return !!memberId;
+    });
+    const t = table_('push');
+    let r = t.rows.filter(function (x) { return x.endpoint === endpoint; })[0];
+    const now = now_();
+    const staffId = ctx.me ? ctx.me.id : (r ? r.staffId : '');
+    if (r) {
+      Object.assign(r, { memberId: memberId, staffId: kinds.indexOf('pinreq') >= 0 ? staffId : '', kinds: kinds.join(','), device: deviceLabel_(ctx.req.deviceName) || r.device, updatedAt: now });
+      update_('push', r);
+    } else {
+      if (t.rows.length >= PUSH_MAX) throw err_('too_many', '通知を受け取る端末が多すぎます。管理者に伝えてください。');
+      r = { id: newId_('p'), endpoint: endpoint, memberId: memberId, staffId: kinds.indexOf('pinreq') >= 0 ? staffId : '', kinds: kinds.join(','),
+        device: deviceLabel_(ctx.req.deviceName), createdAt: now, updatedAt: now, okAt: '', failCount: '0' };
+      insert_('push', [r]);
+    }
+    return { ok: true, push: pushRowWire_(r) };
+  });
+}
+function opPushUnregister_(ctx) {
+  const endpoint = String((ctx.req.sub && ctx.req.sub.endpoint) || ctx.req.endpoint || '');
+  return withLock_(function () {
+    removeMany_('push', table_('push').rows.filter(function (x) { return x.endpoint === endpoint; }));
+    return { ok: true };
+  });
+}
+function opPushTest_(ctx) {
+  const endpoint = String(ctx.req.endpoint || '');
+  const r = table_('push').rows.filter(function (x) { return x.endpoint === endpoint; })[0];
+  if (!r) throw err_('not_found', 'この端末は通知の登録がありません。もう一度オンにしてください。');
+  const cache = CacheService.getScriptCache();
+  const ck = 'pushtest:' + sha256Hex_(endpoint).slice(0, 20);
+  const n = parseInt(cache.get(ck) || '0', 10);
+  if (n >= 5) throw err_('too_many', 'テストは10分に5回までです。');
+  cache.put(ck, String(n + 1), 600);
+  const m = r.memberId ? memberById_(r.memberId) : null;
+  const res = sendPush_([r], function () { return { title: 'KURFC 筋トレ', body: (m ? m.name + ' さん、' : '') + '通知のテストです。届いていればOKです。', url: './#settings', tag: 'test' }; });
+  if (!res.sent) throw err_('push_failed', '通知を送れませんでした。いったんオフにして、もう一度オンにしてください。');
+  return { ok: true };
+}
+/** 端末（Service Worker）が中身を取りに来る。宛先のURLを知っている端末だけが読める */
+function opPushInbox_(ctx) {
+  const endpoint = String(ctx.req.endpoint || '');
+  if (!endpoint) return { ok: true, messages: [] };
+  const cache = CacheService.getScriptCache();
+  const k = pushKey_(endpoint);
+  let box = [];
+  try { box = JSON.parse(cache.get(k) || '[]'); } catch (x) { box = []; }
+  cache.remove(k);
+  return { ok: true, messages: box };
+}
+function pushTargets_(kind) {
+  return table_('push').rows.filter(function (r) { return (',' + r.kinds + ',').indexOf(',' + kind + ',') >= 0; });
+}
+/** 暗証番号の再発行の依頼を管理者に知らせる（失敗しても依頼そのものは成功にする） */
+function notifyPinRequest_(m) {
+  try {
+    const admins = {};
+    activeAdmins_().forEach(function (a) { admins[a.id] = 1; });
+    const rows = pushTargets_('pinreq').filter(function (r) { return admins[r.staffId]; });
+    sendPush_(rows, function () { return { title: '暗証番号の再発行の依頼', body: m.name + ' さん（' + ENC.perm[m.perm] + '）から。設定から発行してください。', url: './#settings', tag: 'pinreq' }; });
+  } catch (x) { console.error(x); }
+}
+/** その人の今週の回数と必要な回数（免除の日数で減らす） */
+function weekStatus_(m, ws) {
+  const we = addDays_(ws, 6), g = weekGoal_();
+  let c = 0;
+  table_('records').rows.forEach(function (r) { if (r.memberId === m.id && r.status === 'done' && r.date >= ws && r.date <= we) c++; });
+  const ex = table_('exempts').rows.filter(function (e) { return !e.deletedAt && (e.memberId === m.id || e.memberId === 'ALL') && e.from <= we && e.to >= ws; });
+  let exDays = 0;
+  for (let i = 0; i < 7; i++) { const d = addDays_(ws, i); if (ex.some(function (e) { return e.from <= d && e.to >= d; })) exDays++; }
+  return { count: c, need: exDays >= 7 ? 0 : Math.ceil(g * (7 - exDays) / 7), goal: g };
+}
+const STAMP_EMOJI = { clap: '👏', fire: '🔥', muscle: '💪', party: '🎉', hundred: '💯' };
+/** 1時間ごと（時間主導のトリガー）。応援のまとめと、土日の「今週あと○回」 */
+function pushHourly() {
+  REQ_ = { tables: {}, ss: null, roster: null };
+  try {
+    ensureSchema_();
+    const now = new Date();
+    const hour = +Utilities.formatDate(now, TZ, 'yyyy-MM-dd HH:mm:ss').slice(11, 13);
+    const today = today_();
+    const dow = dow_(today);
+    if (pushTargets_('cheer').length && hour >= 7 && hour < 22) pushCheers_();
+    const slot = (dow === 6 && hour === 18) ? 'sat' : (dow === 0 && hour === 9) ? 'sun' : '';
+    if (slot && setting_('pushGoalSent') !== today + slot) {
+      withLock_(function () { setSetting_('pushGoalSent', today + slot); });
+      pushGoal_(today, slot);
+    }
+  } finally { REQ_ = null; }
+}
+function pushCheers_() {
+  const since = setting_('pushCheerAt') || now_();
+  const upto = now_();
+  const by = {};
+  table_('stamps').rows.forEach(function (s) {
+    if (s.at <= since || s.at > upto) return;
+    const o = by[s.target] || (by[s.target] = { c: {}, f: [], n: 0 });
+    o.c[s.kind] = (o.c[s.kind] || 0) + 1; o.n++;
+    if (s.fromId && o.f.indexOf(s.fromId) < 0) o.f.push(s.fromId);
+  });
+  withLock_(function () { setSetting_('pushCheerAt', upto); });
+  if (!Object.keys(by).length) return;
+  sendPush_(pushTargets_('cheer').filter(function (r) { return by[r.memberId]; }), function (r) {
+    const o = by[r.memberId];
+    const names = o.f.map(function (id) { const x = memberById_(id); return x ? x.name : ''; }).filter(Boolean);
+    const em = Object.keys(o.c).map(function (k) { return (STAMP_EMOJI[k] || '') + (o.c[k] > 1 ? '×' + o.c[k] : ''); }).join(' ');
+    return { title: '応援が届きました ' + em, body: (names.length ? names.slice(0, 2).join('、') + (names.length > 2 ? 'ほか' + (names.length - 2) + '人' : '') + ' さんから' : 'だれかから') + '「おめでとう」が届いています。', url: './#member/' + r.memberId, tag: 'cheer' };
+  });
+}
+function pushGoal_(today, slot) {
+  const ws = (function () { const w = dow_(today); return addDays_(today, w === 0 ? -6 : 1 - w); })();
+  sendPush_(pushTargets_('goal'), function (r) {
+    const m = memberById_(r.memberId);
+    if (!m || !m.active || m.gone || !m.player) return null;
+    const st = weekStatus_(m, ws);
+    if (st.need === 0 || st.count >= st.need) return null;
+    const left = st.need - st.count;
+    return { title: '今週あと' + left + '回', body: (slot === 'sun' ? '今日が今週の最後の日です。' : '日曜までに週' + st.need + '回。') + 'いま ' + st.count + '回です。', url: './#member/' + m.id, tag: 'goal' };
+  });
+}
+/** 時間主導のトリガーを入れ直す（エディタから1回実行する） */
+function setupPush() {
+  ScriptApp.getProjectTriggers().forEach(function (t) { if (t.getHandlerFunction() === 'pushHourly') ScriptApp.deleteTrigger(t); });
+  ScriptApp.newTrigger('pushHourly').timeBased().everyHours(1).create();
+  REQ_ = { tables: {}, ss: null, roster: null };
+  try { ensureSchema_(); vapidKeys_(); withLock_(function () { if (!setting_('pushCheerAt')) setSetting_('pushCheerAt', now_()); }); } finally { REQ_ = null; }
+  return 'ok';
 }
 
 // ---------------------------------------------------------------------------

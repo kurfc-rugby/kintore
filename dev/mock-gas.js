@@ -107,11 +107,13 @@ function create(opts) {
       releaseLock: () => { held = false; } }) };
   }
   const props = propStore(), cache = cacheStore();
+  const push = { sent: [], triggers: [], respond: () => 201 };
   const libProps = propStore(), libCache = cacheStore();
   const uiLog = [];
   const Utilities = {
     DigestAlgorithm: { SHA_256: 'sha256' }, Charset: { UTF_8: 'utf8' },
-    computeDigest: (alg, s) => Array.from(crypto.createHash('sha256').update(s, 'utf8').digest()).map((b) => (b > 127 ? b - 256 : b)),
+    computeDigest: (alg, s) => Array.from(crypto.createHash('sha256').update(typeof s === 'string' ? Buffer.from(s, 'utf8') : Buffer.from(s.map((b) => b & 255))).digest()).map((b) => (b > 127 ? b - 256 : b)),
+    computeHmacSha256Signature: (v, k) => Array.from(crypto.createHmac('sha256', Buffer.from(k.map((b) => b & 255))).update(Buffer.from(v.map((b) => b & 255))).digest()).map((b) => (b > 127 ? b - 256 : b)),
     getUuid: () => crypto.randomUUID(),
     formatDate: (d, tz, f) => {
       if (tz !== 'Asia/Tokyo') throw new Error('TZ');
@@ -149,7 +151,10 @@ function create(opts) {
   // ---------- 筋トレのスクリプト ----------
   const quiet = { log: console.log, warn: console.warn, error: process.env.DEBUG ? console.error : () => {} };
   const sandbox = {
-    console: quiet, Date: FakeDate, JSON, Math, Object, Array, String, Number, parseInt, parseFloat, isNaN, Error, RegExp,
+    console: quiet, Date: FakeDate, JSON, Math, Object, Array, String, Number, parseInt, parseFloat, isNaN, Error, RegExp, BigInt, isFinite,
+    UrlFetchApp: { fetchAll: (reqs) => reqs.map((r) => { push.sent.push(r); const code = push.respond(r); return { getResponseCode: () => code }; }) },
+    ScriptApp: { getProjectTriggers: () => push.triggers.slice(), deleteTrigger: (t) => { push.triggers = push.triggers.filter((x) => x !== t); },
+      newTrigger: (fn) => { const b = { timeBased: () => b, everyHours: () => b, create: () => { const t = { getHandlerFunction: () => fn }; push.triggers.push(t); return t; } }; return b; } },
     SpreadsheetApp, Utilities,
     PropertiesService: { getScriptProperties: () => props },
     CacheService: { getScriptCache: () => cache },
@@ -159,11 +164,11 @@ function create(opts) {
   if (opts.withLibrary !== false) sandbox.KurfcRoster = KurfcRoster;
   vm.createContext(sandbox);
   const code = fs.readFileSync(path.join(__dirname, '..', 'gas', 'Code.gs'), 'utf8');
-  vm.runInContext(code + '\n;this.__fn = {handle_, setup, registerAdmin_, doPost, doGet, onOpen, menuRegisterAdmin, pinHash_, today_};', sandbox, { filename: 'Code.gs' });
+  vm.runInContext(code + '\n;this.__fn = {handle_, setup, registerAdmin_, doPost, doGet, onOpen, menuRegisterAdmin, pinHash_, today_, pushHourly, setupPush, ecSign_, utf8_};', sandbox, { filename: 'Code.gs' });
   const fn = sandbox.__fn;
 
   const api = {
-    ss, master, clock, uiLog, stats, KurfcRoster, libProps, libCache, props,
+    ss, master, clock, uiLog, stats, KurfcRoster, libProps, libCache, props, push, cache,
     run: (name, ...args) => fn[name](...args),
     api: (req) => JSON.parse(fn.doPost({ postData: { contents: JSON.stringify(req) } }).text),
     sheet: (name) => ss.getSheetByName(name),
