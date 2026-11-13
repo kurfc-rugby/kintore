@@ -141,7 +141,7 @@
       if (isIOS() && !isStandalone()) return h + '<p class="lead-line small">iPhone では、<b>ホーム画面に追加したアプリ</b>からだけ通知を受け取れます（iOS 16.4 以上）。上の手順で追加して、ホーム画面のアイコンから開き、ここで設定してください。</p></section>';
       return h + '<p class="lead-line small">このブラウザでは通知を受け取れません。LINE の中で開いているときは、Chrome か Safari で開き直してください。</p></section>';
     }
-    if (!PWA.reg) return h + '<p class="lead-line small">準備中です。少し待ってから開き直してください。</p></section>';
+    if (!PWA.reg || !S.data.pushKey) return h + '<p class="lead-line small">準備中です。少し待ってから開き直してください。</p></section>';
     if (!PUSH.ready) { loadPush().then(() => { if (S.route.name === 'settings') render(); }); return h + '<p class="empty small">読み込み中…</p></section>'; }
     const on = !!PUSH.endpoint, cur = on ? store.get('pushKinds', []) : ['goal', 'cheer', 'pinreq'];
     const denied = Notification.permission === 'denied';
