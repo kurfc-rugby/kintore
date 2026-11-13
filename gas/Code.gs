@@ -1901,52 +1901,54 @@ function opBulkPerms_(ctx) {
 //   秘密鍵はスクリプトのプロパティ（VAPID_D）にだけ置く。公開鍵（VAPID_PUB）は画面に渡す。
 //   k は RFC 6979（決定的）で作るので、乱数の質に頼らない。
 // ---------------------------------------------------------------------------
+// Apps Script のエディタは BigInt の書き方（0n など）を読めないので、BigInt() で作っておく
+const N0_ = BigInt(0), N1_ = BigInt(1), N2_ = BigInt(2), N3_ = BigInt(3), N4_ = BigInt(4), N8_ = BigInt(8), N255_ = BigInt(255);
 const EC_P = BigInt('0xffffffff00000001000000000000000000000000ffffffffffffffffffffffff');
 const EC_N = BigInt('0xffffffff00000000ffffffffffffffffbce6faada7179e84f3b9cac2fc632551');
 const EC_G = [BigInt('0x6b17d1f2e12c4247f8bce6e563a440f277037d812deb33a0f4a13945d898c296'), BigInt('0x4fe342e2fe1a7f9b8ee7eb4a7c0f9e162bce33576b315ececbb6406837bf51f5')];
-function ecMod_(a, m) { const r = a % m; return r < 0n ? r + m : r; }
+function ecMod_(a, m) { const r = a % m; return r < N0_ ? r + m : r; }
 function ecInv_(a, m) {
-  let t = 0n, nt = 1n, r = m, nr = ecMod_(a, m);
-  while (nr !== 0n) { const q = r / nr; [t, nt] = [nt, t - q * nt]; [r, nr] = [nr, r - q * nr]; }
+  let t = N0_, nt = N1_, r = m, nr = ecMod_(a, m);
+  while (nr !== N0_) { const q = r / nr; [t, nt] = [nt, t - q * nt]; [r, nr] = [nr, r - q * nr]; }
   return ecMod_(t, m);
 }
 // ヤコビアン座標 [X, Y, Z]（Z=0 は無限遠点）
 function ecDbl_(P) {
   const [X, Y, Z] = P, p = EC_P;
-  if (Z === 0n || Y === 0n) return [0n, 1n, 0n];
-  const YY = ecMod_(Y * Y, p), S = ecMod_(4n * X * YY, p), ZZ = ecMod_(Z * Z, p);
-  const M = ecMod_(3n * (X - ZZ) * (X + ZZ), p); // a = -3
-  const X3 = ecMod_(M * M - 2n * S, p);
-  const Y3 = ecMod_(M * (S - X3) - 8n * YY * YY, p);
-  const Z3 = ecMod_(2n * Y * Z, p);
+  if (Z === N0_ || Y === N0_) return [N0_, N1_, N0_];
+  const YY = ecMod_(Y * Y, p), S = ecMod_(N4_ * X * YY, p), ZZ = ecMod_(Z * Z, p);
+  const M = ecMod_(N3_ * (X - ZZ) * (X + ZZ), p); // a = -3
+  const X3 = ecMod_(M * M - N2_ * S, p);
+  const Y3 = ecMod_(M * (S - X3) - N8_ * YY * YY, p);
+  const Z3 = ecMod_(N2_ * Y * Z, p);
   return [X3, Y3, Z3];
 }
 function ecAdd_(P, Q) {
-  if (P[2] === 0n) return Q;
-  if (Q[2] === 0n) return P;
+  if (P[2] === N0_) return Q;
+  if (Q[2] === N0_) return P;
   const p = EC_P;
   const Z1Z1 = ecMod_(P[2] * P[2], p), Z2Z2 = ecMod_(Q[2] * Q[2], p);
   const U1 = ecMod_(P[0] * Z2Z2, p), U2 = ecMod_(Q[0] * Z1Z1, p);
   const S1 = ecMod_(P[1] * Q[2] * Z2Z2, p), S2 = ecMod_(Q[1] * P[2] * Z1Z1, p);
-  if (U1 === U2) return S1 === S2 ? ecDbl_(P) : [0n, 1n, 0n];
+  if (U1 === U2) return S1 === S2 ? ecDbl_(P) : [N0_, N1_, N0_];
   const H = ecMod_(U2 - U1, p), R = ecMod_(S2 - S1, p);
   const HH = ecMod_(H * H, p), HHH = ecMod_(H * HH, p), V = ecMod_(U1 * HH, p);
-  const X3 = ecMod_(R * R - HHH - 2n * V, p);
+  const X3 = ecMod_(R * R - HHH - N2_ * V, p);
   const Y3 = ecMod_(R * (V - X3) - S1 * HHH, p);
   const Z3 = ecMod_(H * P[2] * Q[2], p);
   return [X3, Y3, Z3];
 }
 function ecMul_(k, G) {
-  let R = [0n, 1n, 0n], A = [G[0], G[1], 1n];
-  while (k > 0n) { if (k & 1n) R = ecAdd_(R, A); A = ecDbl_(A); k >>= 1n; }
-  if (R[2] === 0n) return null;
+  let R = [N0_, N1_, N0_], A = [G[0], G[1], N1_];
+  while (k > N0_) { if (k & N1_) R = ecAdd_(R, A); A = ecDbl_(A); k >>= N1_; }
+  if (R[2] === N0_) return null;
   const zi = ecInv_(R[2], EC_P), zi2 = ecMod_(zi * zi, EC_P);
   return [ecMod_(R[0] * zi2, EC_P), ecMod_(R[1] * zi2 * zi, EC_P)];
 }
 function bytesU_(arr) { return Array.prototype.map.call(arr, function (b) { return b & 255; }); }
 function bytesS_(arr) { return arr.map(function (b) { return b > 127 ? b - 256 : b; }); }
-function bigToBytes_(x, len) { const out = []; for (let i = len - 1; i >= 0; i--) { out[i] = Number(x & 255n); x >>= 8n; } return out; }
-function bytesToBig_(arr) { let x = 0n; for (let i = 0; i < arr.length; i++) x = (x << 8n) | BigInt(arr[i] & 255); return x; }
+function bigToBytes_(x, len) { const out = []; for (let i = len - 1; i >= 0; i--) { out[i] = Number(x & N255_); x >>= N8_; } return out; }
+function bytesToBig_(arr) { let x = N0_; for (let i = 0; i < arr.length; i++) x = (x << N8_) | BigInt(arr[i] & 255); return x; }
 function utf8_(s) {
   const out = [];
   for (let i = 0; i < s.length; i++) {
@@ -1982,12 +1984,12 @@ function ecSign_(d, msgBytes) {
   for (let tries = 0; tries < 64; tries++) {
     V = hmac_(K, V);
     const k = bytesToBig_(V);
-    if (k >= 1n && k < EC_N) {
+    if (k >= N1_ && k < EC_N) {
       const R = ecMul_(k, EC_G);
       const r = ecMod_(R[0], EC_N);
-      if (r !== 0n) {
+      if (r !== N0_) {
         const s = ecMod_(ecInv_(k, EC_N) * (e + r * d), EC_N);
-        if (s !== 0n) return bigToBytes_(r, 32).concat(bigToBytes_(s, 32));
+        if (s !== N0_) return bigToBytes_(r, 32).concat(bigToBytes_(s, 32));
       }
     }
     K = hmac_(K, V.concat([0])); V = hmac_(K, V);
@@ -1998,7 +2000,7 @@ function ecSign_(d, msgBytes) {
 function ecKeygen_() {
   let seed = [];
   for (let i = 0; i < 4; i++) seed = seed.concat(utf8_(Utilities.getUuid() + ':' + Date.now() + ':' + Math.random()));
-  const d = ecMod_(bytesToBig_(sha256_(seed)), EC_N - 1n) + 1n;
+  const d = ecMod_(bytesToBig_(sha256_(seed)), EC_N - N1_) + N1_;
   const Q = ecMul_(d, EC_G);
   return { d: d.toString(16), pub: b64u_([4].concat(bigToBytes_(Q[0], 32), bigToBytes_(Q[1], 32))) };
 }
