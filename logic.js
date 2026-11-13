@@ -48,7 +48,7 @@
   }
 
   // ---------- 索引 ----------
-  // state: { members:[{id,player,start,left,group,mode,...}], menus:[{id,date,targets:[id]}], records:[[memberId,date,s,t,by]] }
+  // state: { members:[{id,player,active,start,left,group,position,subs,mode,...}], menus:[{id,date,targets:[id]}], records:[[memberId,date,s,t,by]] }
   function buildIndex(state) {
     var rec = Object.create(null), tgt = Object.create(null), menusByDate = Object.create(null);
     (state.records || []).forEach(function (r) {
@@ -66,68 +66,101 @@
     if (!m.player) return false;
     if (m.start && date < m.start) return false;
     if (m.left && date >= m.left) return false;
+    if (m.active === false && !m.left) return false;
     return true;
   }
   function inRosterRange(m, from, to) {
     if (!m.player) return false;
     if (m.start && to < m.start) return false;
     if (m.left && from >= m.left) return false;
+    if (m.active === false && !m.left) return false;
     return true;
+  }
+  /** メイン・サブのどちらかがそのポジションか */
+  function hasPosition(m, code) {
+    return m.position === code || (m.subs || []).indexOf(code) >= 0;
   }
   // 記録があれば記録時点の対象フラグ、無ければ現在のメニューの対象者で判定
   function isTarget(idx, id, date) {
     var r = getRec(idx, id, date);
-    if (r) return r.t === 1;
+    if (r && r.t === 1) return true;
     return !!(idx.tgt[date] && idx.tgt[date][id]);
   }
   // マス目の状態
-  //  done=実施した / not=実施していない / pending=未記録（対象日・今日まで）/ planned=予定（対象日・未来）
-  //  none=予定なし・記録なし / out=在籍期間外
+  //  done=実施した / not=実施していない（メニューの対象日で記録が無く、その日が過ぎた）/ today=今日の対象（記録待ち）
+  //  planned=これからの対象日 / none=予定なし・記録なし / out=在籍期間外
   function cellState(idx, m, date, today) {
     var r = getRec(idx, m.id, date);
     if (r) return r.s === 1 ? 'done' : 'not';
     if (!inRoster(m, date)) return 'out';
-    if (idx.tgt[date] && idx.tgt[date][m.id]) return date <= today ? 'pending' : 'planned';
+    if (idx.tgt[date] && idx.tgt[date][m.id]) return date < today ? 'not' : date === today ? 'today' : 'planned';
     return 'none';
   }
 
   // ---------- 個人の集計 ----------
+  //  targetDays … 集計に入れる対象日（過ぎた対象日＋今日実施した対象日）
+  //  rate       … 実施した対象日 ÷ targetDays。対象日が無ければ null（自主トレの人など）
   function memberStats(idx, m, from, to, today) {
-    var s = { id: m.id, done: 0, notDone: 0, targetDays: 0, recT: 0, doneT: 0, pending: 0, rate: null, lastDone: '' };
+    var s = { id: m.id, done: 0, notDone: 0, targetDays: 0, doneT: 0, todayOpen: 0, rate: null, lastDone: '' };
     var end = to < today ? to : today;
     for (var d = from; d <= end; d = addDays(d, 1)) {
       var r = getRec(idx, m.id, d);
-      if (r) {
-        if (r.s === 1) { s.done++; s.lastDone = d; } else s.notDone++;
-        if (r.t === 1) { s.targetDays++; s.recT++; if (r.s === 1) s.doneT++; }
-      } else if (inRoster(m, d) && idx.tgt[d] && idx.tgt[d][m.id]) {
-        s.targetDays++; s.pending++;
-      }
+      var done = !!(r && r.s === 1);
+      if (done) { s.done++; s.lastDone = d; }
+      var tg = r ? (r.t === 1 || !!(idx.tgt[d] && idx.tgt[d][m.id])) : (inRoster(m, d) && !!(idx.tgt[d] && idx.tgt[d][m.id]));
+      if (!tg) continue;
+      if (d === today && !done) { s.todayOpen++; continue; }
+      s.targetDays++;
+      if (done) s.doneT++; else s.notDone++;
     }
-    if (s.recT > 0) s.rate = s.doneT / s.recT;
+    if (s.targetDays > 0) s.rate = s.doneT / s.targetDays;
     return s;
   }
 
   // ---------- 期間の集計 ----------
-  // opt.group: 'ALL' | 'FW' | 'BK'
+  // opt.group: 'ALL' | 'FW' | 'BK'、opt.position: 'PR' など（メイン・サブのどちらか）
+  function matches(m, opt) {
+    if (opt.group && opt.group !== 'ALL' && m.group !== opt.group) return false;
+    if (opt.position && !hasPosition(m, opt.position)) return false;
+    return true;
+  }
   function periodStats(state, idx, from, to, today, opt) {
     opt = opt || {};
-    var g = opt.group || 'ALL';
-    var rows = [], team = { done: 0, notDone: 0, targetDays: 0, recT: 0, doneT: 0, pending: 0, rate: null, active: 0, members: 0, leaderMembers: 0 };
+    var rows = [], team = { done: 0, notDone: 0, targetDays: 0, doneT: 0, rate: null, active: 0, members: 0, leaderMembers: 0, todayOpen: 0 };
     (state.members || []).forEach(function (m) {
       if (!inRosterRange(m, from, to)) return;
-      if (g !== 'ALL' && m.group !== g) return;
+      if (!matches(m, opt)) return;
       var s = memberStats(idx, m, from, to, today);
       s.name = m.name; s.group = m.group; s.mode = m.mode; s.sort = m.sort || 0;
+      s.position = m.position || ''; s.subs = m.subs || []; s.grade = m.grade || '';
       rows.push(s);
       team.members++;
       if (m.mode === 'leader') team.leaderMembers++;
-      team.done += s.done; team.notDone += s.notDone; team.targetDays += s.targetDays;
-      team.recT += s.recT; team.doneT += s.doneT; team.pending += s.pending;
+      team.done += s.done; team.notDone += s.notDone; team.targetDays += s.targetDays; team.doneT += s.doneT; team.todayOpen += s.todayOpen;
       if (s.done > 0) team.active++;
     });
-    if (team.recT > 0) team.rate = team.doneT / team.recT;
+    if (team.targetDays > 0) team.rate = team.doneT / team.targetDays;
     return { from: from, to: to, rows: rows, team: team };
+  }
+
+  /** ポジションごとの集計（メインのポジションで数える） */
+  function positionStats(state, idx, from, to, today, positions) {
+    var out = {};
+    (positions || []).forEach(function (p) { out[p.code] = { code: p.code, group: p.group, members: 0, done: 0, doneT: 0, targetDays: 0, active: 0, rate: null }; });
+    var none = { code: '', members: 0, done: 0, doneT: 0, targetDays: 0, active: 0, rate: null };
+    (state.members || []).forEach(function (m) {
+      if (!inRosterRange(m, from, to)) return;
+      var o = out[m.position] || none;
+      var s = memberStats(idx, m, from, to, today);
+      o.members++; o.done += s.done; o.doneT += s.doneT; o.targetDays += s.targetDays;
+      if (s.done > 0) o.active++;
+    });
+    Object.keys(out).concat(['']).forEach(function (k) {
+      var o = k ? out[k] : none;
+      if (o.targetDays > 0) o.rate = o.doneT / o.targetDays;
+    });
+    out[''] = none;
+    return out;
   }
 
   function byName(a, b) { return (a.sort - b.sort) || (a.name < b.name ? -1 : a.name > b.name ? 1 : 0); }
@@ -159,16 +192,17 @@
     return out;
   }
 
-  // ---------- その日の記録状況 ----------
+  // ---------- その日の状況 ----------
   function dayStatus(state, idx, date) {
-    var o = { date: date, targets: 0, targetRecorded: 0, pending: 0, done: 0, notDone: 0, others: 0, othersRecorded: 0, roster: 0 };
+    var o = { date: date, targets: 0, targetDone: 0, done: 0, others: 0, othersDone: 0, roster: 0 };
     (state.members || []).forEach(function (m) {
       var r = getRec(idx, m.id, date);
       if (!r && !inRoster(m, date)) return;
       o.roster++;
-      if (r) { if (r.s === 1) o.done++; else o.notDone++; }
-      if (isTarget(idx, m.id, date)) { o.targets++; if (r) o.targetRecorded++; else o.pending++; }
-      else { o.others++; if (r) o.othersRecorded++; }
+      var done = !!(r && r.s === 1);
+      if (done) o.done++;
+      if (isTarget(idx, m.id, date)) { o.targets++; if (done) o.targetDone++; }
+      else { o.others++; if (done) o.othersDone++; }
     });
     return o;
   }
@@ -216,8 +250,8 @@
     pad: pad, ymd: ymd, parse: parse, fmt: fmt, isDate: isDate, addDays: addDays, dow: dow, weekStart: weekStart,
     weekRange: weekRange, monthRange: monthRange, addMonths: addMonths, todayJST: todayJST, dateList: dateList,
     prevPeriod: prevPeriod, nextPeriod: nextPeriod,
-    buildIndex: buildIndex, getRec: getRec, inRoster: inRoster, inRosterRange: inRosterRange, isTarget: isTarget,
-    cellState: cellState, memberStats: memberStats, periodStats: periodStats, rank: rank, dayStatus: dayStatus,
+    buildIndex: buildIndex, getRec: getRec, inRoster: inRoster, inRosterRange: inRosterRange, isTarget: isTarget, hasPosition: hasPosition,
+    cellState: cellState, memberStats: memberStats, periodStats: periodStats, positionStats: positionStats, rank: rank, dayStatus: dayStatus,
     monthWeeks: monthWeeks, continuity: continuity, streakWeeks: streakWeeks, pct: pct
   };
 });

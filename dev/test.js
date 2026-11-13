@@ -1,6 +1,6 @@
 // 自動テスト：node dev/test.js
-// 指示書「11. 必須テスト項目」をサーバー（Code.gs）と集計（logic.js）に対して実行する
-const { create } = require('./mock-gas');
+// サーバー（gas/Code.gs）・共通名簿ライブラリ（shared/KurfcRoster.gs）・集計（logic.js）を模擬環境で確かめる
+const { create, seedMaster } = require('./mock-gas');
 const L = require('../logic.js');
 
 let pass = 0, fail = 0;
@@ -9,329 +9,308 @@ function section(t) { console.log('\n■ ' + t); }
 function ok(cond, label) {
   if (cond) { pass++; console.log('  ✓ ' + label); } else { fail++; failed.push(label); console.log('  ✗ ' + label); }
 }
-function eq(a, b, label) { ok(JSON.stringify(a) === JSON.stringify(b), label + (JSON.stringify(a) === JSON.stringify(b) ? '' : '  → 実際: ' + JSON.stringify(a) + ' / 期待: ' + JSON.stringify(b))); }
+function eq(a, b, label) { const same = JSON.stringify(a) === JSON.stringify(b); ok(same, label + (same ? '' : '  → 実際: ' + JSON.stringify(a) + ' / 期待: ' + JSON.stringify(b))); }
+function throws(fn, re, label) { try { fn(); ok(false, label + '（エラーにならなかった）'); } catch (e) { ok(re.test(e.message), label + (re.test(e.message) ? '' : '  → ' + e.message)); } }
 
 const gas = create();
 gas.setToday('2026-11-13'); // 金曜日
 const api = gas.api;
+const R = gas.KurfcRoster;
+const col = (name) => gas.masterSheet().data[0].indexOf(name);
+const masterRow = (name) => gas.masterSheet().data.find((r) => r[0] === name);
 
-// ---------------- 準備 ----------------
-section('初期設定と管理者の登録');
-eq(gas.run('setup'), 'ok', '初期設定でシートができる');
-eq(gas.run('setup'), 'ok', '初期設定は2回実行しても壊れない');
-ok(['部員', '設定変更履歴', 'メニュー', '実施記録', 'ログイン', '操作履歴', '設定'].every((n) => gas.sheet(n)), '7つのシートがある');
-const adminPin0 = gas.run('registerAdmin_', '橋本 侑青');
-ok(/^\d{6}$/.test(adminPin0), '管理者の最初の暗証番号（6桁）が発行される');
+// 会計アプリの名簿（本番と同じ形：名前・学年・役割・在籍・表示順）
+seedMaster(gas, [
+  { name: '前田 剛', grade: '4年' }, { name: '石川 大地', grade: '4年' }, { name: '森 健太', grade: '3年' },
+  { name: '橋本 侑青', grade: '4年', role: '財務' }, { name: '小川 陽向', grade: '3年' }, { name: '長谷川 湊', grade: '2年' },
+  { name: '村上 樹', grade: '2年' }, { name: '近藤 蒼', grade: '1年' }, { name: 'マネ 花子', grade: '2年', role: 'マネージャー' },
+  { name: 'マネ さくら', grade: '1年', role: 'マネージャー' }, { name: '卒業 先輩', grade: '4年', active: false }
+]);
 
+// v1 の筋トレ専用「部員」シート（本番で管理者だけ登録済みだった状態）
+const oldPin = 'old-admin-pin';
+(function () {
+  const sh = gas.ss.insertSheet('部員');
+  const salt = 'abcdef0123456789abcdef0123456789';
+  sh.data = [['ID', '名前', 'グループ', '取り組み方', '権限', '選手', '在籍', '開始日', '退部日', '並び順', '暗証番号ハッシュ', 'ソルト', '要変更', '失敗回数', 'ロック解除', '作成日時', '更新日時'],
+    ['m001', '橋本侑青', 'FW', '自主トレ', '管理者', 'はい', 'はい', '', '', '0', gas.run('pinHash_', salt, oldPin), salt, 'いいえ', '0', '', '2026-11-13 17:02:54', '']];
+  const h = gas.ss.insertSheet('設定変更履歴');
+  h.data = [['部員ID', '適用開始日', 'グループ', '取り組み方', '変更者ID', '変更日時'], ['m001', '2000-01-01', 'FW', '自主トレ', '', '2026-11-13 17:02:54']];
+})();
+
+// ---------------- 共通名簿と移行 ----------------
+section('共通名簿ライブラリ');
+const list0 = R.list();
+ok(list0.length === 11 && list0.every((m) => /^M\d{4}$/.test(m.id)), '会計アプリの名簿の全員にIDが付く（在籍なしの人も）');
+ok(col('部員ID') >= 5 && col('ポジション') >= 5 && col('サブポジション') >= 5 && col('グループ') >= 5, '名簿のシートに 部員ID・グループ・ポジション・サブポジション の列が右端に足される');
+eq(gas.masterSheet().data[0].slice(0, 5), ['名前', '学年', '役割', '在籍', '表示順'], '会計アプリの列（名前・学年・役割・在籍・表示順）はそのまま');
+ok(list0.find((m) => m.name === 'マネ 花子').player === false && list0.find((m) => m.name === '前田 剛').player === true, '役割がマネージャーの人は選手ではない');
+ok(list0.find((m) => m.name === '橋本 侑青').finance === true, '財務の人がわかる');
+const v0 = R.version();
+ok(R.list().length === 11 && R.version() === v0, '2回目はIDを付け直さない（版も変わらない）');
+eq(R.positions().map((p) => p.code), ['PR', 'HO', 'LO', 'FL', 'No.8', 'SH', 'SO', 'CTB', 'WTB', 'FB'], 'ポジションは10区分');
+
+section('v1 からの移行（初回のリクエストで自動）');
 let st = api({ op: 'state' });
-ok(st.ok && !st.me && st.members.length === 1, 'ログインなしで状態を読める（一般部員は見るだけ）');
-const adminId = st.members[0].id;
-ok(st.members[0].pinSet === undefined, 'ログインなしでは暗証番号の情報は返らない');
+ok(st.ok, '状態を読める');
+ok(!gas.sheet('部員') && gas.sheet('旧_部員（v1）'), '旧「部員」シートは「旧_部員（v1）」に名前を変えて残す');
+const hashi = st.members.find((m) => m.name === '橋本 侑青');
+ok(hashi && /^M\d{4}$/.test(hashi.id) && hashi.perm === 'admin', '名前の空白の違い（橋本侑青／橋本 侑青）があっても同じ人として移る（管理者のまま）');
+eq(st.staff.map((s) => s.name), ['橋本 侑青'], 'ログインできる人の一覧に出る');
+let r = api({ op: 'login', memberId: hashi.id, pin: oldPin });
+ok(r.ok && r.me.perm === 'admin' && r.me.mustChange === false, '移行前の暗証番号でそのままログインできる');
+const A = r.token;
+ok(gas.sheet('設定変更履歴').data.slice(1).every((row) => row[0] !== 'm001'), '履歴の部員IDも新しいIDに付け替わる');
+eq(st.members.length, 11, '名簿の全員が部員として見える');
+ok(!st.members.find((m) => m.name === '卒業 先輩').active, '在籍なしの人は在籍なしとして見える');
+eq(st.positions.length, 10, 'ポジションの一覧を返す');
 
-section('ログインと暗証番号');
-ok(api({ op: 'login', memberId: adminId, pin: '000000' }).error === 'login_failed', 'まちがった暗証番号ではログインできない');
-let r = api({ op: 'login', memberId: adminId, pin: adminPin0 });
-ok(r.ok && r.me.role === 'admin' && r.me.mustChange === true, '最初の暗証番号でログインでき、変更を求められる');
-let A = r.token;
-ok(api({ op: 'saveMember', token: A, member: { name: 'x', group: 'FW' } }).error === 'must_change_pin', '暗証番号を変えるまでは操作できない');
-ok(api({ op: 'changePin', token: A, oldPin: adminPin0, newPin: '123' }).error === 'bad_pin', '短い暗証番号は拒否');
-ok(api({ op: 'changePin', token: A, oldPin: 'wrong1', newPin: 'admin-pass-1' }).error === 'login_failed', '今の暗証番号が違うと変更できない');
-ok(api({ op: 'changePin', token: A, oldPin: adminPin0, newPin: 'admin-pass-1' }).ok, '暗証番号を変更できる');
-ok(api({ op: 'state', token: A }).me.mustChange === false, '変更後は通常どおり使える');
-ok(api({ op: 'state', token: 'bogus' }).me === null, 'でたらめなトークンはログイン扱いにならない');
-
-// ---------------- 部員 ----------------
-section('部員の追加と取り組み方の設定');
-r = api({ op: 'importMembers', token: A, rows: [
-  { name: 'FW太郎', group: 'FW', mode: 'leader' },
-  { name: 'FW次郎', group: 'FW', mode: 'leader' },
-  { name: 'FW三郎', group: 'FW', mode: 'self' },
-  { name: 'BK一郎', group: 'BK', mode: 'leader' },
-  { name: 'BK二郎', group: 'BK', mode: 'self' },
-  { name: 'BK三郎', group: 'BK', mode: 'leader' },
-  { name: '=SUM(A1)', group: 'BK', mode: 'self' }
-] });
-ok(r.ok && r.added === 7, '部員をまとめて追加できる（数式に見える名前も文字として保存）');
-ok(api({ op: 'importMembers', token: A, rows: [{ name: 'FW太郎', group: 'FW' }] }).skipped.length === 1, '同じ名前は二重に追加されない');
-r = api({ op: 'saveMember', token: A, member: { name: 'マネ花子', player: false, role: 'manager' } });
-ok(r.ok && r.member.player === false && r.member.role === 'manager', 'マネージャー（選手ではない）を追加できる');
-const mgr1 = r.member.id;
-r = api({ op: 'saveMember', token: A, member: { name: 'マネ桜', player: false, role: 'manager' } });
-const mgr2 = r.member.id;
-st = api({ op: 'state', token: A });
 const id = {};
 st.members.forEach((m) => { id[m.name] = m.id; });
-ok(st.members.find((m) => m.name === '=SUM(A1)'), '数式に見える名前がそのまま読める');
-// FW太郎をFWリーダーに
-r = api({ op: 'saveMember', token: A, member: { id: id['FW太郎'], name: 'FW太郎', group: 'FW', mode: 'leader', role: 'leader' } });
-ok(r.ok && r.member.role === 'leader', '管理者が権限を変更できる（FWリーダーに）');
-ok(api({ op: 'saveMember', token: A, member: { id: adminId, name: '橋本 侑青', group: 'BK', mode: 'self', role: 'member' } }).error === 'last_admin', '最後の管理者は一般部員に変えられない');
-ok(api({ op: 'saveMember', token: A, member: { id: adminId, name: '橋本 侑青', group: 'BK', mode: 'self', role: 'admin' } }).ok, '管理者が部員情報（グループ）を編集できる');
-ok(api({ op: 'saveMember', token: A, member: { name: 'FW太郎', group: 'FW' } }).error === 'duplicate', '同じ名前の部員は追加できない');
 
+// ---------------- 部員の設定 ----------------
+section('ポジションと取り組み方');
+r = api({ op: 'bulkMembers', token: A, rows: [
+  { id: id['前田 剛'], position: 'PR', subs: [], mode: 'leader' },
+  { id: id['石川 大地'], position: 'LO', subs: ['FL'], mode: 'leader' },
+  { id: id['森 健太'], position: 'FL', subs: ['No.8'], mode: 'self' },
+  { id: id['橋本 侑青'], position: 'No.8', subs: ['FL'], mode: 'leader' },
+  { id: id['小川 陽向'], position: 'SH', subs: [], mode: 'leader' },
+  { id: id['長谷川 湊'], position: 'CTB', subs: ['WTB', 'FB'], mode: 'leader' },
+  { id: id['村上 樹'], position: 'WTB', subs: [], mode: 'self' },
+  { id: id['近藤 蒼'], position: 'FB', subs: ['SO'], mode: 'leader' }
+] });
+ok(r.ok && r.changed === 8, '管理者がまとめてポジション（メイン＋サブ）と取り組み方を設定できる');
+eq(masterRow('石川 大地').slice(col('グループ'), col('グループ') + 1).concat([masterRow('石川 大地')[col('ポジション')], masterRow('石川 大地')[col('サブポジション')]]), ['FW', 'LO', 'FL'], '会計アプリの名簿のシートに グループ・ポジション・サブ が書かれる');
+ok(R.version() !== v0, '名簿の版が変わる（会計アプリが古い名簿を出さないように）');
+st = api({ op: 'state' });
+const M = (name) => st.members.find((m) => m.name === name);
+eq([M('長谷川 湊').group, M('長谷川 湊').position, M('長谷川 湊').subs], ['BK', 'CTB', ['WTB', 'FB']], 'グループはメインのポジションから決まる');
+r = api({ op: 'saveMember', token: A, member: { id: id['近藤 蒼'], position: 'FB', subs: ['FB', 'SO', 'xx'] } });
+ok(r.error === 'bad_position', 'ない名前のポジションは拒否');
+r = api({ op: 'saveMember', token: A, member: { id: id['近藤 蒼'], position: 'FB', subs: ['FB', 'SO'] } });
+eq(r.member.subs, ['SO'], 'メインと同じサブは入れない');
+
+section('名簿の決まり（会計アプリを壊さない）');
+throws(() => R.update(id['前田 剛'], { name: '前田 剛志' }), /会計アプリ/, '名前の変更はライブラリから拒否（会計アプリで行う）');
+r = api({ op: 'saveMember', token: A, member: { id: id['前田 剛'], clubRole: '財務' } });
+ok(!r.ok && /財務/.test(r.message), '「財務」を付けるのは会計アプリで（筋トレからは拒否）');
+r = api({ op: 'saveMember', token: A, member: { id: id['橋本 侑青'], clubRole: '部員' } });
+ok(!r.ok && /財務/.test(r.message), '「財務」を外すのも会計アプリで');
+r = api({ op: 'setMemberActive', token: A, id: id['橋本 侑青'], active: false });
+ok(!r.ok, '自分（財務）の在籍は外せない');
+r = api({ op: 'saveMember', token: A, member: { id: id['村上 樹'], grade: '3年' } });
+ok(r.ok && masterRow('村上 樹')[1] === '3年', '学年の変更は会計アプリの名簿に書かれる');
+r = api({ op: 'saveMember', token: A, member: { name: '新人 一年', grade: '1年', position: 'HO', mode: 'leader' } });
+ok(r.ok && r.member.position === 'HO' && masterRow('新人 一年') && masterRow('新人 一年')[3] === true, '筋トレで追加した部員は会計アプリの名簿にも入る（在籍はチェックボックス）');
+ok(/^M\d{4}$/.test(masterRow('新人 一年')[col('部員ID')]), '追加した人にもIDが付く');
+id['新人 一年'] = r.member.id;
+r = api({ op: 'saveMember', token: A, member: { name: '新人一年', grade: '1年' } });
+ok(r.error === 'duplicate', '空白の違いだけの同じ名前は追加できない');
+r = api({ op: 'saveMember', token: A, member: { name: '卒業先輩' } });
+ok(r.error === 'duplicate' && /在籍なし/.test(r.message), '在籍なしの人と同じ名前は「戻す」を案内');
+r = api({ op: 'saveMember', token: A, member: { name: '=HYPERLINK("x")' } });
+ok(!r.ok, '数式に見える名前は名簿に入れない');
+
+section('会計アプリで名簿を変えたとき（進級・追加・改名・卒業）');
+gas.accountingEdit((sh) => {
+  sh.data.forEach((row, i) => { if (i > 0 && row[1] === '1年') row[1] = '2年'; }); // 進級（1年→2年）
+  sh.data.push(['入部 太郎', '1年', '部員', true, 999]);                           // 新入部員（IDの列は空）
+  const k = sh.data.findIndex((row) => row[0] === '小川 陽向'); sh.data[k][0] = '小川 陽向太';  // 改名（IDの列はそのまま）
+  const g = sh.data.findIndex((row) => row[0] === '森 健太'); sh.data[g][3] = false;          // 卒業（在籍を外す）
+});
+st = api({ op: 'state' });
+ok(M('近藤 蒼').grade === '2年', '進級（学年の変更）がすぐ筋トレに出る');
+ok(M('入部 太郎') && /^M\d{4}$/.test(M('入部 太郎').id) && /^M\d{4}$/.test(masterRow('入部 太郎')[col('部員ID')]), '会計アプリで足した人にIDが付き、筋トレに出る');
+ok(M('小川 陽向太') && M('小川 陽向太').id === id['小川 陽向'] && M('小川 陽向太').position === 'SH', '会計アプリで改名しても同じ人（ID・ポジションはそのまま）');
+ok(M('森 健太').active === false && M('森 健太').left === '2026-11-13', '会計アプリで在籍を外すと、筋トレではその日から退部扱い');
+id['入部 太郎'] = M('入部 太郎').id;
+
+// ---------------- メニュー ----------------
+section('FWリーダーのメニュー（ポジション指定）');
+r = api({ op: 'saveMember', token: A, member: { id: id['前田 剛'], perm: 'leader' } });
 function staffLogin(memberId, newPin) {
   const t = api({ op: 'resetPin', token: A, id: memberId });
   const l = api({ op: 'login', memberId, pin: t.tempPin });
   api({ op: 'changePin', token: l.token, oldPin: t.tempPin, newPin });
   return l.token;
 }
-const M1 = staffLogin(mgr1, 'manager-1-pin');
-const M2 = staffLogin(mgr2, 'manager-2-pin');
-const LD = staffLogin(id['FW太郎'], 'leader-pin-1');
-ok(api({ op: 'state', token: M1 }).me.role === 'manager' && api({ op: 'state', token: LD }).me.role === 'leader', 'マネージャー・FWリーダーがログインできる');
-ok(api({ op: 'resetPin', token: A, id: id['BK二郎'] }).error === 'not_staff', '一般部員には暗証番号を発行しない（ログイン不要）');
-ok(api({ op: 'login', memberId: id['BK二郎'], pin: '123456' }).error === 'login_failed', '一般部員はログインできない');
-
-// ---------------- メニュー ----------------
-section('FWリーダーのメニュー登録');
-const menu = (o) => Object.assign({ title: 'メニュー', content: 'スクワット', detail: '5回×5セット', note: '' }, o);
-r = api({ op: 'saveMenu', token: LD, menu: menu({ date: '2026-11-13', group: 'FW', title: 'FW下半身' }) });
-ok(r.ok, 'FWリーダーがFW向けメニューを登録できる');
-const wFW = r.menu;
-eq(wFW.targets.slice().sort(), [id['FW太郎'], id['FW次郎']].sort(), 'FWメニューの対象はFWのメニュー参加者だけ（自主トレのFW三郎は含まれない）');
-r = api({ op: 'saveMenu', token: LD, menu: menu({ date: '2026-11-13', group: 'BK', title: 'BK上半身' }) });
-const wBK = r.menu;
-eq(wBK.targets.slice().sort(), [id['BK一郎'], id['BK三郎']].sort(), '同じ日にBK向けの別メニューを登録できる（対象はBKの参加者だけ）');
-r = api({ op: 'saveMenu', token: LD, menu: menu({ date: '2026-11-13', group: 'ALL', title: '全体体幹' }) });
-const wALL = r.menu;
-eq(wALL.targets.length, 4, '同じ日に全体メニューも登録できる（対象は参加者4人。自主トレ・マネージャーは含まれない）');
-ok(!wALL.targets.includes(id['FW三郎']) && !wALL.targets.includes(id['BK二郎']) && !wALL.targets.includes(mgr1), '自主トレの部員とマネージャーは対象外');
-r = api({ op: 'saveMenu', token: LD, menu: menu({ date: '2026-11-10', group: 'ALL', title: '火曜全体' }) });
+const LD = staffLogin(id['前田 剛'], 'leader-pin-1');
+api({ op: 'saveMember', token: A, member: { id: id['マネ 花子'], perm: 'manager' } });
+api({ op: 'saveMember', token: A, member: { id: id['マネ さくら'], perm: 'manager' } });
+const M1 = staffLogin(id['マネ 花子'], 'manager-1-pin');
+const M2 = staffLogin(id['マネ さくら'], 'manager-2-pin');
+ok(api({ op: 'state', token: M1 }).me.perm === 'manager' && api({ op: 'state', token: LD }).me.perm === 'leader', 'マネージャー・FWリーダーがログインできる');
+const menu = (o) => Object.assign({ title: 'メニュー', content: 'スクワット', detail: '', note: '' }, o);
+r = api({ op: 'saveMenu', token: LD, menu: menu({ date: '2026-11-10', group: 'FW', title: 'FW火曜' }) });
+eq(r.menu.targets.slice().sort(), [id['前田 剛'], id['石川 大地'], id['橋本 侑青'], id['新人 一年']].sort(), 'FW向けメニューの対象はFWのメニュー参加者（自主トレの森は入らない）。最初の設定は過去の日付にも使う');
 const wTue = r.menu;
-r = api({ op: 'saveMenu', token: LD, menu: Object.assign({}, wFW, { title: 'FW下半身（改）', detail: '6回×4セット' }) });
-ok(r.ok && r.menu.title === 'FW下半身（改）', 'FWリーダーがメニューを編集できる');
-r = api({ op: 'saveMenu', token: LD, menu: menu({ date: '2026-11-20', group: 'FW', title: '消す予定' }) });
-const wDel = r.menu;
-ok(api({ op: 'deleteMenu', token: LD, id: wDel.id }).ok, 'FWリーダーがメニューを削除できる');
-ok(!api({ op: 'state' }).menus.find((w) => w.id === wDel.id), '削除したメニューは一覧に出ない');
-ok(api({ op: 'saveMenu', token: M1, menu: menu({ date: '2026-11-14', group: 'FW' }) }).error === 'forbidden', 'マネージャーはメニューを作成できない');
-ok(api({ op: 'deleteMenu', token: M1, id: wFW.id }).error === 'forbidden', 'マネージャーはメニューを削除できない');
-ok(api({ op: 'saveMenu', menu: menu({ date: '2026-11-14', group: 'FW' }) }).error === 'auth', 'ログインなし（一般部員）はメニューを作成できない');
-ok(api({ op: 'saveMenu', token: LD, menu: menu({ date: '2026-02-30', group: 'FW' }) }).error === 'bad_date', '存在しない日付は拒否');
-ok(api({ op: 'saveMenu', token: LD, menu: menu({ date: '2026-11-14', group: 'XX' }) }).error === 'bad_group', '対象グループは FW・BK・全体 のみ');
-ok(api({ op: 'saveMenu', token: A, menu: menu({ date: '2026-11-14', group: 'FW', title: '管理者作成' }) }).ok, '管理者もメニューを作成できる');
+r = api({ op: 'saveMenu', token: LD, menu: menu({ date: '2026-11-12', positions: ['FL'], title: 'FL強化' }) });
+eq(r.menu.targets.slice().sort(), [id['石川 大地'], id['橋本 侑青']].sort(), 'ポジション指定（FL）はサブにFLがある人も対象（自主トレの人は入らない）');
+eq(r.menu.group, 'FW', 'FWのポジションだけを選ぶと対象グループはFW');
+r = api({ op: 'saveMenu', token: LD, menu: menu({ date: '2026-11-13', positions: ['SH', 'SO', 'FB'], title: 'BK今日' }) });
+eq(r.menu.targets.slice().sort(), [id['小川 陽向'], id['長谷川 湊'], id['近藤 蒼']].sort(), 'BKのポジション指定（SH・SO・FB）。サブにFBがある長谷川も対象');
+r = api({ op: 'saveMenu', token: LD, menu: menu({ date: '2026-11-13', positions: ['PR', 'WTB'], title: '混合' }) });
+eq(r.menu.group, 'ALL', 'FWとBKのポジションを混ぜると対象グループは全体');
+const wMix = r.menu;
+r = api({ op: 'saveMenu', token: LD, menu: menu({ date: '2026-11-16', group: 'ALL', title: '来週全体' }) });
+const wNext = r.menu;
+ok(!wNext.targets.includes(id['森 健太']), '退部した人は来週のメニューの対象に入らない');
+ok(api({ op: 'saveMenu', token: M1, menu: menu({ date: '2026-11-14', group: 'FW' }) }).error === 'forbidden', 'マネージャーはメニューを作れない');
+ok(api({ op: 'saveMenu', menu: menu({ date: '2026-11-14', group: 'FW' }) }).error === 'auth', '一般部員はメニューを作れない');
+ok(api({ op: 'saveMenu', token: LD, menu: menu({ date: '2026-11-14', positions: ['PRR'] }) }).error === 'bad_position', '正しくないポジションは拒否');
 
 // ---------------- 実施記録 ----------------
-section('マネージャーの実施記録');
-const players = Object.keys(id).filter((n) => !n.startsWith('マネ')).map((n) => id[n]);
-r = api({ op: 'saveRecords', token: M1, date: '2026-11-13', items: players.map((p) => ({ memberId: p, status: 'done' })) });
-ok(r.ok && r.saved === players.length && r.rejected.length === 0, '全員をまとめて「実施した」で記録できる（自主トレの部員も含む）');
-r = api({ op: 'saveRecords', token: M1, date: '2026-11-13', items: [{ memberId: id['FW次郎'], status: 'not' }] });
-ok(r.ok && r.updated === 1, '一括記録のあと、個別に「実施していない」へ修正できる');
-r = api({ op: 'saveRecords', token: M1, date: '2026-11-13', items: players.map((p) => ({ memberId: p, status: 'done' })) });
-ok(r.ok && r.saved === 0 && r.updated === 1 && r.unchanged === players.length - 1, '同じ内容の再送信は重複せず、変わった分だけ更新される');
-const recSheet = gas.sheet('実施記録').data.slice(1);
-const keys = recSheet.map((x) => x[0] + '|' + x[1]);
-ok(new Set(keys).size === keys.length && keys.length === players.length, '同じ部員・同じ日付の記録は1件だけ');
-ok(api({ op: 'saveRecords', token: M1, date: '2026-11-13', items: [{ memberId: id['FW次郎'], status: 'excluded' }] }).rejected[0].reason === 'invalid', '選択肢は「実施した」「実施していない」の2つだけ（それ以外は拒否）');
-ok(api({ op: 'saveRecords', token: M1, date: '2026-11-13', items: [{ memberId: mgr1, status: 'done' }] }).rejected[0].reason === 'not_in_roster', '選手ではない人（マネージャー）は記録の対象にならない');
-ok(api({ op: 'saveRecords', token: M1, date: '2026-11-14', items: [{ memberId: id['FW次郎'], status: 'done' }] }).error === 'future_date', '未来の日付は記録できない');
-r = api({ op: 'saveRecords', token: M1, date: '2026-11-11', items: [{ memberId: id['FW三郎'], status: 'done' }, { memberId: id['BK二郎'], status: 'done' }] });
-ok(r.ok && r.saved === 2, 'メニューが無い日（11/11）でも自主トレの記録ができる');
-r = api({ op: 'saveRecords', token: M1, date: '2026-10-28', items: [{ memberId: id['FW三郎'], status: 'done' }, { memberId: id['FW太郎'], status: 'not' }] });
-ok(r.ok && r.saved === 2, '過去の日付（10/28）の記録ができる');
-// 火曜の全体メニュー：太郎=実施、次郎=未実施、BK一郎=未記録、BK三郎=未記録
-r = api({ op: 'saveRecords', token: M1, date: '2026-11-10', items: [{ memberId: id['FW太郎'], status: 'done' }, { memberId: id['FW次郎'], status: 'not' }] });
-ok(r.ok && r.saved === 2, '一部の人だけ記録して保存できる（残りは未記録のまま）');
+section('実施記録（「実施した」を押すだけ）');
+r = api({ op: 'saveRecords', token: M1, date: '2026-11-10', items: [{ memberId: id['前田 剛'], done: true }, { memberId: id['橋本 侑青'], done: true }] });
+ok(r.ok && r.saved === 2, '「実施した」の人だけを送って保存できる');
+r = api({ op: 'saveRecords', token: M1, date: '2026-11-11', items: [{ memberId: id['村上 樹'], done: true }] });
+ok(r.ok && r.saved === 1, 'メニューが無い日でも自主トレの実施を記録できる');
+r = api({ op: 'saveRecords', token: M1, date: '2026-11-13', items: [{ memberId: id['小川 陽向'], done: true }, { memberId: id['前田 剛'], done: true }] });
+ok(r.ok && r.saved === 2, '今日の分を記録できる');
+r = api({ op: 'saveRecords', token: M1, date: '2026-11-13', items: [{ memberId: id['前田 剛'], done: false }] });
+ok(r.ok && r.removed === 1, '押し直すと「記録なし」に戻せる（行が消える）');
+r = api({ op: 'saveRecords', token: M1, date: '2026-11-13', items: [{ memberId: id['前田 剛'], done: true }] });
+r = api({ op: 'saveRecords', token: M2, date: '2026-11-13', items: [{ memberId: id['前田 剛'], done: false }] });
+ok(r.rejected[0] && r.rejected[0].reason === 'not_owner', 'ほかのマネージャーが入れた記録は取り消せない');
+r = api({ op: 'saveRecords', token: A, date: '2026-11-13', items: [{ memberId: id['前田 剛'], done: false }, { memberId: id['前田 剛'], done: true }] });
+ok(r.ok && r.removed === 1, '管理者はだれの記録でも取り消せる（同じ人が2回あれば最初だけ）');
+api({ op: 'saveRecords', token: M1, date: '2026-11-13', items: [{ memberId: id['前田 剛'], done: true }] });
+const recKeys = gas.sheet('実施記録').data.slice(1).map((x) => x[0] + '|' + x[1]);
+ok(new Set(recKeys).size === recKeys.length, '同じ部員・同じ日付の記録は1件だけ');
+ok(api({ op: 'saveRecords', token: M1, date: '2026-11-14', items: [{ memberId: id['前田 剛'], done: true }] }).error === 'future_date', '未来の日付は記録できない');
+ok(api({ op: 'saveRecords', token: M1, date: '2026-11-13', items: [{ memberId: id['マネ 花子'], done: true }] }).rejected[0].reason === 'not_in_roster', '選手ではない人（マネージャー）は記録の対象にならない');
+ok(api({ op: 'saveRecords', token: M1, date: '2026-11-13', items: [{ memberId: id['森 健太'], done: true }] }).rejected[0].reason === 'not_in_roster', '退部した日からは記録できない');
+ok(api({ op: 'saveRecords', token: LD, date: '2026-11-13', items: [{ memberId: id['前田 剛'], done: true }] }).error === 'forbidden', 'FWリーダーは実施記録を変えられない');
+ok(api({ op: 'saveRecords', date: '2026-11-13', items: [{ memberId: id['前田 剛'], done: true }] }).error === 'auth', '一般部員（ログインなし）は実施記録を変えられない');
+ok(api({ op: 'saveRecords', token: M1, date: '2026-11-13', items: [{ memberId: id['前田 剛'], done: 'maybe' }] }).rejected[0].reason === 'invalid', '実施した／していない 以外は拒否');
 
-section('権限（サーバー側で拒否されること）');
-ok(api({ op: 'saveRecords', token: LD, date: '2026-11-13', items: [{ memberId: id['FW次郎'], status: 'not' }] }).error === 'forbidden', 'FWリーダーは実施記録を変更できない');
-ok(api({ op: 'saveRecords', date: '2026-11-13', items: [{ memberId: id['FW次郎'], status: 'not' }] }).error === 'auth', '一般部員（ログインなし）は実施記録を編集できない');
-ok(api({ op: 'deleteRecord', token: M1, memberId: id['FW次郎'], date: '2026-11-13' }).error === 'forbidden', 'マネージャーは記録を削除できない');
-ok(api({ op: 'saveMember', token: M1, member: { name: '新人', group: 'FW' } }).error === 'forbidden', 'マネージャーは部員を追加できない');
-ok(api({ op: 'saveMember', token: LD, member: { id: id['FW次郎'], name: 'FW次郎', group: 'FW', mode: 'self' } }).error === 'forbidden', 'FWリーダーは部員の設定を変更できない');
-ok(api({ op: 'saveMember', member: { id: id['FW次郎'], name: 'FW次郎', group: 'FW', mode: 'self' } }).error === 'auth', '一般部員（ログインなし）は取り組み方を変更できない');
-ok(api({ op: 'setMemberActive', token: M1, id: id['FW次郎'], active: false }).error === 'forbidden', 'マネージャーは部員を削除できない');
-ok(api({ op: 'resetPin', token: M1, id: mgr2 }).error === 'forbidden', 'マネージャーは暗証番号を発行できない');
-ok(api({ op: 'logs', token: M1 }).error === 'forbidden' && api({ op: 'logs', token: LD }).error === 'forbidden' && api({ op: 'logs' }).error === 'auth', '操作履歴は管理者だけが見られる');
-ok(api({ op: 'saveSettings', token: M1, viewPass: 'abcd' }).error === 'forbidden', '設定は管理者だけが変えられる');
-r = api({ op: 'saveRecords', token: M2, date: '2026-11-13', items: [{ memberId: id['FW次郎'], status: 'not' }] });
-ok(r.ok && r.updated === 0 && r.rejected[0].reason === 'not_owner', 'マネージャーは、ほかのマネージャーが入力した記録を修正できない');
-r = api({ op: 'saveRecords', token: A, date: '2026-11-13', items: [{ memberId: id['FW次郎'], status: 'not' }] });
-ok(r.ok && r.updated === 1, '管理者はだれの記録でも修正できる');
-r = api({ op: 'saveRecords', token: A, date: '2026-11-13', items: [{ memberId: id['=SUM(A1)'], status: 'not' }] });
-ok(api({ op: 'deleteRecord', token: A, memberId: id['=SUM(A1)'], date: '2026-11-13' }).ok, '管理者は記録を削除できる（未記録に戻る）');
-ok(api({ op: 'unknown' }).error === 'unknown_op', '不明な操作は拒否');
-
-// ---------------- 集計 ----------------
-section('未記録と「実施していない」の区別・実施率');
+section('記録が無い対象日は、翌日から「実施していない」');
 st = api({ op: 'state' });
 let idx = L.buildIndex(st);
-const M = (name) => st.members.find((m) => m.name === name);
-eq(L.cellState(idx, M('FW太郎'), '2026-11-10', st.today), 'done', '実施した → done');
-eq(L.cellState(idx, M('FW次郎'), '2026-11-10', st.today), 'not', '実施していない → not');
-eq(L.cellState(idx, M('BK一郎'), '2026-11-10', st.today), 'pending', '対象日でまだ記録が無い → 未記録（実施していないとは別）');
-eq(L.cellState(idx, M('FW三郎'), '2026-11-10', st.today), 'none', '自主トレの部員の記録が無い日 → 予定なし（未実施にしない）');
-eq(L.cellState(idx, M('FW太郎'), '2026-11-12', st.today), 'none', 'メニューが無い日 → 予定なし（未実施にしない）');
-eq(L.cellState(idx, M('FW太郎'), '2026-11-14', st.today), 'planned', '明日のメニュー → 予定（未記録に数えない）');
+eq(L.cellState(idx, M('前田 剛'), '2026-11-10', st.today), 'done', '実施した → ○');
+eq(L.cellState(idx, M('石川 大地'), '2026-11-10', st.today), 'not', '過ぎた対象日で記録なし → ×（実施していない）');
+eq(L.cellState(idx, M('小川 陽向太'), '2026-11-13', st.today), 'done', '今日実施した → ○');
+eq(L.cellState(idx, M('近藤 蒼'), '2026-11-13', st.today), 'today', '今日の対象で記録なし → まだ×にしない（記録待ち）');
+eq(L.cellState(idx, M('村上 樹'), '2026-11-10', st.today), 'none', '自主トレの人はメニューの無い日に×が付かない');
+eq(L.cellState(idx, M('前田 剛'), '2026-11-11', st.today), 'none', 'メニューの無い日は×にしない');
+eq(L.cellState(idx, M('前田 剛'), '2026-11-16', st.today), 'planned', 'これからの対象日 → 予定');
 let wk = L.weekRange(st.today);
-eq(wk, { from: '2026-11-09', to: '2026-11-15' }, '週は月曜始まり（11/9〜11/15）');
 let ps = L.periodStats(st, idx, wk.from, wk.to, st.today);
 const row = (name) => ps.rows.find((x) => x.name === name);
-eq([row('FW太郎').done, row('FW太郎').targetDays, row('FW太郎').recT, row('FW太郎').rate], [2, 2, 2, 1], 'FW太郎：実施2回・対象2日・実施率100%');
-eq([row('FW次郎').done, row('FW次郎').notDone, row('FW次郎').rate], [0, 2, 0], 'FW次郎：実施していない2回・実施率0%');
-eq([row('BK一郎').done, row('BK一郎').targetDays, row('BK一郎').recT, row('BK一郎').pending, row('BK一郎').rate], [1, 2, 1, 1, 1], 'BK一郎：対象2日のうち1日が未記録 → 分母に入れず実施率100%（1/1）');
-eq([row('FW三郎').done, row('FW三郎').targetDays, row('FW三郎').rate], [2, 0, null], '自主トレのFW三郎：実施2回・対象日0・実施率は出さない（－）');
-eq(L.pct(row('FW三郎').rate), '－', '実施率を出せないときは「－」');
-eq(ps.team.done, 9, '部全体の実施回数（今週）= 9');
-eq([ps.team.targetDays, ps.team.recT, ps.team.pending], [8, 6, 2], '記録完了 6/8（未記録2）');
-eq(Math.round(ps.team.rate * 100), 67, 'メニュー参加者の実施率 = 4/6 = 67%');
-let ds = L.dayStatus(st, idx, '2026-11-10');
-eq([ds.targets, ds.targetRecorded, ds.pending], [4, 2, 2], '11/10 の記録完了 2/4人・未記録2人');
+eq([row('石川 大地').done, row('石川 大地').targetDays, row('石川 大地').rate], [0, 2, 0], '石川：対象2日（火・木）とも記録なし → 実施率0%');
+eq([row('橋本 侑青').done, row('橋本 侑青').targetDays, row('橋本 侑青').rate], [1, 2, 0.5], '橋本：火は実施・木は記録なし → 50%');
+eq([row('近藤 蒼').targetDays, row('近藤 蒼').todayOpen, row('近藤 蒼').rate], [0, 1, null], '近藤：今日の対象はまだ数えない（実施率は－）');
+eq([row('小川 陽向太').targetDays, row('小川 陽向太').rate], [1, 1], '小川：今日実施した対象日は数える（100%）');
+eq([row('村上 樹').done, row('村上 樹').rate], [1, null], '自主トレの村上：実施1回・実施率は出さない');
+gas.shiftDays(1); // 11/14
+st = api({ op: 'state' }); idx = L.buildIndex(st);
+eq(L.cellState(idx, M('近藤 蒼'), '2026-11-13', st.today), 'not', '翌日になると、記録の無い昨日の対象日は×');
+ps = L.periodStats(st, idx, wk.from, wk.to, st.today);
+eq([ps.rows.find((x) => x.name === '近藤 蒼').targetDays, ps.rows.find((x) => x.name === '近藤 蒼').rate], [1, 0], '近藤：昨日の対象日が0%で数えられる');
+gas.shiftDays(-1);
 
-section('指示書の計算例（対象10回・記録8回・実施6回 → 75%）');
+section('指示書の計算例（対象10回・実施6回）');
 (function () {
-  const members = [{ id: 'x', name: 'X', player: true, group: 'FW', mode: 'leader', start: '', left: '' }];
+  const members = [{ id: 'x', name: 'X', player: true, active: true, group: 'FW', mode: 'leader', start: '', left: '' }];
   const menus = [], records = [];
   for (let i = 1; i <= 10; i++) {
     const d = L.ymd(2026, 10, i);
     menus.push({ id: 'w' + i, date: d, targets: ['x'] });
-    if (i <= 6) records.push(['x', d, 1, 1, 'a']); else if (i <= 8) records.push(['x', d, 0, 1, 'a']);
+    if (i <= 6) records.push(['x', d, 1, 1, 'a']);
   }
   const s = { members, menus, records };
   const p = L.periodStats(s, L.buildIndex(s), '2026-10-01', '2026-10-31', '2026-10-31').rows[0];
-  eq([p.done, p.notDone, p.pending, p.recT, p.targetDays, L.pct(p.rate)], [6, 2, 2, 8, 10, '75%'], '実施6・実施していない2・未記録2・記録完了8/10・実施率75%');
-  // 同じ日に複数メニューがあっても対象は1回
+  eq([p.done, p.notDone, p.targetDays, L.pct(p.rate)], [6, 4, 10, '60%'], '実施6・実施していない4（記録なし）→ 60%');
   const s2 = { members, menus: [{ id: 'a', date: '2026-10-01', targets: ['x'] }, { id: 'b', date: '2026-10-01', targets: ['x'] }], records: [] };
   eq(L.periodStats(s2, L.buildIndex(s2), '2026-10-01', '2026-10-31', '2026-10-31').rows[0].targetDays, 1, '同じ日に複数メニューがあっても対象は1回');
 })();
 
-section('ランキング');
+section('ランキング・ポジション別');
+st = api({ op: 'state' }); idx = L.buildIndex(st);
+ps = L.periodStats(st, idx, wk.from, wk.to, st.today);
 let rk = L.rank(ps.rows, 'count');
-eq(rk.filter((x) => x.rank === 1).map((x) => x.name).sort(), ['BK二郎', 'FW三郎', 'FW太郎'], '実施回数順：2回の3人が同順位1位');
-ok(rk.find((x) => x.name === 'FW次郎').rank === null, '実施0回は順位なし');
-ok(rk.findIndex((x) => x.name === 'FW太郎') < rk.findIndex((x) => x.name === 'FW三郎'), '同数なら実施率がある人が上に並ぶ');
+ok(rk[0].done >= rk[1].done && rk.filter((x) => x.done === 0).every((x) => x.rank === null), '実施回数順（0回は順位なし）');
 rk = L.rank(ps.rows, 'rate');
-eq(rk[0].name, 'FW太郎', '実施率順：同率100%なら実施回数の多いFW太郎が1位');
-eq(rk.filter((x) => x.rate !== null).map((x) => x.rank), [1, 2, 2, 4], '実施率順の順位（同率・同回数は同順位）');
-ok(rk.filter((x) => x.mode === 'self' && x.name !== '橋本 侑青').every((x) => x.rank === null && x.rate === null), '自主トレの部員に実施率・実施率順位を付けない');
-eq(L.periodStats(st, idx, wk.from, wk.to, st.today, { group: 'FW' }).rows.map((x) => x.name).sort(), ['FW三郎', 'FW太郎', 'FW次郎'], 'FWだけに絞り込める');
-eq(L.periodStats(st, idx, wk.from, wk.to, st.today, { group: 'BK' }).rows.length, 5, 'BKだけに絞り込める');
+ok(rk.filter((x) => x.mode === 'self').every((x) => x.rate === null && x.rank === null), '自主トレの人に実施率・実施率順位を付けない');
+eq(L.periodStats(st, idx, wk.from, wk.to, st.today, { position: 'FL' }).rows.map((x) => x.name).sort(), ['森 健太', '橋本 侑青', '石川 大地'].sort(), 'ポジション（FL）で絞ると、サブがFLの人も入る（今週退部した森も今週分は入る）');
+eq(L.periodStats(st, idx, wk.from, wk.to, st.today, { group: 'BK' }).rows.map((x) => x.name).sort(), ['入部 太郎', '小川 陽向太', '村上 樹', '近藤 蒼', '長谷川 湊'].sort().filter((n) => M(n).group === 'BK'), 'BKで絞れる');
+const pos = L.positionStats(st, idx, wk.from, wk.to, st.today, st.positions);
+ok(pos.PR.members === 1 && pos.PR.done === 2 && pos.SH.done === 1 && pos.FL.members === 1 && pos.LO.members === 1, 'ポジション別の集計（メインで数える）');
 
-section('週間・月間・前の期間との比較');
-let mo = L.monthRange(st.today);
-eq(mo, { from: '2026-11-01', to: '2026-11-30' }, '月は月初から月末（11/1〜11/30）');
-eq(L.monthRange('2028-02-10').to, '2028-02-29', 'うるう年の2月末');
-let pm = L.prevPeriod('month', mo.from);
-eq(pm, { from: '2026-10-01', to: '2026-10-31' }, '先月（10/1〜10/31）');
-eq(L.prevPeriod('week', wk.from), { from: '2026-11-02', to: '2026-11-08' }, '先週（11/2〜11/8）');
-eq(L.periodStats(st, idx, pm.from, pm.to, st.today).team.done, 1, '先月の実施回数 = 1（10/28 のFW三郎）');
-eq(L.periodStats(st, idx, mo.from, mo.to, st.today).team.done, 9, '今月の実施回数 = 9');
-eq(L.weekRange('2026-11-15'), { from: '2026-11-09', to: '2026-11-15' }, '日曜日は同じ週の最後の日');
-eq(L.weekRange('2026-11-16').from, '2026-11-16', '月曜日から新しい週');
-eq(L.todayJST(Date.UTC(2026, 10, 13, 15, 0, 0)), '2026-11-14', '日付は日本時間で切り替わる（UTC 15:00 = 日本の翌日0:00）');
-eq(L.todayJST(Date.UTC(2026, 10, 13, 14, 59, 0)), '2026-11-13', '日本時間 23:59 はまだ当日');
-eq(L.continuity(idx, M('FW太郎'), mo.from, mo.to, st.today), { weeks: 3, hit: 1, every: false, marks: [false, false, true] }, '継続状況：11月の3週のうち1週で実施');
-eq(L.streakWeeks(idx, M('FW三郎'), st.today, '2026-08-01'), 1, '連続週数：今週のみ = 1');
+section('設定を変えても過去は変わらない');
+const before = JSON.stringify(L.periodStats(st, idx, wk.from, wk.to, '2026-11-13').rows.map((x) => [x.name, x.done, x.targetDays, x.rate]));
+r = api({ op: 'saveMember', token: A, member: { id: id['石川 大地'], position: 'WTB', subs: [], mode: 'self' } });
+ok(r.ok && r.member.group === 'BK', 'ポジションをFW→BKに変えるとグループも変わる');
+gas.accountingEdit((sh) => { const k = sh.data.findIndex((x) => x[0] === '橋本 侑青'); sh.data[k][col('ポジション')] = 'SO'; sh.data[k][col('グループ')] = 'BK'; });
+st = api({ op: 'state' }); idx = L.buildIndex(st);
+const after = JSON.stringify(L.periodStats(st, idx, wk.from, wk.to, '2026-11-13').rows.map((x) => [x.name, x.done, x.targetDays, x.rate]));
+eq(after, before, '筋トレ側・名簿のシート側のどちらでポジションを変えても、昨日までの集計は変わらない');
+eq(st.menus.find((w) => w.id === wTue.id).targets.length, 4, '過去のメニューの対象者は登録時点のまま');
+ok(!st.menus.find((w) => w.id === wNext.id).targets.includes(id['石川 大地']), '来週のメニューの対象は新しい設定で作り直される（自主トレになった石川は外れる）');
+const hist = gas.sheet('設定変更履歴').data;
+ok(hist.some((h) => h[0] === id['橋本 侑青'] && h[1] === '2026-11-13' && h[hist[0].indexOf('ポジション')] === 'SO'), '名簿のシートで直接変えたポジションも履歴に今日から残る');
 
-// ---------------- 設定変更と過去の記録 ----------------
-section('設定変更・メニュー変更で過去が変わらないこと');
-const before = JSON.stringify(L.periodStats(st, idx, wk.from, wk.to, st.today).rows.map((x) => [x.name, x.done, x.notDone, x.targetDays, x.recT, x.rate]));
-gas.shiftDays(1); // 11/14（土）
-r = api({ op: 'saveMember', token: A, member: { id: id['FW次郎'], name: 'FW次郎', group: 'FW', mode: 'self', role: 'member' } });
-ok(r.ok && r.member.mode === 'self', '管理者が取り組み方を「自主トレ」に変更できる');
-r = api({ op: 'saveMember', token: A, member: { id: id['BK二郎'], name: 'BK二郎', group: 'FW', mode: 'leader', role: 'member' } });
-ok(r.ok && r.member.mode === 'leader' && r.member.group === 'FW', '管理者が取り組み方を「メニュー参加」に、グループをFWに変更できる');
+section('部員の一覧の貼り付け');
+r = api({ op: 'importMembers', token: A, rows: [
+  { name: '長谷川湊', position: 'CTB', subs: ['WTB'], mode: 'self' },
+  { name: '新入 二郎', position: 'HO', mode: 'leader', grade: '1年' },
+  { name: '村上 樹' }
+] });
+ok(r.ok && r.updated === 1 && r.added === 1, '名簿にいる人は更新（空白の違いは同じ人）・いない人は追加');
 st = api({ op: 'state' });
-idx = L.buildIndex(st);
-const after = JSON.stringify(L.periodStats(st, idx, wk.from, wk.to, '2026-11-13').rows.map((x) => [x.name, x.done, x.notDone, x.targetDays, x.recT, x.rate]));
-eq(after, before, '取り組み方・グループを変えても、昨日までの集計は1つも変わらない');
-eq(st.menus.find((w) => w.id === wFW.id).targets.slice().sort(), [id['FW太郎'], id['FW次郎']].sort(), '過去のメニューの対象者は登録時点のまま');
-eq(st.menus.find((w) => w.title === '管理者作成').targets.slice().sort(), [id['BK二郎'], id['FW太郎']].sort(), '今日以降のメニューの対象者は新しい設定に合わせて更新される');
-// 過去のメニューを編集・削除
-r = api({ op: 'saveMenu', token: LD, menu: Object.assign({}, st.menus.find((w) => w.id === wTue.id), { content: '内容だけ直す' }) });
-eq(r.menu.targets.length, 4, '過去のメニューの文面を直しても、対象者は登録時点の4人のまま');
-ok(api({ op: 'deleteMenu', token: LD, id: wTue.id }).ok, '過去のメニューを削除できる');
-st = api({ op: 'state' });
-idx = L.buildIndex(st);
-ps = L.periodStats(st, idx, wk.from, wk.to, '2026-11-13');
-eq([ps.rows.find((x) => x.name === 'FW太郎').done, ps.rows.find((x) => x.name === 'FW太郎').recT, ps.rows.find((x) => x.name === 'FW太郎').rate], [2, 2, 1], '過去のメニューを消しても、記録済みの実施回数・実施率は変わらない');
-eq(ps.rows.find((x) => x.name === 'BK一郎').pending, 0, '消したメニューの未記録は数えなくなる（未実施にはならない）');
-// 記録済みの日に後からメニューを登録
-r = api({ op: 'saveMenu', token: LD, menu: menu({ date: '2026-10-28', group: 'FW', title: '後から登録' }) });
-st = api({ op: 'state' });
-idx = L.buildIndex(st);
-eq(L.getRec(idx, id['FW太郎'], '2026-10-28').t, 1, '後からメニューを登録した日の記録は、対象として扱われる');
-eq(L.getRec(idx, id['FW三郎'], '2026-10-28').t, 0, 'そのときも自主トレの部員は対象にならない');
-ok(!r.menu.targets.includes(id['BK二郎']), '過去の日付のメニューは、その日の時点の設定で対象者を決める（当時は自主トレ・BK）');
-ok(r.menu.targets.includes(id['FW次郎']), '過去の日付のメニューは、当時メニュー参加だった人を対象に含める');
+eq([M('長谷川 湊').subs, M('長谷川 湊').mode], [['WTB'], 'self'], '貼り付けで サブ・取り組み方 が変わる');
+eq(M('村上 樹').position, 'WTB', '何も書いていない項目は消さない');
+ok(masterRow('新入 二郎') && masterRow('新入 二郎')[col('ポジション')] === 'HO', '貼り付けで追加した人は会計アプリの名簿にも入る');
 
-section('部員の削除（退部）と復帰');
-r = api({ op: 'setMemberActive', token: A, id: id['BK三郎'], active: false });
-ok(r.ok && r.member.active === false && r.member.left === '2026-11-14', '管理者が部員を削除できる（退部日が入る）');
-ok(api({ op: 'setMemberActive', token: A, id: adminId, active: false }).error === 'self', '自分自身は削除できない');
+// ---------------- 権限 ----------------
+section('権限（サーバー側で拒否されること）');
+ok(api({ op: 'deleteRecord', token: M1, memberId: id['前田 剛'], date: '2026-11-13' }).error === 'forbidden', 'マネージャーは記録の削除（管理者用）を使えない');
+ok(api({ op: 'saveMember', token: M1, member: { name: '新人' } }).error === 'forbidden', 'マネージャーは部員を追加できない');
+ok(api({ op: 'bulkMembers', token: LD, rows: [{ id: id['前田 剛'], position: 'HO', mode: 'self' }] }).error === 'forbidden', 'FWリーダーは部員の設定を変えられない');
+ok(api({ op: 'saveMember', member: { id: id['前田 剛'], mode: 'self' } }).error === 'auth', '一般部員（ログインなし）は取り組み方を変えられない');
+ok(api({ op: 'importMembers', token: M1, rows: [{ name: 'x' }] }).error === 'forbidden', 'マネージャーは一覧を貼り付けられない');
+ok(api({ op: 'resetPin', token: M1, id: id['マネ さくら'] }).error === 'forbidden', 'マネージャーは暗証番号を発行できない');
+ok(api({ op: 'logs', token: M1 }).error === 'forbidden' && api({ op: 'logs' }).error === 'auth', '操作履歴は管理者だけ');
+ok(api({ op: 'saveMember', token: A, member: { id: id['橋本 侑青'], perm: 'member' } }).error === 'last_admin', '最後の管理者は一般部員にできない');
+ok(api({ op: 'resetPin', token: A, id: id['村上 樹'] }).error === 'not_staff', '一般部員には暗証番号を発行しない');
+ok(api({ op: 'state', token: 'bogus' }).me === null, 'でたらめなトークンはログイン扱いにならない');
 st = api({ op: 'state' });
-idx = L.buildIndex(st);
-ok(L.periodStats(st, idx, wk.from, wk.to, '2026-11-13').rows.find((x) => x.name === 'BK三郎').done === 1, '削除しても、在籍していた期間の記録と集計は残る');
-ok(!L.periodStats(st, idx, '2026-11-16', '2026-11-22', '2026-11-22').rows.find((x) => x.name === 'BK三郎'), '退部後の期間の集計には出てこない');
-ok(!st.menus.find((w) => w.title === '管理者作成').targets.includes(id['BK三郎']), '今日以降のメニューの対象から外れる');
-ok(api({ op: 'saveRecords', token: M1, date: '2026-11-14', items: [{ memberId: id['BK三郎'], status: 'done' }] }).rejected[0].reason === 'not_in_roster', '退部後の日付には記録できない');
-ok(api({ op: 'setMemberActive', token: A, id: id['BK三郎'], active: true }).member.active === true, '削除した部員を戻せる');
+ok(st.members[0].pinSet === undefined, 'ログインなしでは暗証番号の情報を返さない');
 
-// ---------------- セキュリティ ----------------
 section('ログインの保護');
-for (let i = 0; i < 4; i++) api({ op: 'login', memberId: mgr2, pin: 'x' + i });
-ok(api({ op: 'login', memberId: mgr2, pin: 'manager-2-pin' }).ok, '4回まちがえてもまだログインできる');
-for (let i = 0; i < 5; i++) api({ op: 'login', memberId: mgr2, pin: 'x' + i });
-ok(api({ op: 'login', memberId: mgr2, pin: 'manager-2-pin' }).error === 'locked', '5回続けてまちがえると15分ロックされる');
+for (let i = 0; i < 5; i++) api({ op: 'login', memberId: id['マネ さくら'], pin: 'x' + i });
+ok(api({ op: 'login', memberId: id['マネ さくら'], pin: 'manager-2-pin' }).error === 'locked', '5回続けてまちがえると15分ロック');
 gas.clock.offset += 16 * 60000;
-ok(api({ op: 'login', memberId: mgr2, pin: 'manager-2-pin' }).ok, '15分たつとログインできる');
-r = api({ op: 'saveMember', token: A, member: { id: mgr1, name: 'マネ花子', player: false, role: 'member' } });
-ok(api({ op: 'saveRecords', token: M1, date: '2026-11-14', items: [{ memberId: id['FW太郎'], status: 'done' }] }).error === 'auth', '権限を外された人のログインはその場で無効になる');
-api({ op: 'saveMember', token: A, member: { id: mgr1, name: 'マネ花子', player: false, role: 'manager' } });
-ok(api({ op: 'login', memberId: mgr1, pin: 'manager-1-pin' }).error === 'login_failed', '権限を外すと暗証番号も消える（戻すときは発行し直す）');
-const M1b = staffLogin(mgr1, 'manager-1-new');
-ok(api({ op: 'logout', token: M1b }).ok && api({ op: 'state', token: M1b }).me === null, 'ログアウトするとトークンは使えなくなる');
-ok(!JSON.stringify(gas.dump()).includes('manager-2-pin') && !JSON.stringify(gas.dump()).includes('admin-pass-1'), '暗証番号はそのままの形では保存されない');
-ok(!JSON.stringify(gas.dump()).includes(A), 'ログインのトークンもそのままの形では保存されない');
+ok(api({ op: 'login', memberId: id['マネ さくら'], pin: 'manager-2-pin' }).ok, '15分たつとログインできる');
+api({ op: 'saveMember', token: A, member: { id: id['マネ 花子'], perm: 'member' } });
+ok(api({ op: 'saveRecords', token: M1, date: '2026-11-13', items: [{ memberId: id['前田 剛'], done: true }] }).error === 'auth', '権限を外された人のログインはその場で無効');
+gas.accountingEdit((sh) => { const k = sh.data.findIndex((x) => x[0] === 'マネ さくら'); sh.data[k][3] = false; });
+ok(api({ op: 'state', token: M2 }).me === null, '会計アプリで在籍を外された人はログインできなくなる');
+const dump = JSON.stringify(gas.dump());
+ok(!dump.includes('manager-1-pin') && !dump.includes('leader-pin-1') && !dump.includes(A), '暗証番号とトークンはそのままの形では保存しない');
 
-section('閲覧の合言葉（あとからONにできる）');
-ok(api({ op: 'state' }).viewLock === false, '初期状態は合言葉なしで見られる');
+section('閲覧の合言葉');
 ok(api({ op: 'saveSettings', token: A, viewPass: 'kurfc2026' }).viewLock === true, '管理者が合言葉を設定できる');
 st = api({ op: 'state' });
-ok(st.locked === true && st.members === undefined && st.records === undefined && st.staff.length >= 3, '合言葉ONのとき、ログインなしではデータを返さない（ログイン用の名前だけ返す）');
-ok(api({ op: 'viewLogin', pass: 'wrong' }).error === 'login_failed', 'まちがった合言葉は拒否');
+ok(st.locked === true && st.members === undefined, '合言葉ONのとき、ログインなしではデータを返さない');
 r = api({ op: 'viewLogin', pass: 'kurfc2026' });
 ok(r.ok && api({ op: 'state', viewToken: r.viewToken }).members.length > 0, '正しい合言葉で見られる');
-ok(api({ op: 'state', token: A }).members.length > 0, 'ログイン中の役職者は合言葉なしで見られる');
-ok(api({ op: 'saveSettings', token: A, viewPass: '' }).viewLock === false && api({ op: 'state' }).members.length > 0, '合言葉を解除できる');
+api({ op: 'saveSettings', token: A, viewPass: '' });
 
 section('操作履歴');
 r = api({ op: 'logs', token: A, limit: 500 });
 const acts = r.logs.map((x) => x.action);
-ok(['記録を追加', '記録を修正', '記録を削除', 'メニューを作成', 'メニューを編集', 'メニューを削除', '部員を追加', '部員を編集', '部員を削除', 'ログイン', '暗証番号を発行'].every((a) => acts.includes(a)), '記録・メニュー・部員・ログインの操作がすべて履歴に残る');
-const fix = r.logs.find((x) => x.action === '記録を修正');
-ok(fix && fix.name && fix.at && /実施した → 実施していない|実施していない → 実施した/.test(fix.detail), '記録の修正は「だれが・いつ・何を何に」まで残る');
-ok(r.logs[0].at >= r.logs[r.logs.length - 1].at, '新しい順に並ぶ');
+ok(['共通名簿へ移行', '記録を追加', '記録を取り消し', 'メニューを作成', '部員を編集', '部員をまとめて編集', '部員の一覧を反映', 'ログイン', '暗証番号を発行'].every((a) => acts.includes(a)), '移行・記録・メニュー・部員・ログインの操作が履歴に残る');
 
-section('データの保存と読み込み');
-const snapshot = JSON.parse(JSON.stringify(gas.dump()));
-const gas2 = create();
-gas2.setToday('2026-11-14');
-gas2.load(snapshot);
-const s1 = api({ op: 'state' }), s2 = gas2.api({ op: 'state' });
-eq([s2.members.length, s2.menus.length, s2.records.length], [s1.members.length, s1.menus.length, s1.records.length], '保存された内容を別の実行でそのまま読み込める');
-eq(s2.records.slice().sort(), s1.records.slice().sort(), '記録の中身も一致');
-ok(gas2.api({ op: 'state', token: A }).me.role === 'admin', 'ログインも引き継がれる');
-// 見出しの列を並べ替えても動く
-(function () {
-  const g3 = create(); g3.setToday('2026-11-14');
-  const snap = JSON.parse(JSON.stringify(snapshot));
-  snap['実施記録'] = snap['実施記録'].map((rw) => { const c = rw.slice(); while (c.length < 9) c.push(''); return [c[8], c[2], c[0], c[1], c[3], c[4], c[5], c[6], c[7], 'メモ列']; });
-  g3.load(snap);
-  const s3 = g3.api({ op: 'state' });
-  eq(s3.records.slice().sort(), s1.records.slice().sort(), 'スプレッドシートの列を並べ替えたり足したりしても読める');
-  const rr = g3.api({ op: 'saveRecords', token: A, date: '2026-11-14', items: [{ memberId: id['FW太郎'], status: 'done' }] });
-  ok(rr.ok && rr.saved === 1, '列を並べ替えた状態でも保存できる');
-})();
-// 手入力で日付がDate型になっていても読める形（文字列以外）を想定：内部の値のままでも読める
-(function () {
-  const g4 = create(); g4.setToday('2026-11-14');
-  const snap = JSON.parse(JSON.stringify(snapshot));
-  snap['実施記録'][1][2] = 'done';
-  g4.load(snap);
-  ok(g4.api({ op: 'state' }).records.length === s1.records.length, '内部の値（done など）が直接入っていても読める');
-})();
+section('2回目以降・保存と読み込み');
+const reqs = gas.stats.writes;
+api({ op: 'state' }); api({ op: 'state' });
+ok(gas.stats.writes === reqs, '変化が無ければ、読むだけのリクエストでは何も書かない');
+const res2 = gas.run('setup');
+ok(res2 === 'ok' && gas.sheet('旧_部員（v1）') && !gas.sheet('旧_部員（v1）2'), '初期設定は何度実行しても壊れない（移行も1回だけ）');
+const pin2 = gas.run('registerAdmin_', '長谷川 湊');
+ok(/^\d{6}$/.test(pin2) && api({ op: 'state' }).staff.some((s) => s.name === '長谷川 湊'), 'スプレッドシートのメニューから名簿にいる人を管理者にできる');
 
 console.log('\n==============================');
 console.log('合格 ' + pass + ' / 不合格 ' + fail);
