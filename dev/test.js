@@ -315,6 +315,46 @@ ok(api({ op: 'saveSettings', token: A, weekGoal: 9 }).error === 'bad_goal', '1�
 ok(api({ op: 'saveSettings', token: LD, weekGoal: 2 }).ok !== true, '管理者以外は変えられない');
 api({ op: 'saveSettings', token: A, weekGoal: 3 });
 
+section('免除・部全体のオフ期間');
+(function () {
+  const m = { id: 'e', name: 'e', player: true, active: true, start: '', left: '' };
+  const recs = (ds) => ds.map((d) => ['e', d, 1, 0, '']);
+  // 11/2〜8 に2回だけ。11/2〜4 の3日が免除 → 必要 ceil(3*4/7)=2 → 達成
+  let st = { members: [m], menus: [{ id: 'w1', date: '2026-11-03', targets: ['e'] }], records: recs(['2026-11-06', '2026-11-07']),
+    exempts: [{ id: 'x1', memberId: 'e', from: '2026-11-02', to: '2026-11-04', reason: '怪我' }] };
+  let ix = L.buildIndex(st);
+  eq(L.weekNeed(ix, m, '2026-11-02', 3), { ex: 3, need: 2 }, '免除3日の週は必要回数が2回に減る');
+  ok(L.goalWeeks(ix, m, '2026-11-02', '2026-11-08', '2026-11-13', 3)[0].ok === true, '減った回数を満たせば達成');
+  eq(L.cellState(ix, m, '2026-11-03', '2026-11-13'), 'ex', '免除の日のマスは「免除」（メニューの対象日でも×にならない）');
+  ok(L.memberStats(ix, m, '2026-11-02', '2026-11-08', '2026-11-13').targetDays === 0, '免除の日のメニューは対象日に数えない（実施率に入らない）');
+  // 部全体のオフで7日とも → その週は対象外
+  st.exempts.push({ id: 'x2', memberId: 'ALL', from: '2026-11-09', to: '2026-11-15', reason: '試験期間' });
+  ix = L.buildIndex(st);
+  const w2 = L.goalWeeks(ix, m, '2026-11-09', '2026-11-15', '2026-11-13', 3)[0];
+  ok(w2.exempt && w2.ok === null && w2.need === 0, '7日とも免除（オフ）の週は対象外');
+  const sm = L.goalSummary(ix, m, '2026-11-01', '2026-11-30', '2026-11-13', 3);
+  ok(sm.closed === 1 && sm.hit === 1 && sm.now === null && sm.nowExempt, '対象外の週は達成にも未達にも数えない');
+  eq(L.streakWeeks(ix, m, '2026-11-13', '2026-01-01', 3), 1, '連続達成は免除の週をとばして続く');
+})();
+api({ op: 'saveMember', token: A, member: { id: id['村上 樹'], perm: 'manager' } });
+const MX = staffLogin(id['村上 樹'], 'manager-x-pin');
+st = api({ op: 'state' });
+eq(st.exempts, [], '最初は免除なし');
+const someone = st.members.find((m) => m.player && m.active);
+r = api({ op: 'saveExempt', token: MX, memberId: someone.id, from: '2026-11-10', to: '2026-11-20', reason: '怪我', note: '右足首' });
+ok(r.ok && r.exempt.reason === '怪我', 'マネージャーが部員の免除を登録できる');
+ok(api({ op: 'saveExempt', token: MX, memberId: 'ALL', from: '2026-11-10', to: '2026-11-12', reason: '試験期間' }).error === 'forbidden', '部全体のオフは管理者だけ');
+ok(api({ op: 'saveExempt', token: LD, memberId: someone.id, from: '2026-11-10', to: '2026-11-12', reason: '怪我' }).ok !== true, 'FWリーダーは免除を登録できない');
+ok(api({ op: 'saveExempt', token: A, memberId: someone.id, from: '2026-11-20', to: '2026-11-10', reason: '怪我' }).error === 'bad_range', '終了日が開始日より前なら登録しない');
+const off = api({ op: 'saveExempt', token: A, memberId: 'ALL', from: '2026-11-10', to: '2026-11-12', reason: '試験期間', note: '前期試験' });
+ok(off.ok, '管理者は部全体のオフ期間を登録できる');
+const pub = api({ op: 'state' }).exempts;
+ok(pub.length === 2 && pub.find((e) => e.memberId === someone.id).reason === '' && pub.find((e) => e.memberId === 'ALL').reason === '試験期間', 'ログインなしの画面では部員ごとの理由は見えない（オフの理由は見える）');
+ok(api({ op: 'state', token: MX }).exempts.find((e) => e.memberId === someone.id).note === '右足首', 'スタッフには理由とメモが見える');
+ok(api({ op: 'deleteExempt', token: MX, id: off.exempt.id }).error === 'forbidden', 'マネージャーは部全体のオフを取り消せない');
+ok(api({ op: 'deleteExempt', token: MX, id: r.exempt.id }).ok && api({ op: 'state' }).exempts.length === 1, '自分が登録した免除は取り消せる');
+ok(gas.sheet('免除') && gas.sheet('免除').data.length === 3, '免除はシート「免除」に残る（取り消しも削除日時で残す）');
+
 section('閲覧の合言葉');
 ok(api({ op: 'saveSettings', token: A, viewPass: 'kurfc2026' }).viewLock === true, '管理者が合言葉を設定できる');
 st = api({ op: 'state' });

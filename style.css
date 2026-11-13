@@ -243,6 +243,7 @@ button { cursor: pointer; -webkit-tap-highlight-color: transparent; }
 .cont-w i.on { background: var(--done); border-color: var(--done); }
 .cont-w i.ng { border-color: var(--not); background: var(--not-tint); }
 .cont-w i.open { border-style: dashed; border-color: #9aa0a8; }
+.cont-w i.ex { background: #d5d9de; border-color: #d5d9de; }
 .cont-v { font-family: var(--num); font-weight: 600; font-size: 16px; text-align: right; }
 
 /* ---------- マス目 ---------- */
@@ -252,6 +253,7 @@ button { cursor: pointer; -webkit-tap-highlight-color: transparent; }
 .cell.s-today { box-shadow: inset 0 0 0 2px var(--ink); color: var(--ink); background: #fff; }
 .cell.s-planned { box-shadow: inset 0 0 0 1.5px var(--enji); color: var(--enji); border-radius: 50%; }
 .cell.s-none { background: #f2f3f5; }
+.cell.s-ex { background: #e4e7eb; color: #5b6470; font-size: 10px; font-weight: 700; }
 .cell.s-out { background: repeating-linear-gradient(135deg, #e9ebee 0 3px, transparent 3px 6px); }
 .legend { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 12px; color: var(--sub); margin-top: 10px; }
 .legend li { display: flex; align-items: center; gap: 5px; }
@@ -320,6 +322,8 @@ button { cursor: pointer; -webkit-tap-highlight-color: transparent; }
 .mday.s-not { background: var(--not); color: #fff; }
 .mday.s-today { background: #fff; box-shadow: inset 0 0 0 2px var(--ink); }
 .mday.s-planned { background: #fff; box-shadow: inset 0 0 0 1.5px var(--enji); color: var(--enji); }
+.mday.s-ex { background: #e4e7eb; color: #5b6470; }
+.mday.s-ex .mday-m { font-size: 11px; font-weight: 700; }
 .mday.s-out { background: repeating-linear-gradient(135deg, #e9ebee 0 3px, transparent 3px 6px); color: #9aa0a8; }
 .mday.today:not(.s-today) { box-shadow: inset 0 0 0 3px var(--ink); }
 .hist li { display: grid; grid-template-columns: 24px 76px minmax(0, 1fr) auto; gap: 8px; align-items: center; padding: 8px 2px; border-bottom: 1px solid var(--line); font-size: 13px; }
@@ -528,3 +532,26 @@ button { cursor: pointer; -webkit-tap-highlight-color: transparent; }
 .pm-list li.pm-top { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .pm-list li.pm-top > span { flex: 1; min-width: 0; }
 .form .pm-list li.pm-top select { flex: none; width: 10em; min-height: 36px; padding-top: 4px; padding-bottom: 4px; font-size: 14px; }
+
+/* ---------- 免除・共有・表彰 ---------- */
+.goal-ex { margin: 10px 0 0; font-size: 13px; color: var(--sub); }
+.goal-ex b { display: inline-block; font-size: 11px; color: #5b6470; background: #e4e7eb; border-radius: 3px; padding: 1px 6px; margin-right: 6px; }
+.goal-ex a { color: var(--text); }
+.share-row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.share-row .btn svg { width: 16px; height: 16px; margin-right: 4px; vertical-align: -3px; }
+.btn.line { background: #06c755; border-color: #06c755; color: #fff; }
+.ex-tag { display: inline-block; font-size: 10.5px; font-weight: 700; color: #5b6470; background: #e4e7eb; border-radius: 3px; padding: 0 5px; margin-left: 6px; vertical-align: 2px; }
+.exlist { border-top: 1px solid var(--line); }
+.exlist li { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 4px 12px; align-items: baseline; padding: 9px 2px; border-bottom: 1px solid var(--line); font-size: 14px; }
+.ex-d { font-family: var(--num); font-weight: 600; white-space: nowrap; }
+.ex-st { display: inline-block; font-family: var(--jp); font-size: 10.5px; font-weight: 700; border-radius: 3px; padding: 0 5px; margin-left: 6px; background: #eef0f2; color: var(--sub); }
+.ex-st.s-now { background: #fde7ea; color: #a1001f; }
+.ex-st.s-next { background: #e8f0fe; color: #1a56c4; }
+.ex-r small { display: block; font-size: 12px; color: var(--sub); }
+.empty.small { font-size: 13px; padding: 6px 0; }
+.awards .block-h small { font-size: 12px; font-weight: 500; color: var(--sub); }
+.award-list li { display: grid; grid-template-columns: 7.5em minmax(0, 1fr); gap: 10px; align-items: baseline; padding: 10px 2px; border-bottom: 1px solid var(--line); }
+.award-k { font-size: 12px; font-weight: 800; color: #fff; background: #77021f; border-radius: 4px; padding: 3px 8px; text-align: center; }
+.award-v { font-weight: 700; font-size: 15px; line-height: 1.6; }
+.award-v a { color: var(--text); }
+.award-v small { display: block; font-size: 12px; font-weight: 500; color: var(--sub); }

@@ -59,7 +59,22 @@
       var set = (tgt[m.date] = tgt[m.date] || Object.create(null));
       (m.targets || []).forEach(function (id) { set[id] = 1; });
     });
-    return { rec: rec, tgt: tgt, menusByDate: menusByDate };
+    // 免除（怪我・テスト期間など）。memberId が 'ALL' のものは部全体のオフ期間
+    var ex = Object.create(null), exAll = [];
+    (state.exempts || []).forEach(function (e) {
+      if (!e || !e.from || !e.to) return;
+      var v = { id: e.id, from: e.from, to: e.to, reason: e.reason || '' };
+      if (e.memberId === 'ALL') exAll.push(v); else (ex[e.memberId] = ex[e.memberId] || []).push(v);
+    });
+    return { rec: rec, tgt: tgt, menusByDate: menusByDate, ex: ex, exAll: exAll };
+  }
+  /** その日が免除なら免除の内容（部全体のオフを先に見る）、違えば null */
+  function exemptOn(idx, id, date) {
+    var a = idx.exAll || [], i;
+    for (i = 0; i < a.length; i++) if (date >= a[i].from && date <= a[i].to) return a[i];
+    var b = (idx.ex && idx.ex[id]) || [];
+    for (i = 0; i < b.length; i++) if (date >= b[i].from && date <= b[i].to) return b[i];
+    return null;
   }
   function getRec(idx, id, date) { return idx.rec[id + '|' + date] || null; }
   function inRoster(m, date) {
@@ -93,6 +108,7 @@
     var r = getRec(idx, m.id, date);
     if (r) return r.s === 1 ? 'done' : 'not';
     if (!inRoster(m, date)) return 'out';
+    if (exemptOn(idx, m.id, date)) return 'ex';
     if (idx.tgt[date] && idx.tgt[date][m.id]) return date < today ? 'not' : date === today ? 'today' : 'planned';
     return 'none';
   }
@@ -109,6 +125,7 @@
       if (done) { s.done++; s.lastDone = d; }
       var tg = r ? (r.t === 1 || !!(idx.tgt[d] && idx.tgt[d][m.id])) : (inRoster(m, d) && !!(idx.tgt[d] && idx.tgt[d][m.id]));
       if (!tg) continue;
+      if (!done && exemptOn(idx, m.id, d)) continue; // 免除の日は対象日に数えない
       if (d === today && !done) { s.todayOpen++; continue; }
       s.targetDays++;
       if (done) s.doneT++; else s.notDone++;
@@ -126,7 +143,7 @@
   }
   function periodStats(state, idx, from, to, today, opt) {
     opt = opt || {};
-    var rows = [], team = { done: 0, notDone: 0, targetDays: 0, doneT: 0, rate: null, active: 0, members: 0, leaderMembers: 0, todayOpen: 0, goal: goalOf(opt.goal), goalClosed: 0, goalHit: 0, goalNow: 0, goalNowOk: 0 };
+    var rows = [], team = { done: 0, notDone: 0, targetDays: 0, doneT: 0, rate: null, active: 0, members: 0, leaderMembers: 0, todayOpen: 0, goal: goalOf(opt.goal), goalClosed: 0, goalHit: 0, goalNow: 0, goalNowOk: 0, goalNowEx: 0 };
     (state.members || []).forEach(function (m) {
       if (!inRosterRange(m, from, to)) return;
       if (!matches(m, opt)) return;
@@ -137,6 +154,7 @@
       rows.push(s);
       team.goalClosed += s.goal.closed; team.goalHit += s.goal.hit;
       if (s.goal.now) { team.goalNow++; if (s.goal.now.ok) team.goalNowOk++; }
+      if (s.goal.nowExempt) team.goalNowEx++;
       team.members++;
       if (m.mode === 'leader') team.leaderMembers++;
       team.done += s.done; team.notDone += s.notDone; team.targetDays += s.targetDays; team.doneT += s.doneT; team.todayOpen += s.todayOpen;
@@ -219,9 +237,17 @@
     for (var i = 0; i < 7; i++) { var r = getRec(idx, m.id, addDays(ws, i)); if (r && r.s === 1) n++; }
     return n;
   }
+  /** その週の免除の日数と、必要な回数（免除の日数に応じて減らす。7日とも免除なら0＝その週は対象外） */
+  function weekNeed(idx, m, ws, goal) {
+    goal = goalOf(goal);
+    var ex = 0;
+    for (var i = 0; i < 7; i++) if (exemptOn(idx, m.id, addDays(ws, i))) ex++;
+    return { ex: ex, need: ex >= 7 ? 0 : Math.ceil(goal * (7 - ex) / 7) };
+  }
   /**
    * 期間の中の週（月曜が期間内にあり、今日までに始まった週）ごとの達成状況。週の途中で期間が終わっても、週はまるごと数える。
    * 在籍していない週は入れない。open … まだ終わっていない週（今日が日曜でもまだ終わっていない扱い）
+   * exempt … 7日とも免除で、その週は対象外（達成にも未達にも数えない）。need … 免除を引いた必要回数
    */
   function goalWeeks(idx, m, from, to, today, goal) {
     goal = goalOf(goal);
@@ -230,23 +256,33 @@
       if (ws < from) continue; // 月の初めの週は、月曜が前の月なら前の月に入れる
       var we = addDays(ws, 6);
       if (!inRosterRange(m, ws, we)) continue;
-      var c = weekCount(idx, m, ws);
-      out.push({ from: ws, to: we, count: c, ok: c >= goal, open: we >= today, left: Math.max(0, goal - c) });
+      var c = weekCount(idx, m, ws), n = weekNeed(idx, m, ws, goal);
+      var exempt = n.need === 0;
+      out.push({ from: ws, to: we, count: c, need: n.need, ex: n.ex, exempt: exempt, ok: exempt ? null : c >= n.need, open: we >= today, left: exempt ? 0 : Math.max(0, n.need - c) });
     }
     return out;
   }
-  /** 週の目標のまとめ。closed … 終わった週の数、hit … そのうち達成した週、now … 終わっていない週（無ければ null） */
+  /** 週の目標のまとめ。closed … 終わった週の数、hit … そのうち達成した週、now … 終わっていない週（無ければ null）。免除の週は数えない */
   function goalSummary(idx, m, from, to, today, goal) {
-    var ws = goalWeeks(idx, m, from, to, today, goal), closed = 0, hit = 0, now = null;
-    ws.forEach(function (w) { if (w.open) now = w; else { closed++; if (w.ok) hit++; } });
-    return { weeks: ws, closed: closed, hit: hit, now: now, every: closed > 0 && hit === closed };
+    var ws = goalWeeks(idx, m, from, to, today, goal), closed = 0, hit = 0, now = null, nowEx = null;
+    ws.forEach(function (w) {
+      if (w.exempt) { if (w.open) nowEx = w; return; }
+      if (w.open) now = w; else { closed++; if (w.ok) hit++; }
+    });
+    return { weeks: ws, closed: closed, hit: hit, now: now, nowExempt: nowEx, every: closed > 0 && hit === closed };
   }
-  // 続けて目標を達成している週の数（今週がまだ未達なら先週から数える）。minDate より前は数えない
+  // 続けて目標を達成している週の数（今週がまだ未達なら先週から数える）。免除の週はとばす（切れも増えもしない）。minDate より前は数えない
   function streakWeeks(idx, m, today, minDate, goal) {
     goal = goalOf(goal);
-    var ws = weekStart(today), n = 0;
-    if (weekCount(idx, m, ws) < goal) ws = addDays(ws, -7);
-    while (ws >= weekStart(minDate) && weekCount(idx, m, ws) >= goal) { n++; ws = addDays(ws, -7); }
+    var ws = weekStart(today), n = 0, first = true;
+    for (; ws >= weekStart(minDate); ws = addDays(ws, -7)) {
+      var nd = weekNeed(idx, m, ws, goal);
+      if (nd.need === 0) { first = false; continue; }
+      var ok = weekCount(idx, m, ws) >= nd.need;
+      if (first) { first = false; if (!ok) continue; }
+      if (!ok) break;
+      n++;
+    }
     return n;
   }
 
@@ -258,6 +294,6 @@
     prevPeriod: prevPeriod, nextPeriod: nextPeriod,
     buildIndex: buildIndex, getRec: getRec, inRoster: inRoster, inRosterRange: inRosterRange, isTarget: isTarget, hasPosition: hasPosition,
     cellState: cellState, memberStats: memberStats, periodStats: periodStats, positionStats: positionStats, rank: rank, dayStatus: dayStatus,
-    DEFAULT_GOAL: DEFAULT_GOAL, goalOf: goalOf, weekCount: weekCount, goalWeeks: goalWeeks, goalSummary: goalSummary, streakWeeks: streakWeeks, pct: pct
+    DEFAULT_GOAL: DEFAULT_GOAL, goalOf: goalOf, weekCount: weekCount, weekNeed: weekNeed, exemptOn: exemptOn, goalWeeks: goalWeeks, goalSummary: goalSummary, streakWeeks: streakWeeks, pct: pct
   };
 });

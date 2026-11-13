@@ -3,7 +3,7 @@
   'use strict';
   const L = window.KLogic;
   const API = window.KINTORE_API;
-  const VERSION = '2.3.1';
+  const VERSION = '2.4.0';
   const WD = ['日', '月', '火', '水', '木', '金', '土'];
   const PERM = { admin: '管理者', manager: 'マネージャー', leader: 'FWリーダー', member: '一般部員' };
   const MODE = { leader: 'メニュー参加', self: '自主トレ' };
@@ -40,6 +40,8 @@
   const reduceMotion = () => window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
   const ICON = {
+    copy: '<path d="M9 9h10v12H9zM5 3h10v3H8v11H5z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>',
+    image: '<path d="M4 5h16v14H4z M4 16l5-5 4 4 2-2 5 5" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><circle cx="15.5" cy="9" r="1.6"/>',
     home: '<path d="M3 11.5 12 4l9 7.5V20a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/>',
     rank: '<path d="M4 20V10h4v10zm6 0V4h4v16zm6 0v-7h4v7z"/>',
     cal: '<path d="M7 2v3M17 2v3M3 9h18M5 5h14a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2z" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>',
@@ -240,7 +242,7 @@
       goalCell(t) +
       '</div></section>';
     if (isNow) h += todayCard();
-    if (S.kind === 'week') h += goalBlock(cur.rows, isNow);
+    if (S.kind === 'week') h += goalBlock(cur.rows, isNow, p);
     h += '<section class="block"><div class="block-h"><h2>ランキング</h2><a class="more" href="#rank">すべて見る</a></div>';
     if (!ranked.length) h += '<p class="empty">この期間の実施記録はまだありません。' + (can('record') ? '<br><a href="#record">記録をつける</a>' : '') + '</p>';
     else {
@@ -250,7 +252,7 @@
     }
     h += '</section>';
     h += formationBlock(p);
-    if (S.kind === 'month') h += continuityBlock(cur.rows);
+    if (S.kind === 'month') h += awardsBlock(cur.rows, pre.rows, p, isNow) + continuityBlock(cur.rows);
     return h;
   }
 
@@ -261,26 +263,65 @@
       const n = t.goalNow + t.goalClosed, ok = t.goalNowOk + t.goalHit, w = n ? Math.round(ok / n * 100) : 0;
       return '<div class="board-cell"><div class="board-k">週' + g + '回の達成（マスト）</div><div class="board-v2"><span class="num">' + ok + '</span><span class="unit">/' + n + '人</span></div>' +
         '<div class="meter" role="img" aria-label="' + w + '%"><i style="width:' + w + '%"></i></div>' +
-        '<div class="board-s">' + (t.goalNow ? '日曜までに' + g + '回で達成' : 'この週に' + g + '回以上の人') + '</div></div>';
+        '<div class="board-s">' + (t.goalNow ? '日曜までに' + g + '回で達成' : 'この週に' + g + '回以上の人') + (t.goalNowEx ? '・免除 ' + t.goalNowEx + '人' : '') + '</div></div>';
     }
     const r = t.goalClosed ? Math.round(t.goalHit / t.goalClosed * 100) : null;
     return '<div class="board-cell"><div class="board-k">週' + g + '回の達成率（マスト）</div><div class="board-v2"><span class="num">' + (r === null ? '－' : r) + '</span>' + (r === null ? '' : '<span class="unit">%</span>') + '</div>' +
       '<div class="board-s">' + (r === null ? 'まだ終わった週がありません' : '終わった週 ' + t.goalHit + '/' + t.goalClosed + '（人×週）') + '</div></div>';
   }
-  function goalBlock(rows, isNow) {
+  function goalBlock(rows, isNow, p) {
     const g = goal();
     const list = rows.filter((r) => r.goal.weeks.length).map((r) => Object.assign({ w: r.goal.weeks[0] }, r));
     if (!list.length) return '';
-    const miss = list.filter((r) => !r.w.ok).sort((a, b) => (b.w.count - a.w.count) || (a.sort - b.sort));
+    const exempt = list.filter((r) => r.w.exempt).sort((a, b) => a.sort - b.sort);
+    const miss = list.filter((r) => !r.w.exempt && !r.w.ok).sort((a, b) => (a.w.left - b.w.left) || (b.w.count - a.w.count) || (a.sort - b.sort));
+    const okN = list.filter((r) => r.w.ok).length;
     let h = '<section class="block goal"><div class="block-h"><h2>週' + g + '回（マスト）' + (isNow ? 'まだの人' : '未達の人') + '</h2><span class="count">' + miss.length + '人</span></div>';
-    if (!miss.length) return h + '<p class="goal-all">' + icon('check') + '全員が週' + g + '回を達成' + (isNow ? 'しています' : 'しました') + '。</p></section>';
-    const li = (r) => '<li><a href="#member/' + r.id + '"><span class="goal-n">' + esc(r.name) + '</span>' +
-      '<span class="goal-c"><b class="num">' + r.w.count + '</b>/' + g + '</span>' +
-      '<span class="goal-s' + (isNow ? '' : ' ng') + '">' + (isNow ? 'あと' + r.w.left : '未達') + '</span></a></li>';
-    const FIRST = 8;
-    h += '<ul class="goal-list">' + miss.slice(0, FIRST).map(li).join('') + '</ul>';
-    if (miss.length > FIRST) h += '<details class="goal-more"><summary>ほか ' + (miss.length - FIRST) + '人を見る</summary><ul class="goal-list">' + miss.slice(FIRST).map(li).join('') + '</ul></details>';
-    return h + '<p class="note">週は月曜〜日曜。' + (isNow ? '日曜までに' + g + '回以上で達成です。' : '') + '</p></section>';
+    if (!miss.length) h += '<p class="goal-all">' + icon('check') + '全員が週' + g + '回を達成' + (isNow ? 'しています' : 'しました') + '。</p>';
+    else {
+      const li = (r) => '<li><a href="#member/' + r.id + '"><span class="goal-n">' + esc(r.name) + '</span>' +
+        '<span class="goal-c"><b class="num">' + r.w.count + '</b>/' + r.w.need + '</span>' +
+        '<span class="goal-s' + (isNow ? '' : ' ng') + '">' + (isNow ? 'あと' + r.w.left : '未達') + '</span></a></li>';
+      const FIRST = 8;
+      h += '<ul class="goal-list">' + miss.slice(0, FIRST).map(li).join('') + '</ul>';
+      if (miss.length > FIRST) h += '<details class="goal-more"><summary>ほか ' + (miss.length - FIRST) + '人を見る</summary><ul class="goal-list">' + miss.slice(FIRST).map(li).join('') + '</ul></details>';
+    }
+    if (exempt.length) h += '<p class="goal-ex"><b>今週は免除</b>' + exempt.map((r) => '<a href="#member/' + r.id + '">' + esc(r.name) + '</a>').join('、') + '</p>';
+    h += '<div class="share-row"><button class="btn small" data-act="goal-copy" data-from="' + p.from + '">' + icon('copy') + 'LINE用の文章をコピー</button>' +
+      '<button class="btn small line" data-act="goal-line" data-from="' + p.from + '">LINEで送る</button></div>';
+    return h + '<p class="note">週は月曜〜日曜。' + (isNow ? '日曜までに' + g + '回以上で達成です。' : '') + '免除の日がある週は、その日数に応じて必要な回数が減ります（7日とも免除ならその週は対象外）。' + (okN ? ' 達成 ' + okN + '人。' : '') + '</p></section>';
+  }
+  /** LINE に貼る文章（その週の「まだの人」） */
+  function goalText(from) {
+    const d = S.data, today = d.today, to = L.addDays(from, 6), g = goal();
+    const st = L.periodStats(d, S.idx, from, to, today, { goal: g });
+    const list = st.rows.filter((r) => r.goal.weeks.length).map((r) => Object.assign({ w: r.goal.weeks[0] }, r));
+    const open = to >= today;
+    const miss = list.filter((r) => !r.w.exempt && !r.w.ok);
+    const okN = list.filter((r) => r.w.ok).length, n = list.filter((r) => !r.w.exempt).length;
+    const sn = (r) => r.name.split(/\s+/)[0];
+    const dup = {}; list.forEach((r) => { dup[sn(r)] = (dup[sn(r)] || 0) + 1; });
+    const sur = (r) => (dup[sn(r)] > 1 ? r.name : sn(r)); // 同じ名字が2人以上いればフルネーム
+    let t = '【筋トレ 週' + g + '回チェック】' + mdw(from) + '〜' + mdw(to) + '\n';
+    t += '達成 ' + okN + '/' + n + '人' + (open ? '（' + mdw(to) + 'まで）' : '') + '\n';
+    if (!miss.length) t += '\n全員達成！' + (open ? 'この調子で' : 'おつかれさま') + '\n';
+    else if (open) {
+      const by = {};
+      miss.forEach((r) => { (by[r.w.left] = by[r.w.left] || []).push(r); });
+      Object.keys(by).sort((a, b) => a - b).forEach((k) => { t += '\nあと' + k + '回：' + by[k].sort((a, b) => a.sort - b.sort).map(sur).join('、'); });
+      t += '\n\n' + mdw(to) + 'までに週' + g + '回！\n';
+    } else {
+      t += '\n未達：' + miss.sort((a, b) => a.sort - b.sort).map((r) => sur(r) + '(' + r.w.count + '/' + r.w.need + ')').join('、') + '\n';
+    }
+    return t + location.origin + location.pathname;
+  }
+  async function copyText(text) {
+    try { await navigator.clipboard.writeText(text); return true; } catch (e) {
+      const ta = document.createElement('textarea'); ta.value = text; ta.setAttribute('readonly', ''); ta.style.position = 'fixed'; ta.style.opacity = '0';
+      document.body.appendChild(ta); ta.select();
+      let ok = false; try { ok = document.execCommand('copy'); } catch (x) { ok = false; }
+      ta.remove(); return ok;
+    }
   }
 
   function todayCard() {
@@ -315,6 +356,7 @@
     if (!gs || !gs.weeks.length) return '';
     if (S.kind === 'week') {
       const w = gs.weeks[0];
+      if (w.exempt) return '<small class="gt">免除</small>';
       return w.ok ? '<small class="gt ok">達成</small>' : w.open ? '<small class="gt">あと' + w.left + '</small>' : '<small class="gt ng">未達</small>';
     }
     return gs.closed ? '<small class="gt' + (gs.every ? ' ok' : '') + '">達成' + gs.hit + '/' + gs.closed + '週</small>' : '';
@@ -353,6 +395,125 @@
     return h;
   }
 
+  // ---------- 月間の表彰（MVP・週◯回の皆勤・いちばん伸びた人） ----------
+  function awardsOf(rows, preRows) {
+    const top = Math.max(0, ...rows.map((r) => r.done));
+    const mvp = top > 0 ? rows.filter((r) => r.done === top).sort((a, b) => a.sort - b.sort) : [];
+    const perfect = rows.filter((r) => r.goal.every).sort((a, b) => (b.done - a.done) || (a.sort - b.sort));
+    const prev = {};
+    (preRows || []).forEach((r) => { prev[r.id] = r.done; });
+    let best = 0;
+    rows.forEach((r) => { if (prev[r.id] !== undefined) best = Math.max(best, r.done - prev[r.id]); });
+    const up = best > 0 ? rows.filter((r) => prev[r.id] !== undefined && r.done - prev[r.id] === best).sort((a, b) => a.sort - b.sort) : [];
+    return { top: top, mvp: mvp, perfect: perfect, up: up, best: best, closed: Math.max(0, ...rows.map((r) => r.goal.closed)) };
+  }
+  function awardsBlock(rows, preRows, p, isNow) {
+    const a = awardsOf(rows, preRows), g = goal();
+    if (!a.mvp.length && !a.perfect.length) return '';
+    const names = (list) => list.map((r) => '<a href="#member/' + r.id + '">' + esc(r.name) + '</a>').join('、');
+    let h = '<section class="block awards"><div class="block-h"><h2>' + ymLabel(p.from) + 'の表彰' + (isNow ? '<small>（途中）</small>' : '') + '</h2></div><ul class="award-list">';
+    if (a.mvp.length) h += '<li><span class="award-k">MVP</span><span class="award-v">' + names(a.mvp) + '<small>実施 ' + a.top + '回</small></span></li>';
+    if (a.perfect.length) h += '<li><span class="award-k">週' + g + '回 皆勤</span><span class="award-v">' + names(a.perfect.slice(0, 12)) + (a.perfect.length > 12 ? ' ほか' + (a.perfect.length - 12) + '人' : '') + '<small>終わった' + a.closed + '週すべて達成</small></span></li>';
+    if (a.up.length) h += '<li><span class="award-k">いちばん伸びた</span><span class="award-v">' + names(a.up) + '<small>前の月より +' + a.best + '回</small></span></li>';
+    h += '</ul><div class="share-row"><button class="btn small" data-act="award-img" data-from="' + p.from + '">' + icon('image') + '表彰カードを画像で保存</button>' +
+      '<button class="btn small" data-act="award-copy" data-from="' + p.from + '">' + icon('copy') + 'LINE用の文章をコピー</button></div></section>';
+    return h;
+  }
+  function monthAwards(from) {
+    const d = S.data, today = d.today, p = L.monthRange(from), pv = L.prevPeriod('month', p.from);
+    const cur = L.periodStats(d, S.idx, p.from, p.to, today, { goal: goal() });
+    const pre = L.periodStats(d, S.idx, pv.from, pv.to, today, { goal: goal() });
+    return { p: p, a: awardsOf(cur.rows, pre.rows), open: today <= p.to };
+  }
+  function awardText(from) {
+    const x = monthAwards(from), a = x.a, g = goal();
+    let t = '【筋トレ ' + ymLabel(x.p.from) + 'の表彰】' + (x.open ? '（途中）' : '') + '\n';
+    if (a.mvp.length) t += '\nMVP：' + a.mvp.map((r) => r.name).join('、') + '（' + a.top + '回）';
+    if (a.perfect.length) t += '\n週' + g + '回 皆勤：' + a.perfect.map((r) => r.name).join('、');
+    if (a.up.length) t += '\nいちばん伸びた：' + a.up.map((r) => r.name).join('、') + '（+' + a.best + '回）';
+    return t + '\n\n' + location.origin + location.pathname;
+  }
+  /** 表彰カード（1080×1350 の画像）。ユニホームの絵は index.html の #jk-back をそのまま使う */
+  async function awardImage(from) {
+    const x = monthAwards(from), a = x.a, g = goal();
+    const W = 1080, H = 1350, back0 = document.getElementById('jk-back'), vb = back0.getAttribute('viewBox');
+    // 画像にするときは CSS が効かないので、色を直接書く
+    const back = { innerHTML: back0.innerHTML.replace(/var\(--jk-[a-z]+,\s*(#[0-9a-fA-F]+)\)/g, '$1').replace(/class="jk-line"/g, 'stroke="#000" stroke-opacity=".7" stroke-width=".6" stroke-linejoin="round"') };
+    const crest = await fetch('crest.webp?v=1').then((r) => r.blob()).then((b) => new Promise((ok) => { const fr = new FileReader(); fr.onload = () => ok(fr.result); fr.readAsDataURL(b); })).catch(() => '');
+    const F = '-apple-system, BlinkMacSystemFont, &quot;Hiragino Sans&quot;, &quot;Noto Sans JP&quot;, &quot;Yu Gothic&quot;, Meiryo, sans-serif';
+    const tx = (x0, y0, size, txt, opt) => '<text x="' + x0 + '" y="' + y0 + '" font-family="' + F + '" font-size="' + size + '" font-weight="' + ((opt && opt.w) || 700) + '" fill="' + ((opt && opt.c) || '#fff') + '" text-anchor="' + ((opt && opt.a) || 'middle') + '">' + esc(txt) + '</text>';
+    const jersey1 = (cx, cy, w, num, nm) => {
+      const s = w / 132.1;
+      return '<g transform="translate(' + (cx - w / 2) + ',' + (cy - 106.2 * s / 2) + ') scale(' + s + ') translate(-0.6,-4)">' + back.innerHTML +
+        '<text x="66.6" y="27" font-family="' + F + '" font-size="10" font-weight="500" fill="#fff" text-anchor="middle">' + esc(nm) + '</text>' +
+        '<text x="66.6" y="64" font-family="' + F + '" font-size="38" font-weight="700" fill="#fff" text-anchor="middle">' + esc(num) + '<tspan font-size="16">回</tspan></text></g>';
+    };
+    let body = '';
+    const mvp = a.mvp.slice(0, 3);
+    if (mvp.length) {
+      body += tx(W / 2, 370, 36, 'MVP', { c: '#ffd9df' });
+      const w = mvp.length === 1 ? 420 : mvp.length === 2 ? 340 : 280, gap = w + 40;
+      mvp.forEach((r, i) => {
+        const cx = W / 2 + (i - (mvp.length - 1) / 2) * gap;
+        body += jersey1(cx, 590, w, a.top, r.name.split(/\s+/)[0]) + tx(cx, 590 + w * 0.43 + 40, 34, r.name);
+      });
+    }
+    let y = mvp.length ? 930 : 400;
+    // 名前を1行22文字くらいで折り返す（4行まで。あふれたら「ほか○人」）
+    const wrap = (names) => {
+      const lines = []; let cur = '', used = 0;
+      for (let i = 0; i < names.length; i++) {
+        const add = (cur ? '・' : '') + names[i];
+        if ((cur + add).length > 22 && cur) { lines.push(cur); cur = names[i]; if (lines.length === 4) { used = i; break; } }
+        else cur += add;
+        used = i + 1;
+      }
+      if (lines.length < 4 && cur) lines.push(cur);
+      if (used < names.length) lines[lines.length - 1] += ' ほか' + (names.length - used) + '人';
+      return lines;
+    };
+    const line = (k, names, sub) => {
+      let o = tx(W / 2, y, 30, k, { c: '#ffd9df' });
+      const ls = wrap(names);
+      ls.forEach((t, i) => { o += tx(W / 2, y + 52 + i * 48, 38, t); });
+      const yy = y + 52 + (ls.length - 1) * 48;
+      o += sub ? tx(W / 2, yy + 42, 24, sub, { w: 500, c: '#f3c6cd' }) : '';
+      y = yy + (sub ? 110 : 80); return o;
+    };
+    if (a.perfect.length) body += line('週' + g + '回 皆勤（' + a.perfect.length + '人）', a.perfect.map((r) => r.name), '終わった' + a.closed + '週すべて達成');
+    if (a.up.length) body += line('いちばん伸びた', a.up.map((r) => r.name), '前の月より +' + a.best + '回');
+    const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="' + W + '" height="' + H + '" viewBox="0 0 ' + W + ' ' + H + '">' +
+      '<defs><linearGradient id="bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#8a0424"/><stop offset="1" stop-color="#4b0014"/></linearGradient>' +
+      '<symbol id="jk-back" viewBox="' + vb + '">' + back.innerHTML + '</symbol></defs>' +
+      '<rect width="' + W + '" height="' + H + '" fill="url(#bg)"/>' +
+      '<g opacity=".18" fill="#c40225" transform="translate(-140,700) scale(14)"><use href="#jk-streaks"/></g>' +
+      (crest ? '<image href="' + crest + '" x="' + (W / 2 - 60) + '" y="60" width="120" height="128"/>' : '') +
+      tx(W / 2, 228, 30, 'KURFC 筋トレ', { w: 500, c: '#f3c6cd' }) +
+      tx(W / 2, 290, 60, ymLabel(x.p.from) + 'の表彰' + (x.open ? '（途中）' : '')) +
+      body +
+      (y < H - 70 ? tx(W / 2, H - 44, 24, 'KURFC 筋トレ管理', { w: 500, c: '#f3c6cd' }) : '') + '</svg>';
+    const streaks = document.getElementById('jk-streaks');
+    const svgFull = svg.replace('</defs>', (streaks ? '<path id="jk-streaks" d="' + streaks.getAttribute('d') + '" fill-rule="evenodd"/>' : '') + '</defs>');
+    const img = new Image();
+    img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svgFull);
+    await img.decode();
+    const c = document.createElement('canvas'); c.width = W; c.height = H;
+    c.getContext('2d').drawImage(img, 0, 0);
+    return new Promise((ok) => c.toBlob(ok, 'image/png'));
+  }
+  async function saveAwardImage(from) {
+    const blob = await awardImage(from);
+    const name = 'kintore-' + from.slice(0, 7) + '-award.png';
+    const file = new File([blob], name, { type: 'image/png' });
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+      try { await navigator.share({ files: [file], title: ymLabel(from) + 'の表彰' }); return 'shared'; } catch (e) { if (e && e.name === 'AbortError') return 'cancel'; }
+    }
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a'); a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 4000);
+    return 'saved';
+  }
+
   function continuityBlock(rows) {
     const g = goal();
     const list = rows.filter((r) => r.goal.weeks.length);
@@ -365,10 +526,10 @@
     list.forEach((r) => {
       const gs = r.goal;
       h += '<li><a href="#member/' + r.id + '"><span class="cont-n">' + esc(r.name) + '</span>' +
-        '<span class="cont-w" role="img" aria-label="' + gs.closed + '週のうち' + gs.hit + '週で達成">' + gs.weeks.map((w) => '<i class="' + (w.ok ? 'on' : w.open ? 'open' : 'ng') + '" title="' + mdw(w.from) + '〜 ' + w.count + '回"></i>').join('') + '</span>' +
+        '<span class="cont-w" role="img" aria-label="' + gs.closed + '週のうち' + gs.hit + '週で達成">' + gs.weeks.map((w) => '<i class="' + (w.exempt ? 'ex' : w.ok ? 'on' : w.open ? 'open' : 'ng') + '" title="' + mdw(w.from) + '〜 ' + (w.exempt ? '免除' : w.count + '/' + w.need + '回') + '"></i>').join('') + '</span>' +
         '<span class="cont-v">' + gs.hit + '/' + gs.closed + '週</span></a></li>';
     });
-    return h + '</ul><p class="note">月曜始まりの週ごとに、' + g + '回以上「実施した」なら ■（達成）、足りなければ赤枠、終わっていない週は点線。月曜がその月にある週を、その月に数えます。</p></section>';
+    return h + '</ul><p class="note">月曜始まりの週ごとに、' + g + '回以上「実施した」なら ■（達成）、足りなければ赤枠、終わっていない週は点線、灰色は免除の週。月曜がその月にある週を、その月に数えます。</p></section>';
   }
 
   // ---------- ランキング ----------
@@ -401,14 +562,14 @@
   // ---------- カレンダー ----------
   const CELL = {
     done: ['○', '実施した'], not: ['×', '実施していない'], today: ['・', '今日の対象（記録待ち）'],
-    planned: ['・', '予定'], none: ['', '予定なし'], out: ['', '在籍期間外']
+    planned: ['・', '予定'], none: ['', '予定なし'], out: ['', '在籍期間外'], ex: ['免', '免除（怪我・オフなど）']
   };
   function cellHtml(state) {
     const c = CELL[state];
     return '<span class="cell s-' + state + '" title="' + c[1] + '"><span aria-hidden="true">' + c[0] + '</span><span class="sr">' + c[1] + '</span></span>';
   }
   function legend() {
-    return '<ul class="legend">' + ['done', 'not', 'today', 'planned', 'none'].map((k) => '<li>' + cellHtml(k) + CELL[k][1] + '</li>').join('') + '</ul>';
+    return '<ul class="legend">' + ['done', 'not', 'today', 'planned', 'ex', 'none'].map((k) => '<li>' + cellHtml(k) + CELL[k][1] + '</li>').join('') + '</ul>';
   }
   function sortMembers(list) {
     const ord = {};
@@ -489,7 +650,7 @@
     const sm = L.memberStats(S.idx, m, tm.from, tm.to, today);
     const g = goal();
     const streak = m.player ? L.streakWeeks(S.idx, m, today, d.range.from, g) : 0;
-    const wc = L.weekCount(S.idx, m, wk.from);
+    const wc = L.weekCount(S.idx, m, wk.from), wn = L.weekNeed(S.idx, m, wk.from, g);
     const pos = posOf(m.position);
     let h = '<div class="profile"><a class="ibtn back" href="#members" data-act="go-back" aria-label="戻る">' + icon('back') + '</a>' +
       '<div class="profile-j">' + jersey({ num: pos ? pos.numbers[0] : '', name: m.name.split(/\s+/)[0] }) + '</div>' +
@@ -500,12 +661,15 @@
       (can('admin') ? '<button class="btn small" data-act="member-edit" data-id="' + m.id + '">編集</button>' : '') + '</div>';
     if (!m.player) return h + '<p class="empty">選手ではないため、筋トレの記録はありません。</p>';
     h += '<div class="tiles">' +
-      '<div class="tile' + (wc >= g ? ' t-ok' : '') + '"><div class="tile-k">今週</div><div class="tile-v"><span class="num">' + sw.done + '</span>回<small>/' + g + '</small></div>' +
-      '<div class="tile-s">' + (wc >= g ? '週' + g + '回 達成' : '週' + g + '回まで あと' + (g - wc) + '回') + '</div></div>' +
+      (wn.need === 0
+        ? '<div class="tile"><div class="tile-k">今週</div><div class="tile-v"><span class="num">' + sw.done + '</span>回</div><div class="tile-s">今週は免除</div></div>'
+        : '<div class="tile' + (wc >= wn.need ? ' t-ok' : '') + '"><div class="tile-k">今週</div><div class="tile-v"><span class="num">' + sw.done + '</span>回<small>/' + wn.need + '</small></div>' +
+          '<div class="tile-s">' + (wc >= wn.need ? '週' + wn.need + '回 達成' : 'あと' + (wn.need - wc) + '回') + (wn.ex ? '（免除' + wn.ex + '日）' : '') + '</div></div>') +
       '<div class="tile"><div class="tile-k">今月</div><div class="tile-v"><span class="num">' + sm.done + '</span>回</div></div>' +
       '<div class="tile"><div class="tile-k">今月の実施率</div><div class="tile-v">' + (sm.rate === null ? '<span class="dash">－</span>' : '<span class="num">' + Math.round(sm.rate * 100) + '</span>%') + '</div>' +
       '<div class="tile-s">' + (sm.rate === null ? (m.mode === 'self' ? '自主トレは回数で見ます' : 'まだ対象日がありません') : sm.doneT + '/' + sm.targetDays + '日') + '</div></div>' +
       '<div class="tile"><div class="tile-k">週' + g + '回の連続達成</div><div class="tile-v"><span class="num">' + streak + '</span>週</div></div></div>';
+    h += exemptBlock(m);
     const atNow = mo.from === tm.from;
     h += '<section class="block"><div class="mcal-nav"><button class="ibtn" data-act="mmonth" data-v="-1" aria-label="前の月">' + icon('back') + '</button>' +
       '<b>' + ymLabel(mo.from) + '</b><button class="ibtn" data-act="mmonth" data-v="1" aria-label="次の月"' + (atNow ? ' disabled' : '') + '>' + icon('next') + '</button></div>' +
@@ -528,6 +692,50 @@
       '<span class="hist-t">' + CELL[x.st][1] + (x.menus.length ? '<small>' + x.menus.map((w) => esc(w.title)).join('、') + '</small>' : '') + '</span>' +
       (x.r && x.r.by ? '<span class="hist-b">記録：' + esc(nameOf(x.r.by)) + '</span>' : '') + '</li>').join('') + '</ul>';
     return h + '</section>';
+  }
+
+  // ---------- 免除（部員ごと・部全体のオフ） ----------
+  const EX_REASONS = ['怪我', '病気・体調不良', '就活・実習', '家の用事', 'その他'];
+  const OFF_REASONS = ['試験期間', '合宿・遠征', '年末年始', 'オフ', 'その他'];
+  function exemptBlock(m) {
+    const d = S.data, today = d.today;
+    const mine = (d.exempts || []).filter((e) => e.memberId === m.id).sort((a, b) => (a.from < b.from ? 1 : -1));
+    const staff = can('record');
+    if (!mine.length && !staff) return '';
+    let h = '<section class="block"><div class="block-h"><h2>免除</h2>' + (staff ? '<button class="btn small" data-act="ex-new" data-id="' + m.id + '">' + icon('plus') + '免除を追加</button>' : '') + '</div>';
+    if (!mine.length) h += '<p class="empty small">怪我・病気などで筋トレできない期間を登録すると、その日は週' + goal() + '回の判定とメニューの対象から外れます。</p>';
+    else h += '<ul class="exlist">' + mine.map((e) => exRow(e, today)).join('') + '</ul>';
+    return h + '</section>';
+  }
+  function exRow(e, today) {
+    const state = e.to < today ? '終了' : e.from > today ? '予定' : '期間中';
+    const canDel = can('admin') || (can('record') && e.memberId !== 'ALL' && e.createdBy === me().id);
+    return '<li><span class="ex-d">' + mdw(e.from) + '〜' + mdw(e.to) + '<small class="ex-st s-' + (state === '期間中' ? 'now' : state === '予定' ? 'next' : 'past') + '">' + state + '</small></span>' +
+      '<span class="ex-r">' + esc(e.reason || '免除') + (e.note ? '<small>' + esc(e.note) + '</small>' : '') + '</span>' +
+      (canDel ? '<button class="textbtn" data-act="ex-del" data-id="' + e.id + '">取り消す</button>' : '') + '</li>';
+  }
+  function openExempt(memberId) {
+    const team = memberId === 'ALL';
+    const m = team ? null : S.data.members.find((x) => x.id === memberId);
+    const today = S.data.today;
+    const reasons = team ? OFF_REASONS : EX_REASONS;
+    openSheet(team ? '部全体のオフ期間を追加' : '免除を追加（' + m.name + '）',
+      '<form data-form="exempt" class="form"><input type="hidden" name="memberId" value="' + esc(memberId) + '">' +
+      '<p class="lead-line small">' + (team ? 'この期間は全員の「週' + goal() + '回」とメニューの対象から外れます（試験期間・合宿など）。' : 'この期間は「週' + goal() + '回」の判定とメニューの対象から外れます。期間中に筋トレした日は、ふつうに実施回数に入ります。') + '</p>' +
+      '<div class="two"><label>開始日<input type="date" name="from" value="' + today + '" required></label><label>終了日<input type="date" name="to" value="' + L.addDays(today, 6) + '" required></label></div>' +
+      '<label>理由<select name="reason" required>' + reasons.map((r) => '<option>' + r + '</option>').join('') + '</select></label>' +
+      '<label>メモ（任意）<input type="text" name="note" maxlength="100" placeholder="' + (team ? '例：前期の試験' : '例：右足首の捻挫、全治2週間') + '"></label>' +
+      (team ? '' : '<p class="hint">理由とメモは、ログインした管理者・マネージャー・FWリーダーにだけ見えます（ふつうの部員の画面には「免除」とだけ出ます）。</p>') +
+      '<p class="form-err" hidden></p>' +
+      '<div class="actions"><button type="button" class="btn" data-act="sheet-close">やめる</button><button class="btn primary" type="submit">登録する</button></div></form>');
+  }
+  function openOffs() {
+    const d = S.data, today = d.today;
+    const offs = (d.exempts || []).filter((e) => e.memberId === 'ALL').sort((a, b) => (a.from < b.from ? 1 : -1));
+    openSheet('部全体のオフ期間',
+      '<p class="lead-line small">試験期間・合宿・年末年始など、部全体で筋トレの目標をなしにする期間です。この期間は全員の「週' + goal() + '回」とメニューの対象から外れます。</p>' +
+      (offs.length ? '<ul class="exlist">' + offs.map((e) => exRow(e, today)).join('') + '</ul>' : '<p class="empty small">まだ登録されていません。</p>') +
+      '<div class="actions"><button class="btn" data-act="sheet-close">閉じる</button><button class="btn primary" data-act="ex-new" data-id="ALL">' + icon('plus') + 'オフ期間を追加</button></div>');
   }
 
   // ---------- メニュー ----------
@@ -651,7 +859,7 @@
     const cur = recCur(row), changed = cur !== row.saved, m = row.m;
     return '<li class="rec-row' + (cur ? ' on' : '') + (changed ? ' changed' : '') + (row.locked ? ' locked' : '') + '" data-id="' + m.id + '">' +
       '<span class="rec-pos g-' + (m.group || 'X') + '">' + esc(m.position || m.group || '－') + '</span>' +
-      '<div class="rec-n"><b>' + esc(m.name) + '</b><small>' + (m.grade ? esc(m.grade) : '') +
+      '<div class="rec-n"><b>' + esc(m.name) + (L.exemptOn(S.idx, m.id, S.rec.date) ? '<span class="ex-tag">免除</span>' : '') + '</b><small>' + (m.grade ? esc(m.grade) : '') +
       (changed ? '・<em>未保存</em>' : (row.saved && row.by ? '・記録：' + esc(nameOf(row.by)) : '')) +
       (can('admin') && row.saved && !changed ? '・<button class="textbtn" data-act="rec-del" data-id="' + m.id + '">取り消す</button>' : '') + '</small></div>' +
       (row.locked
@@ -742,6 +950,7 @@
         '<li><a href="#members">部員の追加・編集・権限<small>ポジション・取り組み方の設定は「まとめて編集」が便利です</small></a></li>' +
         '<li><a href="#logs">操作履歴<small>だれが・いつ・何を変えたか</small></a></li>' +
         '<li><button data-act="goal-open">週の目標回数（マスト）<small>いまは週' + goal() + '回以上</small></button></li>' +
+        '<li><button data-act="offs-open">部全体のオフ期間<small>試験期間・合宿など、全員の目標をなしにする期間</small></button></li>' +
         '<li><button data-act="viewlock">閲覧の合言葉<small>' + (S.data.viewLock ? '設定中：合言葉を知っている人だけ見られます' : '未設定：URLを知っていれば誰でも見られます') + '</small></button></li>' +
         '</ul></section>';
     }
@@ -749,7 +958,7 @@
       '<li>マネージャーが Setlog などを確認して、筋トレをした人に「実施した」を付けます。</li>' +
       '<li>取り組み方は2つ。<b>メニュー参加</b>（FWリーダーのメニューに沿う）と<b>自主トレ</b>（自分で決める）。どちらも実施記録の対象です。</li>' +
       '<li>メニューの対象日に「実施した」が無ければ、翌日から<b>実施していない</b>（×）になります。メニューが無い日・自主トレの人は×になりません。</li>' +
-      '<li><b>週' + goal() + '回以上の筋トレがマスト</b>です（月曜〜日曜）。ホームで「まだの人」、ランキングで達成・未達が分かります。</li>' +
+      '<li><b>週' + goal() + '回以上の筋トレがマスト</b>です（月曜〜日曜）。ホームで「まだの人」、ランキングで達成・未達が分かります。怪我・病気などの<b>免除</b>や部全体の<b>オフ期間</b>の日は、その日数に応じて必要な回数が減ります。</li>' +
       '<li><b>実施率</b>はメニュー参加の人だけ。実施した対象日 ÷ 対象日。自主トレの人は実施回数で見ます。</li>' +
       '<li>部員名簿は会計アプリと共通です。進級や入部・退部は、どちらで直しても両方に反映されます。</li></ul></section>';
     h += '<div class="toolbar"><button class="btn" data-act="reload">最新の情報に更新</button></div>' +
@@ -1106,6 +1315,25 @@
     },
     'pin-change': () => openPinChange(false),
     'goal-open': () => openGoal(),
+    'offs-open': () => openOffs(),
+    'ex-new': (el) => openExempt(el.dataset.id),
+    'ex-del': async (el) => {
+      // 確認のダイアログは使わず、2回押しで確定
+      if (el.dataset.armed !== '1') { el.dataset.armed = '1'; el.textContent = 'もう一度押すと取り消し'; setTimeout(() => { if (el.isConnected) { el.dataset.armed = ''; el.textContent = '取り消す'; } }, 4000); return; }
+      try {
+        await api('deleteExempt', { id: el.dataset.id });
+        closeSheet(); await loadState(); render(); toast('免除を取り消しました');
+      } catch (e) { toast(e.message, 'err'); }
+    },
+    'goal-copy': async (el) => { toast((await copyText(goalText(el.dataset.from))) ? 'コピーしました。LINEに貼り付けてください' : 'コピーできませんでした', 'ok'); },
+    'goal-line': (el) => { window.open('https://line.me/R/share?text=' + encodeURIComponent(goalText(el.dataset.from)), '_blank', 'noopener'); },
+    'award-copy': async (el) => { toast((await copyText(awardText(el.dataset.from))) ? 'コピーしました。LINEに貼り付けてください' : 'コピーできませんでした', 'ok'); },
+    'award-img': async (el) => {
+      el.disabled = true;
+      try { const r = await saveAwardImage(el.dataset.from); if (r === 'saved') toast('画像を保存しました'); }
+      catch (e) { toast('画像を作れませんでした', 'err'); }
+      finally { el.disabled = false; }
+    },
     'promote-open': () => openPromote(),
     viewlock: () => openViewLock(),
     reload: async (el) => { await busy(el, async () => { await loadState(); render(); if (!S.loadError) toast('最新の情報に更新しました'); }); },
@@ -1263,6 +1491,15 @@
           const r = await api('promote', { sig: f.sig.value, choice: choice });
           closeSheet(); await loadState(); render();
           toast('進級しました：学年を上げた ' + r.up + '人・卒業 ' + r.grad + '人・そのまま ' + r.stay + '人' + (r.notGrad.length ? '（卒業にできなかった人：' + r.notGrad.join('、') + '）' : ''));
+        } catch (e) { sheetError(e.message); }
+      });
+    },
+    exempt: async (f, btn) => {
+      if (f.to.value < f.from.value) { sheetError('終了日は開始日より後にしてください。'); return; }
+      await busy(btn, async () => {
+        try {
+          await api('saveExempt', { memberId: f.memberId.value, from: f.from.value, to: f.to.value, reason: f.reason.value, note: f.note.value });
+          closeSheet(); await loadState(); render(); toast(f.memberId.value === 'ALL' ? 'オフ期間を登録しました' : '免除を登録しました');
         } catch (e) { sheetError(e.message); }
       });
     },

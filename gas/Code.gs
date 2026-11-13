@@ -10,8 +10,8 @@
  * 最初にやること：スプレッドシートのメニュー「筋トレ管理」→「管理者を登録」
  * 詳しくは 04_ドキュメント/筋トレ管理アプリ_使い方と引き継ぎ.md
  */
-const APP_VERSION = '2.3.1';
-const SCHEMA_VERSION = '2';
+const APP_VERSION = '2.4.0';
+const SCHEMA_VERSION = '3';
 const TZ = 'Asia/Tokyo';
 const SESSION_DAYS = 90;
 const VIEW_SESSION_DAYS = 180;
@@ -49,9 +49,12 @@ const DEF = {
     ['tokenHash', 'トークンハッシュ'], ['memberId', '部員ID'], ['kind', '種類'], ['createdAt', '作成日時'], ['expiresAt', '有効期限']] },
   logs: { name: '操作履歴', cols: [
     ['at', '日時'], ['actorId', '操作者ID'], ['actorName', '操作者'], ['role', '権限'], ['action', '操作'], ['detail', '内容']] },
-  settings: { name: '設定', cols: [['key', '項目'], ['value', '値']] }
+  settings: { name: '設定', cols: [['key', '項目'], ['value', '値']] },
+  exempts: { name: '免除', cols: [
+    ['id', 'ID'], ['memberId', '部員ID'], ['from', '開始日'], ['to', '終了日'], ['reason', '理由'], ['note', 'メモ'],
+    ['createdBy', '登録者ID'], ['createdAt', '登録日時'], ['deletedBy', '削除者ID'], ['deletedAt', '削除日時']] }
 };
-const DATE_COLS = { start: 1, left: 1, effDate: 1, date: 1 };
+const DATE_COLS = { start: 1, left: 1, effDate: 1, date: 1, from: 1, to: 1 };
 
 const ENC = {
   mode: { leader: 'リーダーメニュー', self: '自主トレ' },
@@ -120,6 +123,8 @@ function handle_(req) {
       case 'importMembers': return opImportMembers_(ctx);
       case 'setMemberActive': return opSetMemberActive_(ctx);
       case 'promote': return opPromote_(ctx);
+      case 'saveExempt': return opSaveExempt_(ctx);
+      case 'deleteExempt': return opDeleteExempt_(ctx);
       case 'resetPin': return opResetPin_(ctx);
       case 'logs': return opLogs_(ctx);
       case 'saveSettings': return opSaveSettings_(ctx);
@@ -804,6 +809,7 @@ function opState_(ctx) {
   base.members = members_().map(function (m) { return memberWire_(m, admin); });
   base.menus = table_('menus').rows.filter(function (w) { return !w.deletedAt && w.date >= from && w.date <= to; }).map(menuWire_);
   base.records = recordsWire_(from, to);
+  base.exempts = exemptsWire_(addDays_(from, -7), addDays_(to, 7), ctx.me);
   return base;
 }
 
@@ -1234,6 +1240,61 @@ function opPromote_(ctx) {
     REQ_.roster = null; REQ_.members = null;
     if (grad) refreshFutureTargets_();
     return { ok: true, up: up, grad: grad, stay: stay, notGrad: errs };
+  });
+}
+
+// ---------------------------------------------------------------------------
+// 免除（怪我・病気・テスト期間など）。その日は「週の目標」と「メニューの対象日」から外す。
+//   部員ごと：管理者・マネージャーが登録。部全体のオフ期間（部員ID＝ALL）：管理者だけ。
+//   一般公開の画面には、部員ごとの理由・メモは出さない（「免除」とだけ出す）。
+// ---------------------------------------------------------------------------
+const EXEMPT_MAX_DAYS = 366;
+function exemptsWire_(from, to, me) {
+  const staff = !!(me && STAFF[me.perm]);
+  return table_('exempts').rows.filter(function (e) { return !e.deletedAt && e.from <= to && e.to >= from; })
+    .map(function (e) {
+      const team = e.memberId === 'ALL';
+      return { id: e.id, memberId: e.memberId, from: e.from, to: e.to,
+        reason: team || staff ? e.reason : '', note: staff ? e.note : '', createdBy: staff ? e.createdBy : '' };
+    });
+}
+function opSaveExempt_(ctx) {
+  const me = requireRole_(ctx, ['admin', 'manager']);
+  const memberId = String(ctx.req.memberId || '');
+  const team = memberId === 'ALL';
+  if (team && me.perm !== 'admin') throw err_('forbidden', '部全体のオフ期間は管理者だけが登録できます。');
+  const from = reqDate_(ctx.req.from, '開始日'), to = reqDate_(ctx.req.to, '終了日');
+  if (to < from) throw err_('bad_range', '終了日は開始日より後にしてください。');
+  if (addDays_(from, EXEMPT_MAX_DAYS) < to) throw err_('bad_range', '一度に登録できるのは1年までです。');
+  const reason = text_(ctx.req.reason, 20, '理由', true);
+  const note = text_(ctx.req.note, 100, 'メモ', false);
+  return withLock_(function () {
+    let label = '部全体';
+    if (!team) {
+      const m = memberById_(memberId);
+      if (!m || m.gone) throw err_('not_found', 'その部員は見つかりません。');
+      if (!m.player) throw err_('not_player', '選手ではない人は免除の対象になりません。');
+      label = m.name;
+    }
+    const e = { id: 'x' + Utilities.getUuid().replace(/-/g, '').slice(0, 10), memberId: memberId, from: from, to: to,
+      reason: reason, note: note, createdBy: me.id, createdAt: now_(), deletedBy: '', deletedAt: '' };
+    insert_('exempts', [e]);
+    log_(me, team ? 'オフ期間を登録' : '免除を登録', label + '：' + from + '〜' + to + '（' + reason + '）');
+    return { ok: true, exempt: exemptsWire_(from, to, me).filter(function (x) { return x.id === e.id; })[0] };
+  });
+}
+function opDeleteExempt_(ctx) {
+  const me = requireRole_(ctx, ['admin', 'manager']);
+  const id = String(ctx.req.id || '');
+  return withLock_(function () {
+    const e = table_('exempts').rows.filter(function (x) { return x.id === id && !x.deletedAt; })[0];
+    if (!e) throw err_('not_found', 'その免除は見つかりません。');
+    if (me.perm !== 'admin' && (e.memberId === 'ALL' || e.createdBy !== me.id)) throw err_('forbidden', '自分が登録した免除だけ取り消せます。ほかは管理者に頼んでください。');
+    e.deletedBy = me.id; e.deletedAt = now_();
+    update_('exempts', e);
+    const m = e.memberId === 'ALL' ? null : memberById_(e.memberId);
+    log_(me, e.memberId === 'ALL' ? 'オフ期間を取り消し' : '免除を取り消し', (m ? m.name : '部全体') + '：' + e.from + '〜' + e.to + '（' + e.reason + '）');
+    return { ok: true, id: id };
   });
 }
 

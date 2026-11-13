@@ -84,6 +84,10 @@ function seed() {
       if (items.length > half) api({ op: 'saveRecords', token: (L.dow(d) % 2 ? M2 : M), date: d, items: items.slice(half) });
     }
   }
+  // 免除の例：けが人1人（今週いっぱい）、部全体のオフ（3週前の1週間）
+  api({ op: 'saveExempt', token: A, memberId: players[2].id, from: L.addDays(L.weekStart(today), -2), to: L.addDays(L.weekStart(today), 10), reason: '怪我', note: '右足首の捻挫' });
+  api({ op: 'saveExempt', token: A, memberId: players[5].id, from: L.weekStart(today), to: L.addDays(L.weekStart(today), 2), reason: '病気・体調不良' });
+  api({ op: 'saveExempt', token: A, memberId: 'ALL', from: L.addDays(L.weekStart(today), -21), to: L.addDays(L.weekStart(today), -15), reason: '試験期間' });
   console.log('テストデータを用意しました（今日 = ' + today + '）');
 }
 seed();

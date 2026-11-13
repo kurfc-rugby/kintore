@@ -70,7 +70,7 @@ const ok = (c, label) => { if (c) { pass++; console.log('  ✓ ' + label); } els
   ok(await count('.rec-row:not(.on)') < offBefore, '再読み込みしても保存した内容が残る');
   ok(await page.locator('[data-act="rec-day"][data-v="1"]').isDisabled(), '未来の日付には進めない');
   await page.click('[data-act="rec-day"][data-v="-1"]'); await page.waitForTimeout(300);
-  ok((await text('.rec-pick span')).includes('11/12'), '過去の日付に移動できる');
+  { const y = new Date(Date.now() + 9 * 3600 * 1000 - 86400000); ok((await text('.rec-pick span')).includes((y.getUTCMonth() + 1) + '/' + y.getUTCDate()), '過去の日付に移動できる'); }
   ok(await count('.textbtn[data-act="rec-del"]') === 0, 'マネージャーには管理者用の「取り消す」が出ない');
   await logout();
 
