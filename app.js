@@ -3,7 +3,7 @@
   'use strict';
   const L = window.KLogic;
   const API = window.KINTORE_API;
-  const VERSION = '2.3.0';
+  const VERSION = '2.3.1';
   const WD = ['日', '月', '火', '水', '木', '金', '土'];
   const PERM = { admin: '管理者', manager: 'マネージャー', leader: 'FWリーダー', member: '一般部員' };
   const MODE = { leader: 'メニュー参加', self: '自主トレ' };
@@ -851,29 +851,34 @@
     const me0 = me();
     const list = S.data.members.filter((m) => m.active).sort((a, b) => (a.id < b.id ? -1 : 1));
     const sig = list.map((m) => m.id + ':' + (m.grade || '')).join(',');
+    const ORDER = ['1年', '2年', '3年', '4年', 'M1', 'M2'];
     const byGrade = {};
     list.forEach((m) => { (byGrade[m.grade || ''] = byGrade[m.grade || ''] || []).push(m); });
-    const names = (arr) => arr.sort((a, b) => a.sort - b.sort).map((m) => esc(m.name)).join('、');
-    let up = '';
-    ['1年', '2年', '3年', 'M1'].forEach((g) => {
-      if (byGrade[g]) up += '<li><b>' + g + ' → ' + GRADE_NEXT[g] + '</b>（' + byGrade[g].length + '人）<small>' + names(byGrade[g]) + '</small></li>';
-    });
-    const top = (byGrade['4年'] || []).concat(byGrade['M2'] || []).sort((a, b) => a.sort - b.sort);
-    const other = list.filter((m) => !GRADE_NEXT[m.grade || ''] && m.grade !== '4年' && m.grade !== 'M2');
-    const topRow = (m) => {
-      const lock = m.id === me0.id ? '自分自身は卒業にできません' : m.finance ? '財務の人の卒業は会計アプリで' : '';
-      const opts = (m.grade === '4年' ? [['grad', '卒業'], ['M1', 'M1へ（進学）'], ['stay', '4年のまま']] : [['grad', '卒業'], ['stay', 'M2のまま']])
-        .filter((o) => !(lock && o[0] === 'grad'));
-      const def = lock ? 'stay' : 'grad';
-      return '<li class="pm-top"><span><b>' + esc(m.name) + '</b><small>' + esc(m.grade) + (lock ? '・' + lock : '') + '</small></span>' +
+    const row = (m) => {
+      const g = m.grade;
+      let opts, def = 'up', note = '';
+      if (GRADE_NEXT[g]) opts = [['up', GRADE_NEXT[g] + 'へ'], ['stay', g + 'のまま']];
+      else {
+        const lock = m.id === me0.id ? '自分自身は卒業にできません' : m.finance ? '財務の人の卒業は会計アプリで' : '';
+        opts = (g === '4年' ? [['grad', '卒業'], ['M1', 'M1へ（進学）'], ['stay', '4年のまま']] : [['grad', '卒業'], ['stay', 'M2のまま']]).filter((o) => !(lock && o[0] === 'grad'));
+        def = lock ? 'stay' : 'grad'; note = lock;
+      }
+      return '<li class="pm-top"><span><b>' + esc(m.name) + '</b>' + (note ? '<small>' + note + '</small>' : '') + '</span>' +
         '<select name="c_' + m.id + '" aria-label="' + esc(m.name) + 'の進級">' + opts.map((o) => '<option value="' + o[0] + '"' + (o[0] === def ? ' selected' : '') + '>' + o[1] + '</option>').join('') + '</select></li>';
     };
+    let body = '';
+    ORDER.forEach((g) => {
+      const arr = (byGrade[g] || []).sort((a, b) => a.sort - b.sort);
+      if (!arr.length) return;
+      body += '<h3 class="pm-h">' + g + '（' + arr.length + '人）<small>' + (GRADE_NEXT[g] ? 'ふつうは ' + GRADE_NEXT[g] + ' へ' : 'ふつうは卒業') + '</small></h3><ul class="pm-list">' + arr.map(row).join('') + '</ul>';
+    });
+    const other = list.filter((m) => ORDER.indexOf(m.grade || '') < 0);
     openSheet('進級（学年をまとめて上げる）',
       '<form data-form="promote" class="form"><input type="hidden" name="sig" value="' + esc(sig) + '">' +
-      '<p class="lead-line small">在籍している全員の学年を1つ上げます。<b>年に1回、新年度に1回だけ</b>押してください。名簿は会計アプリと共通なので、会計アプリの学年も変わります。</p>' +
-      (up ? '<h3 class="pm-h">学年が上がる人</h3><ul class="pm-list">' + up + '</ul>' : '') +
-      (top.length ? '<h3 class="pm-h">4年・M2の人</h3><p class="hint">卒業にすると在籍が外れます（記録は残り、あとで戻せます。集金も今までどおり集められます）。</p><ul class="pm-list">' + top.map(topRow).join('') + '</ul>' : '') +
-      (other.length ? '<p class="hint">学年が「1年〜4年・M1・M2」以外の ' + other.length + '人（' + names(other) + '）は、そのままです。</p>' : '') +
+      '<p class="lead-line small">在籍している全員の学年を1つ上げます。<b>新年度に1回だけ</b>押してください。名簿は会計アプリと共通なので、会計アプリの学年も変わります。</p>' +
+      '<p class="hint">留年などで学年が変わらない人は「○年のまま」を選んでください。4年・M2で「卒業」にすると在籍が外れます（記録は残り、あとで戻せます。集金も今までどおり集められます）。</p>' +
+      body +
+      (other.length ? '<p class="hint">学年が「1年〜4年・M1・M2」以外の ' + other.length + '人（' + other.map((m) => esc(m.name)).join('、') + '）は、そのままです。</p>' : '') +
       '<p class="form-err" hidden></p>' +
       '<div class="actions"><button type="button" class="btn" data-act="sheet-close">やめる</button><button class="btn primary" type="submit">進級する</button></div></form>');
   }
@@ -1257,7 +1262,7 @@
         try {
           const r = await api('promote', { sig: f.sig.value, choice: choice });
           closeSheet(); await loadState(); render();
-          toast('進級しました：学年を上げた ' + r.up + '人・卒業 ' + r.grad + '人' + (r.notGrad.length ? '（卒業にできなかった人：' + r.notGrad.join('、') + '）' : ''));
+          toast('進級しました：学年を上げた ' + r.up + '人・卒業 ' + r.grad + '人・そのまま ' + r.stay + '人' + (r.notGrad.length ? '（卒業にできなかった人：' + r.notGrad.join('、') + '）' : ''));
         } catch (e) { sheetError(e.message); }
       });
     },

@@ -10,7 +10,7 @@
  * 最初にやること：スプレッドシートのメニュー「筋トレ管理」→「管理者を登録」
  * 詳しくは 04_ドキュメント/筋トレ管理アプリ_使い方と引き継ぎ.md
  */
-const APP_VERSION = '2.3.0';
+const APP_VERSION = '2.3.1';
 const SCHEMA_VERSION = '2';
 const TZ = 'Asia/Tokyo';
 const SESSION_DAYS = 90;
@@ -1185,7 +1185,7 @@ function opSetMemberActive_(ctx) {
 
 // ---------------------------------------------------------------------------
 // 進級（学年をまとめて1つ上げる。4年・M2 は卒業／進学／そのままを選ぶ）
-//   1年→2年→3年→4年、M1→M2。4年は「卒業」「M1へ」「4年のまま」、M2は「卒業」「M2のまま」。
+//   1年→2年→3年→4年、M1→M2（留年などで「そのまま」も選べる）。4年は「卒業」「M1へ」「4年のまま」、M2は「卒業」「M2のまま」。
 //   それ以外の学年（空・その他）はそのまま。名簿は共通なので会計アプリの学年も変わる。
 //   二重に押されないよう、画面が見た名簿（sig）と今の名簿が同じときだけ実行する。
 // ---------------------------------------------------------------------------
@@ -1211,7 +1211,10 @@ function opPromote_(ctx) {
     const gradNames = [], errs = [];
     list.forEach(function (m) {
       const g = m.grade || '';
-      if (GRADE_NEXT[g]) { rosterLib_().update(m.id, { grade: GRADE_NEXT[g] }); up++; return; }
+      if (GRADE_NEXT[g]) {
+        if (choice[m.id] === 'stay') { stay++; return; } // 留年など
+        rosterLib_().update(m.id, { grade: GRADE_NEXT[g] }); up++; return;
+      }
       if (!GRADE_TOP[g]) return;
       const c = GRADE_TOP[g].indexOf(choice[m.id]) >= 0 ? choice[m.id] : 'stay';
       if (c === 'M1') { rosterLib_().update(m.id, { grade: 'M1' }); up++; return; }
