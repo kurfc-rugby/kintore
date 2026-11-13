@@ -109,7 +109,7 @@ function seed() {
 }
 seed();
 
-const TYPES = { '.webp': 'image/webp', '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.woff2': 'font/woff2' };
+const TYPES = { '.png': 'image/png', '.webmanifest': 'application/manifest+json', '.webp': 'image/webp', '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.woff2': 'font/woff2' };
 http.createServer((req, res) => {
   const url = req.url.split('?')[0];
   if (url === '/exec') {
@@ -130,7 +130,7 @@ http.createServer((req, res) => {
     return fs.readFile(f, (err, buf) => { if (err) { res.writeHead(404); res.end(); return; } res.writeHead(200, { 'Content-Type': 'font/woff2' }); res.end(buf); });
   }
   const name = url === '/' ? 'index.html' : url.replace(/^\/+/, '');
-  if (['index.html', 'style.css', 'app.js', 'logic.js', 'crest.webp'].indexOf(name) < 0) { res.writeHead(404); res.end('not found'); return; }
+  if (['index.html', 'style.css', 'app.js', 'logic.js', 'crest.webp', 'sw.js', 'manifest.webmanifest'].indexOf(name) < 0 && !/^icons\/[a-z0-9-]+\.png$/.test(name)) { res.writeHead(404); res.end('not found'); return; }
   fs.readFile(path.join(__dirname, '..', name), (err, buf) => {
     if (err) { res.writeHead(404); res.end('not found'); return; }
     res.writeHead(200, { 'Content-Type': TYPES[path.extname(name)] || 'application/octet-stream', 'Cache-Control': 'no-store' });

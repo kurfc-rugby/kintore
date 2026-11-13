@@ -3,7 +3,7 @@
   'use strict';
   const L = window.KLogic;
   const API = window.KINTORE_API;
-  const VERSION = '2.5.0';
+  const VERSION = '2.6.0';
   const WD = ['日', '月', '火', '水', '木', '金', '土'];
   const PERM = { admin: '管理者', manager: 'マネージャー', leader: 'FWリーダー', member: '一般部員' };
   const MODE = { leader: 'メニュー参加', self: '自主トレ' };
@@ -67,6 +67,43 @@
     const os = /iPhone/.test(u) ? 'iPhone' : /iPad/.test(u) || (/Macintosh/.test(u) && navigator.maxTouchPoints > 1) ? 'iPad' : /Android/.test(u) ? 'Android' : /Windows/.test(u) ? 'Windows' : /Mac OS X/.test(u) ? 'Mac' : /CrOS/.test(u) ? 'Chromebook' : 'その他';
     const br = / Line\//.test(u) ? 'LINE' : /EdgA?\//.test(u) ? 'Edge' : /CriOS|Chrome\//.test(u) ? 'Chrome' : /FxiOS|Firefox\//.test(u) ? 'Firefox' : /Safari\//.test(u) ? 'Safari' : 'ブラウザ';
     return os + '・' + br;
+  }
+
+  // ---------- ホーム画面に置くアプリ（PWA） ----------
+  const PWA = { prompt: null, reg: null, waiting: null };
+  const isStandalone = () => (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) || navigator.standalone === true;
+  const isIOS = () => /iPhone|iPad|iPod/.test(navigator.userAgent) || (/Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints > 1);
+  window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); PWA.prompt = e; if (S.route && S.route.name === 'settings') render(); });
+  window.addEventListener('appinstalled', () => { PWA.prompt = null; toast('ホーム画面に追加しました'); });
+  function registerSW() {
+    if (!('serviceWorker' in navigator)) return;
+    // 開発用のサーバー（localhost）では、テストの邪魔にならないよう使わない（kintore.swdev を入れたときだけ使う）
+    if (/^(localhost|127\.0\.0\.1)$/.test(location.hostname) && !store.get('swdev', 0)) return;
+    navigator.serviceWorker.register('sw.js').then((reg) => {
+      PWA.reg = reg;
+      const watch = (w) => { if (!w) return; w.addEventListener('statechange', () => { if (w.state === 'installed' && navigator.serviceWorker.controller) { PWA.waiting = w; showUpdate(); } }); };
+      if (reg.waiting && navigator.serviceWorker.controller) { PWA.waiting = reg.waiting; showUpdate(); }
+      watch(reg.installing);
+      reg.addEventListener('updatefound', () => watch(reg.installing));
+    }).catch(() => { /* 使えなくてもふつうに動く */ });
+    let reloaded = false;
+    navigator.serviceWorker.addEventListener('controllerchange', () => { if (PWA.waiting && !reloaded) { reloaded = true; location.reload(); } });
+  }
+  function showUpdate() {
+    if ($('#update-bar')) return;
+    const el = document.createElement('div');
+    el.id = 'update-bar'; el.className = 'update-bar'; el.setAttribute('role', 'status');
+    el.innerHTML = '<span>新しい版があります</span><button class="btn small" data-act="sw-update">更新する</button>';
+    document.body.appendChild(el);
+  }
+  function installBlock() {
+    if (isStandalone()) return '<section class="block"><div class="block-h"><h2>ホーム画面のアプリ</h2></div><p class="lead-line small">' + icon('check') + 'ホーム画面から開いています。新しい版が出ると、画面の下に「更新する」が出ます。</p></section>';
+    let h = '<section class="block"><div class="block-h"><h2>ホーム画面に追加</h2></div><p class="lead-line small">ホーム画面にアイコンを置くと、アプリのように1タップで開けます（App Store は使いません）。</p>';
+    if (PWA.prompt) h += '<div class="toolbar"><button class="btn primary" data-act="pwa-install">' + icon('plus') + 'ホーム画面に追加</button></div>';
+    else if (isIOS()) h += '<ol class="howto"><li><b>Safari</b> でこのページを開く（LINEの中で開いているときは、右下のメニューから「Safariで開く」）</li><li>下の<b>共有ボタン</b>（□に↑）を押す</li><li><b>「ホーム画面に追加」</b>→ 右上の「追加」</li></ol>' +
+      '<p class="note">ホーム画面から開くと、ログインや自分の名前・文字の大きさの設定はもう一度必要です（Safari とは別に保存されます）。</p>';
+    else h += '<ol class="howto"><li><b>Chrome</b> でこのページを開く</li><li>右上の<b>︙</b>を押す</li><li><b>「ホーム画面に追加」</b>または<b>「アプリをインストール」</b></li></ol>';
+    return h + '</section>';
   }
 
   const ICON = {
@@ -160,7 +197,7 @@
     S.stampMap = {};
     (d.stamps || []).forEach((x) => { S.stampMap[x.t + '|' + x.e] = x; });
     if (S.token && !d.me) { S.token = ''; store.del('token'); }
-    if (!d.locked) store.set('state2', d);
+    if (!d.locked) { d.savedAt = Date.now(); store.set('state2', d); }
   }
   async function loadState(range) {
     S.loading = true; S.loadError = '';
@@ -1363,6 +1400,7 @@
       '<label class="prefrow form"><span>自分の名前<small>ホームに自分の状況と、届いた「おめでとう」が出ます。応援を送るときの名前にもなります</small></span>' +
       '<select data-act-change="pref-self"><option value="">選ばない</option>' + players.map((x) => '<option value="' + x.id + '"' + (PREF.self === x.id ? ' selected' : '') + '>' + esc(x.name) + '</option>').join('') + '</select></label>' +
       '<div class="toolbar"><button class="btn small" data-act="guide">使い方ガイドをもう一度見る</button></div></section>';
+    h += installBlock();
     if (can('admin')) {
       h += '<section class="block"><div class="block-h"><h2>管理者メニュー</h2></div><ul class="links">' +
         '<li><a href="#members">部員の追加・編集・権限<small>ポジション・取り組み方の設定は「まとめて編集」が便利です</small></a></li>' +
@@ -1436,7 +1474,7 @@
     ['週' + '{g}' + '回がマスト', 'ホームの赤い板が部全体の回数。月曜〜日曜に<b>週{g}回以上</b>筋トレすれば達成です。「まだの人」「連続がピンチの人」もホームで分かります。', 'check'],
     ['ランキングと自分の記録', 'ランキングやカレンダーの名前を押すと、その人の記録・<b>自己ベスト・称号</b>・体重の変化が見られます。', 'rank'],
     ['友達に「おめでとう」', 'ホームの「おめでとう」で、達成した友達に<b>応援スタンプ</b>を送れます。下で自分の名前を選ぶと、自分あての応援がホームに出ます。', 'star'],
-    ['見やすく使う', '設定で<b>文字の大きさ</b>と<b>ダークモード</b>を変えられます。マネージャー・FWリーダーは設定からログインして記録やメニューを入れます。', 'gear']
+    ['見やすく使う', '設定で<b>文字の大きさ</b>と<b>ダークモード</b>を変えられます。設定の「ホーム画面に追加」で、アプリのように1タップで開けます。マネージャー・FWリーダーは設定からログインして記録やメニューを入れます。', 'gear']
   ];
   let guideStep = 0;
   function openGuide(step) {
@@ -1867,6 +1905,8 @@
     'pref-theme': (el) => { PREF.theme = el.dataset.v; store.set('theme', PREF.theme); applyPrefs(); rerenderKeepGuide(); },
     'pref-size': (el) => { PREF.size = el.dataset.v; store.set('size', PREF.size); applyPrefs(); rerenderKeepGuide(); },
     guide: () => openGuide(0),
+    'sw-update': (el) => { el.disabled = true; if (PWA.waiting) PWA.waiting.postMessage('skipWaiting'); else location.reload(); },
+    'pwa-install': async () => { const p = PWA.prompt; if (!p) return; PWA.prompt = null; p.prompt(); try { await p.userChoice; } catch (e) { /* noop */ } render(); },
     'guide-next': () => openGuide(guideStep + 1),
     'guide-close': () => closeGuide(),
     'sessions-open': () => openSessions(),
@@ -2242,6 +2282,7 @@
     if (S.route.name === 'record' && S.idx && can('record') && recDirty()) { ev.preventDefault(); ev.returnValue = ''; }
   });
   document.addEventListener('visibilitychange', async () => {
+    if (document.visibilityState === 'visible' && PWA.reg) PWA.reg.update().catch(() => {});
     if (document.visibilityState !== 'visible' || !S.data || S.loading) return;
     if (Date.now() - S.lastLoad < 60000) return;
     if ($('#sheet-root').innerHTML || (S.route.name === 'record' && S.idx && can('record') && recDirty())) return;
@@ -2253,13 +2294,18 @@
     S.route = parseHash();
     prevHash = location.hash;
     store.del('state');
+    registerSW();
     const cached = store.get('state2', null);
-    if (cached && cached.members && cached.today === L.todayJST()) {
-      cached.me = null; // 権限は必ずサーバーに確かめる
-      S.data = cached; S.idx = L.buildIndex(cached);
-    }
+    if (cached && cached.members) cached.me = null; // 権限は必ずサーバーに確かめる
+    if (cached && cached.members && cached.today === L.todayJST()) { S.data = cached; S.idx = L.buildIndex(cached); }
     render();
     await loadState({});
+    // つながらないときは、前に読み込んだ情報を出す（日付が古くても）
+    if (S.loadError && cached && cached.members && (!S.data || S.data === cached)) {
+      S.data = cached; S.idx = L.buildIndex(cached);
+      const t = cached.savedAt ? new Date(cached.savedAt + 9 * 3600 * 1000).toISOString().slice(5, 16).replace('-', '/').replace('T', ' ') : '';
+      S.loadError = 'つながらないため、' + (t ? t + ' に' : '前に') + '読み込んだ情報を表示しています。';
+    }
     render();
     if (S.data && !S.data.locked && !store.get('guided', 0)) openGuide(0);
   })();

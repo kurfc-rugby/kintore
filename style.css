@@ -24,6 +24,7 @@
   --num: "Barlow Condensed", "Arial Narrow", "Helvetica Neue", Arial, sans-serif;
   --jp: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic UI", "Yu Gothic", "Noto Sans JP", Meiryo, sans-serif;
   --safe-b: env(safe-area-inset-bottom, 0px);
+  --safe-t: env(safe-area-inset-top, 0px);
   /* 明るい画面とダークで入れ替える色 */
   --enji-bg: var(--enji); --top-bg: var(--enji); --on-ink: #fff; --bar: #000;
   --chip-bg: #e6e8eb; --chip-fg: #33363b; --soft: #f2f3f5; --ex-bg: #e4e7eb; --ex-fg: #5b6470; --stripe: #e9ebee;
@@ -85,7 +86,7 @@ button { cursor: pointer; -webkit-tap-highlight-color: transparent; }
 .linkbtn { background: none; border: 0; color: var(--sub); text-decoration: underline; font-size: 13px; padding: 8px; }
 
 /* ---------- 枠 ---------- */
-.top { position: sticky; top: 0; z-index: 30; height: var(--top-h); display: flex; align-items: center; gap: 10px; padding: 0 12px; background: var(--top-bg); color: #fff; }
+.top { position: sticky; top: 0; z-index: 30; height: calc(var(--top-h) + var(--safe-t)); padding-top: var(--safe-t) !important; display: flex; align-items: center; gap: 10px; padding: 0 12px; background: var(--top-bg); color: #fff; }
 .brand { display: flex; align-items: center; gap: 8px; }
 .mark { width: 30px; height: 32px; display: block; object-fit: contain; }
 .brand-t { font-weight: 800; font-size: 14px; letter-spacing: .02em; }
@@ -95,7 +96,7 @@ button { cursor: pointer; -webkit-tap-highlight-color: transparent; }
 .top-title + .top-acct { margin-left: 0; }
 .top-acct .who { font-size: 11px; font-weight: 700; background: #fff; color: #6f3036; padding: 2px 8px; border-radius: 99px; }
 /* ジャージの段柄の帯（見出しの下） */
-.hoops { position: sticky; top: var(--top-h); z-index: 29; height: 9px; background: linear-gradient(180deg, var(--hoop) 0 3px, var(--enji-bg) 3px 6px, var(--hoop) 6px 9px); box-shadow: 0 1px 0 var(--line); }
+.hoops { position: sticky; top: calc(var(--top-h) + var(--safe-t)); z-index: 29; height: 9px; background: linear-gradient(180deg, var(--hoop) 0 3px, var(--enji-bg) 3px 6px, var(--hoop) 6px 9px); box-shadow: 0 1px 0 var(--line); }
 
 .main { padding: 14px 12px calc(var(--nav-h) + var(--safe-b) + 28px); max-width: 880px; margin: 0 auto; }
 .main.view-record { padding-bottom: calc(var(--nav-h) + var(--safe-b) + 96px); }
@@ -753,3 +754,11 @@ html[data-theme="dark"] .board-streaks { opacity: .8; }
 @media (min-width: 560px) {
   .bests { grid-template-columns: repeat(4, 1fr); }
 }
+
+/* ---------- ホーム画面のアプリ（PWA） ---------- */
+.update-bar { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(var(--nav-h) + var(--safe-b) + 12px); z-index: 65; display: flex; align-items: center; gap: 12px; background: var(--bar); color: #fff; padding: 8px 8px 8px 16px; border-radius: 10px; font-size: 13px; font-weight: 700; box-shadow: 0 4px 16px rgba(0,0,0,.3); white-space: nowrap; }
+.update-bar .btn { border-color: #fff; background: #fff; color: #000; }
+.howto { list-style: decimal; padding-left: 1.4em; font-size: 14px; line-height: 1.7; }
+.howto li { margin-bottom: 4px; }
+.lead-line .ic { width: 18px; height: 18px; vertical-align: -4px; margin-right: 4px; color: var(--done); }
+@media (min-width: 960px) { .update-bar { left: calc(50% + 98px); bottom: 20px; } }

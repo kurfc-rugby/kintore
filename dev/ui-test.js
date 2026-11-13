@@ -223,6 +223,29 @@ const ok = (c, label) => { if (c) { pass++; console.log('  ✓ ' + label); } els
     }
   }
   ok(true, '幅320・768・1280px で主な画面が横にはみ出さない（はみ出しがあれば上に出る）');
+  console.log('■ ホーム画面のアプリ（PWA）');
+  {
+    const c2 = await browser.newContext({ viewport: { width: 375, height: 760 }, isMobile: true, hasTouch: true });
+    await c2.route(/fonts\.(googleapis|gstatic)\.com/, (r) => r.abort());
+    await c2.addInitScript(() => { localStorage.setItem('kintore.swdev', '1'); localStorage.setItem('kintore.guided', '1'); });
+    const p2 = await c2.newPage();
+    p2.on('pageerror', (e) => errors.push('pwa: ' + e.message));
+    await p2.goto(BASE); await p2.waitForSelector('.board');
+    const man = await p2.evaluate(async () => { const r = await fetch(document.querySelector('link[rel=manifest]').href); return r.json(); });
+    ok(man.display === 'standalone' && man.icons.some((i) => i.sizes === '512x512' && i.purpose === 'maskable'), 'マニフェスト（名前・アイコン・全画面表示）がある');
+    const iconOk = await p2.evaluate(async () => (await fetch('icons/icon-192.png')).ok && (await fetch('icons/apple-touch-icon.png')).ok);
+    ok(iconOk, 'アイコン画像（192・512・iPhone用）がある');
+    await p2.waitForFunction(() => navigator.serviceWorker.controller !== null, null, { timeout: 8000 });
+    ok(true, 'Service Worker が動く');
+    await p2.waitForTimeout(800);
+    await c2.setOffline(true);
+    await p2.reload(); await p2.waitForSelector('.board', { timeout: 8000 });
+    ok((await p2.locator('.banner.err').innerText()).includes('つながらない'), '電波が無くても、前に読み込んだ画面と情報が出る');
+    await c2.setOffline(false);
+    await p2.evaluate(() => { location.hash = '#settings'; }); await p2.waitForTimeout(400);
+    ok((await p2.locator('.main').innerText()).includes('ホーム画面に追加'), '設定に「ホーム画面に追加」の案内が出る');
+    await c2.close();
+  }
   ok(errors.length === 0, '画面のエラーなし' + (errors.length ? ': ' + errors.join(' / ') : ''));
   console.log('\n合格 ' + pass + ' / 不合格 ' + fail);
   await browser.close();
