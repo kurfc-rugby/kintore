@@ -521,7 +521,7 @@ button { cursor: pointer; -webkit-tap-highlight-color: transparent; }
   .rec-bar { left: 196px; bottom: 0; padding: 10px 28px; }
   #toast-root { left: 196px; bottom: 84px; }
   .top-title { display: none; }
-  .top-title + .top-acct { margin-left: auto; }
+  .top-title + .top-acct, .top-title + .top-help { margin-left: auto; }
 }
 @media (max-width: 359px) {
   .rec-btn { min-width: 96px; font-size: 12px; padding: 0 8px; }

@@ -3,7 +3,7 @@
   'use strict';
   const L = window.KLogic;
   const API = window.KINTORE_API;
-  const VERSION = '2.7.1';
+  const VERSION = '2.7.2';
   const WD = ['日', '月', '火', '水', '木', '金', '土'];
   const PERM = { admin: '管理者', manager: 'マネージャー', leader: 'FWリーダー', member: '一般部員' };
   const MODE = { leader: 'メニュー参加', self: '自主トレ' };
