@@ -1,6 +1,7 @@
 /* KURFC 筋トレ管理 v2 — ジャージ・背番号
    えんじと白の段柄（フープ）をジャージと見出しの帯にだけ使い、ほかは白と黒で静かにする。
-   数字：背番号は Graduate（カレッジ体）、記録の数字は Barlow Condensed。 */
+   ジャージは部のユニホーム（えんじ #77021f・赤 #c40225、前は斜めの柄・後ろは白の名前と背番号）をなぞった絵。
+   数字：背番号は Noto Sans JP（ユニホームと同じ形）、記録の数字は Barlow Condensed。 */
 :root {
   --enji: #6f3036;
   --enji-deep: #4b1f24;
@@ -19,7 +20,7 @@
   --grass-line: #ffffff;
   --nav-h: 60px;
   --top-h: 52px;
-  --jersey-num: "Graduate", "Rockwell", Georgia, serif;
+  --jersey-num: "Noto Sans JP", -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Yu Gothic UI", Meiryo, sans-serif;
   --num: "Barlow Condensed", "Arial Narrow", "Helvetica Neue", Arial, sans-serif;
   --jp: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic UI", "Yu Gothic", "Noto Sans JP", Meiryo, sans-serif;
   --safe-b: env(safe-area-inset-bottom, 0px);
@@ -39,27 +40,20 @@ button { cursor: pointer; -webkit-tap-highlight-color: transparent; }
 .ic { width: 22px; height: 22px; flex: none; }
 
 /* ---------- ジャージ ---------- */
-.jersey { display: block; width: 100%; height: auto; overflow: visible; }
-.jersey .jh-line { stroke: rgba(0, 0, 0, .55); stroke-width: 1.6; stroke-linejoin: round; }
-.jersey .jn-num { font-family: var(--jersey-num); font-weight: 400; letter-spacing: -.02em; }
-.jersey .jn-name { font-family: var(--jp); font-size: 9px; font-weight: 800; letter-spacing: .08em; }
-/* ホーム：えんじと白の段柄、白い背番号 */
-.j-home .jh-a { fill: var(--enji); } .j-home .jh-b { fill: #fff; } .j-home .jh-collar { fill: #fff; }
-.j-home .jn-num { fill: #fff; stroke: var(--enji-deep); stroke-width: 3px; paint-order: stroke; }
-.j-home .jn-name { fill: #fff; stroke: var(--enji-deep); stroke-width: 2.5px; paint-order: stroke; }
-/* アウェイ：白地にえんじの細い段、えんじの背番号 */
-.j-away .jh-a { fill: #fff; } .j-away .jh-b { fill: var(--enji); } .j-away .jh-collar { fill: var(--enji); }
-.j-away .jn-num { fill: var(--enji); stroke: #fff; stroke-width: 3px; paint-order: stroke; }
-.j-away .jn-name { fill: var(--ink); stroke: #fff; stroke-width: 2.5px; paint-order: stroke; }
-/* フォーメーション：実施が多いほど濃いえんじ */
-.j-heat .jh-a { fill: color-mix(in srgb, var(--enji) calc(var(--heat, .3) * 100%), #fff); }
-.j-heat .jh-b { fill: color-mix(in srgb, var(--enji) calc(var(--heat, .3) * 55%), #fff); }
-.j-heat .jh-collar { fill: #fff; }
-.j-heat .jn-num { fill: #fff; stroke: var(--enji-deep); stroke-width: 3.5px; paint-order: stroke; }
-.j-ghost .jh-a, .j-ghost .jh-b { fill: #f3f4f6; } .j-ghost .jh-collar { fill: #fff; }
-.j-ghost .jh-line { stroke: #b9bec5; stroke-dasharray: 3 2; }
+.jersey { display: block; width: 100%; height: auto; overflow: visible;
+  --jk-base: #77021f; --jk-red: #c40225; --jk-white: #fff; --jk-gray: #b1b1b1; --jk-pink: #ee9a9e;
+  --jk-line: rgba(0, 0, 0, .7); --jk-lw: 1px; --jk-dash: none; }
+.jk-line { stroke: var(--jk-line); stroke-width: var(--jk-lw); stroke-dasharray: var(--jk-dash); stroke-linejoin: round; vector-effect: non-scaling-stroke; }
+.jersey .jn-num { font-family: var(--jersey-num); font-weight: 700; fill: #fff; letter-spacing: .06em; }
+.jersey .jn-name { font-family: var(--jersey-num); font-size: 10px; font-weight: 500; fill: #fff; letter-spacing: .1em; }
+/* 濃さ（フォーメーション）：実施が少ないポジションほど白っぽく。数字は縁取りで読めるように */
+.j-heat { --jk-base: color-mix(in srgb, #77021f calc(var(--heat, .3) * 100%), #f2e6e8);
+  --jk-red: color-mix(in srgb, #c40225 calc(var(--heat, .3) * 100%), #f7e1e5);
+  --jk-pink: color-mix(in srgb, #ee9a9e calc(var(--heat, .3) * 100%), #fff); }
+.j-heat .jn-num { stroke: #4b0014; stroke-width: 3.5px; paint-order: stroke; }
+.j-ghost { --jk-base: #f3f4f6; --jk-red: #e8eaed; --jk-gray: #dfe2e6; --jk-pink: #e8eaed; --jk-line: #b9bec5; --jk-dash: 3 2; }
 .j-ghost .jn-num { fill: #9aa0a8; }
-.j-mark .jh-a { fill: #fff; } .j-mark .jh-b { fill: var(--enji); } .j-mark .jh-collar { fill: var(--enji); } .j-mark .jh-line { stroke: #fff; stroke-width: 3; }
+.j-mark { --jk-line: #fff; --jk-lw: 1.5px; }
 
 /* ---------- 起動・合言葉 ---------- */
 .boot, .gate { min-height: 100vh; min-height: 100dvh; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; padding: 24px; text-align: center; color: var(--sub); }
@@ -73,7 +67,7 @@ button { cursor: pointer; -webkit-tap-highlight-color: transparent; }
 .brand { display: flex; align-items: center; gap: 8px; }
 .mark { width: 30px; }
 .brand-t { font-weight: 800; font-size: 14px; letter-spacing: .02em; }
-.brand-t b { font-family: var(--jersey-num); font-size: 19px; font-weight: 400; margin-right: 6px; letter-spacing: .04em; }
+.brand-t b { font-family: var(--jersey-num); font-size: 18px; font-weight: 700; margin-right: 6px; letter-spacing: .04em; }
 .top-title { margin-left: auto; font-size: 13px; opacity: .85; }
 .top-acct { display: flex; align-items: center; gap: 6px; padding: 6px; margin-right: -6px; border-radius: 8px; }
 .top-title + .top-acct { margin-left: 0; }
@@ -160,12 +154,12 @@ button { cursor: pointer; -webkit-tap-highlight-color: transparent; }
 .lead-line.small { font-size: 13px; color: var(--sub); }
 
 /* ---------- スコアボード ---------- */
-.board { position: relative; overflow: hidden; background: var(--enji); color: #fff; margin: 0 -12px 14px; padding: 16px 16px 14px; display: grid; grid-template-columns: 1fr; gap: 14px; }
-.board-hoops { position: absolute; right: -10px; top: -10px; bottom: -10px; width: 40%; background: repeating-linear-gradient(180deg, rgba(255,255,255,.13) 0 16px, transparent 16px 34px); -webkit-mask-image: linear-gradient(90deg, transparent, #000 60%); mask-image: linear-gradient(90deg, transparent, #000 60%); pointer-events: none; }
+.board { position: relative; overflow: hidden; background: #77021f; color: #fff; margin: 0 -12px 14px; padding: 16px 16px 14px; display: grid; grid-template-columns: 1fr; gap: 14px; }
+.board-streaks { position: absolute; inset: 0; width: 100%; height: 100%; fill: #c40225; pointer-events: none; -webkit-mask-image: linear-gradient(100deg, rgba(0,0,0,.25) 20%, #000 75%); mask-image: linear-gradient(100deg, rgba(0,0,0,.25) 20%, #000 75%); }
 .board > div { position: relative; }
 .board-k { font-size: 12px; font-weight: 700; opacity: .88; }
 .board-v { display: flex; align-items: baseline; gap: 6px; line-height: 1; margin: 4px 0 6px; }
-.board-v .num { font-family: var(--jersey-num); font-weight: 400; font-size: 76px; line-height: .95; letter-spacing: -.02em; text-shadow: 3px 3px 0 var(--enji-deep); }
+.board-v .num { font-family: var(--jersey-num); font-weight: 700; font-size: 72px; line-height: .95; letter-spacing: 0; text-shadow: 0 2px 0 rgba(0,0,0,.25); }
 .board-v .unit { font-size: 20px; font-weight: 800; }
 .board-s { font-size: 12px; opacity: .92; }
 .board-side { display: grid; grid-template-columns: 1fr 1fr; border-top: 1px solid rgba(255,255,255,.3); padding-top: 12px; }
@@ -207,7 +201,7 @@ button { cursor: pointer; -webkit-tap-highlight-color: transparent; }
 .rhead span:nth-child(n+3) { text-align: right; }
 .rhead small { display: block; font-weight: 500; font-size: 10px; }
 .rrank a { padding: 9px 4px; border-bottom: 1px solid var(--line); min-height: 54px; }
-.rk { font-family: var(--jersey-num); font-size: 21px; text-align: center; color: var(--ink); }
+.rk { font-family: var(--jersey-num); font-weight: 700; font-size: 20px; text-align: center; color: var(--ink); }
 .rrank.is-top .rk { color: var(--enji); }
 .rname { min-width: 0; line-height: 1.3; }
 .rname b { display: block; font-size: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -231,7 +225,6 @@ button { cursor: pointer; -webkit-tap-highlight-color: transparent; }
 .pitch-lines .dash { stroke-dasharray: 6 5; }
 .pnode { position: absolute; width: 64px; transform: translate(-50%, -50%); display: flex; flex-direction: column; align-items: center; text-align: center; line-height: 1.1; }
 .pnode .jersey { width: 54px; filter: drop-shadow(0 2px 0 rgba(0,0,0,.15)); }
-.pnode .jn-num { font-size: 26px; }
 .pn-num { font-family: var(--num); font-weight: 600; font-size: 11px; color: #4d5b4b; margin-top: 1px; }
 .pn-val { font-size: 11px; font-weight: 700; color: var(--text); white-space: nowrap; }
 .pn-val .num { font-size: 16px; color: var(--enji); margin-right: 1px; }

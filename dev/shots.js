@@ -5,7 +5,7 @@ const out = process.argv[2] || '/tmp/shots';
 const mode = process.argv[3] || 'mobile';
 const BASE = 'http://localhost:8765/';
 fs.mkdirSync(out, { recursive: true });
-const FONT_CSS = [['Graduate', 400, 'graduate-latin-400-normal'], ['Barlow Condensed', 500, 'barlow-condensed-latin-500-normal'], ['Barlow Condensed', 600, 'barlow-condensed-latin-600-normal'], ['Barlow Condensed', 700, 'barlow-condensed-latin-700-normal']]
+const FONT_CSS = [['Noto Sans JP', 500, 'noto-sans-jp-latin-500-normal'], ['Noto Sans JP', 700, 'noto-sans-jp-latin-700-normal'], ['Noto Sans JP', 500, 'noto-sans-jp-japanese-500-normal'], ['Noto Sans JP', 700, 'noto-sans-jp-japanese-700-normal'], ['Barlow Condensed', 500, 'barlow-condensed-latin-500-normal'], ['Barlow Condensed', 600, 'barlow-condensed-latin-600-normal'], ['Barlow Condensed', 700, 'barlow-condensed-latin-700-normal']]
   .map((f) => "@font-face{font-family:'" + f[0] + "';font-weight:" + f[1] + ";font-display:swap;src:url(" + BASE + 'fonts/' + f[2] + ".woff2) format('woff2')}").join('\n');
 
 (async () => {

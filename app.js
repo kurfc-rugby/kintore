@@ -3,7 +3,7 @@
   'use strict';
   const L = window.KLogic;
   const API = window.KINTORE_API;
-  const VERSION = '2.0.0';
+  const VERSION = '2.1.0';
   const WD = ['日', '月', '火', '水', '木', '金', '土'];
   const PERM = { admin: '管理者', manager: 'マネージャー', leader: 'FWリーダー', member: '一般部員' };
   const MODE = { leader: 'メニュー参加', self: '自主トレ' };
@@ -56,21 +56,17 @@
   const icon = (n) => '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true" fill="currentColor">' + ICON[n] + '</svg>';
 
   // ジャージ（背中側）。num に背番号の位置へ入れる文字、name に背中上部の名前
-  const JERSEY = 'M33 6 L43 2 Q50 9 57 2 L67 6 L93 21 L83 41 L73 35 L73 96 L27 96 L27 35 L17 41 L7 21 Z';
-  let jerseySeq = 0;
+  // ジャージは部のユニホーム（2026年デザイン資料）をなぞった絵。index.html の #jk-front／#jk-back を使い回す
+  const JK_VB = '0.6 4 132.1 106.2';
   function jersey(opt) {
-    const id = 'hp' + (++jerseySeq);
     const kind = opt.kind || 'home';
+    const front = kind === 'mark' || opt.front;
     const num = String(opt.num == null ? '' : opt.num);
-    const fs = num.length >= 4 ? 22 : num.length === 3 ? 28 : 36;
-    return '<svg class="jersey j-' + kind + (opt.cls ? ' ' + opt.cls : '') + '" viewBox="0 0 100 100" aria-hidden="true">' +
-      '<defs><pattern id="' + id + '" width="100" height="16" patternUnits="userSpaceOnUse"><rect width="100" height="16" class="jh-a"/><rect y="10" width="100" height="6" class="jh-b"/></pattern>' +
-      '<clipPath id="c' + id + '"><path d="' + JERSEY + '"/></clipPath></defs>' +
-      '<path d="' + JERSEY + '" fill="url(#' + id + ')"/>' +
-      '<g clip-path="url(#c' + id + ')"><rect x="0" y="0" width="100" height="6" class="jh-collar"/></g>' +
-      '<path d="' + JERSEY + '" class="jh-line" fill="none"/>' +
-      (opt.name ? '<text x="50" y="30" class="jn-name" text-anchor="middle">' + esc(opt.name) + '</text>' : '') +
-      (num ? '<text x="50" y="' + (opt.name ? 72 : 66) + '" class="jn-num" text-anchor="middle" font-size="' + fs + '">' + esc(num) + '</text>' : '') +
+    const fs = num.length >= 4 ? 20 : num.length === 3 ? 27 : 38;
+    return '<svg class="jersey j-' + kind + (opt.cls ? ' ' + opt.cls : '') + '" viewBox="' + JK_VB + '" aria-hidden="true">' +
+      '<use href="#jk-' + (front ? 'front' : 'back') + '"/>' +
+      (!front && opt.name ? '<text x="66.6" y="27" class="jn-name" text-anchor="middle">' + esc(opt.name) + '</text>' : '') +
+      (!front && num ? '<text x="66.6" y="' + (opt.name ? 64 : 60) + '" class="jn-num" text-anchor="middle" font-size="' + fs + '">' + esc(num) + '</text>' : '') +
       '</svg>';
   }
 
@@ -232,7 +228,7 @@
     const prevWord = S.kind === 'week' ? '前の週' : '前の月';
     const t = cur.team;
     let h = periodBar();
-    h += '<section class="board" aria-label="部全体の状況"><div class="board-hoops" aria-hidden="true"></div>' +
+    h += '<section class="board" aria-label="部全体の状況"><svg class="board-streaks" viewBox="25 40 85 66" preserveAspectRatio="xMidYMid slice" aria-hidden="true"><use href="#jk-streaks"/></svg>' +
       '<div class="board-main"><div class="board-k">部全体の実施回数</div>' +
       '<div class="board-v"><span class="num" data-count="' + t.done + '">' + t.done + '</span><span class="unit">回</span></div>' +
       '<div class="board-s">' + prevWord + ' ' + pre.team.done + '回 ' + delta(t.done, pre.team.done, '回') + '</div></div>' +
@@ -280,7 +276,7 @@
     const order = top.length === 3 ? [top[1], top[0], top[2]] : top;
     return '<ol class="podium n' + top.length + '">' + order.map((r) =>
       '<li class="pod r' + r.rank + (r === top[0] ? ' lead' : '') + '"><a href="#member/' + r.id + '" aria-label="' + r.rank + '位 ' + esc(r.name) + ' ' + r.done + '回">' +
-      jersey({ num: r.rank, name: r.name.split(/\s+/)[0], kind: r === top[0] ? 'home' : 'away' }) +
+      jersey({ num: r.rank, name: r.name.split(/\s+/)[0] }) +
       '<span class="pod-name">' + esc(r.name) + '</span>' +
       '<span class="pod-val"><span class="num">' + r.done + '</span>回' + (r.rate !== null ? '<small>' + Math.round(r.rate * 100) + '%</small>' : '') + '</span>' +
       '</a></li>').join('') + '</ol>';
@@ -452,7 +448,7 @@
     const streak = m.player ? L.streakWeeks(S.idx, m, today, d.range.from) : 0;
     const pos = posOf(m.position);
     let h = '<div class="profile"><a class="ibtn back" href="#members" data-act="go-back" aria-label="戻る">' + icon('back') + '</a>' +
-      '<div class="profile-j">' + jersey({ num: pos ? pos.numbers[0] : '', name: m.name.split(/\s+/)[0], kind: m.group === 'BK' ? 'away' : 'home' }) + '</div>' +
+      '<div class="profile-j">' + jersey({ num: pos ? pos.numbers[0] : '', name: m.name.split(/\s+/)[0] }) + '</div>' +
       '<div class="profile-t"><h1>' + esc(m.name) + '</h1>' +
       '<p class="profile-pos">' + (m.player ? (pos ? '<b>' + esc(pos.code) + '</b>' + esc(pos.name) : '<b>' + esc(m.group || '－') + '</b>ポジション未設定') + (m.subs && m.subs.length ? '<span>サブ ' + m.subs.map(esc).join('・') + '</span>' : '') : '<b>' + esc(m.clubRole) + '</b>') + '</p>' +
       '<div class="chips">' + (m.grade ? '<span class="chip">' + esc(m.grade) + '</span>' : '') + (m.player ? '<span class="chip mode-' + m.mode + '">' + MODE[m.mode] + '</span>' : '') +
@@ -889,7 +885,7 @@
   function render() {
     const app = $('#app');
     if (!S.data) {
-      app.innerHTML = '<div class="boot"><div class="boot-mark" aria-hidden="true">' + jersey({ num: '', kind: 'home' }) + '</div><p>' + (S.loadError ? esc(S.loadError) : '読み込み中…') + '</p>' +
+      app.innerHTML = '<div class="boot"><div class="boot-mark" aria-hidden="true">' + jersey({ num: '', front: true }) + '</div><p>' + (S.loadError ? esc(S.loadError) : '読み込み中…') + '</p>' +
         (S.loadError ? '<button class="btn primary" data-act="reload">もう一度読み込む</button>' : '') + '</div>';
       return;
     }
@@ -911,7 +907,7 @@
     if (chips) chips.scrollIntoView({ block: 'nearest', inline: 'center' });
   }
   function lockedView() {
-    return '<div class="gate"><div class="boot-mark" aria-hidden="true">' + jersey({ num: '', kind: 'home' }) + '</div><h1>KURFC 筋トレ</h1>' +
+    return '<div class="gate"><div class="boot-mark" aria-hidden="true">' + jersey({ num: '', front: true }) + '</div><h1>KURFC 筋トレ</h1>' +
       '<form data-form="gate" class="form"><label>部の合言葉<input type="password" name="pass" autocomplete="off" required autofocus></label>' +
       '<p class="form-err" hidden></p><button class="btn primary wide" type="submit">開く</button></form>' +
       '<button class="linkbtn" data-act="login">管理者・マネージャー・FWリーダーのログイン</button></div>';
