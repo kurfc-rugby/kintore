@@ -233,6 +233,11 @@ let rk = L.rank(ps.rows, 'count');
 ok(rk[0].done >= rk[1].done && rk.filter((x) => x.done === 0).every((x) => x.rank === null), '実施回数順（0回は順位なし）');
 rk = L.rank(ps.rows, 'rate');
 ok(rk.filter((x) => x.mode === 'self').every((x) => x.rate === null && x.rank === null), '自主トレの人に実施率・実施率順位を付けない');
+(function () {
+  const rows = [{ id: 'a', name: 'A', sort: 1, done: 5, rate: 1 }, { id: 'b', name: 'B', sort: 2, done: 3, rate: 1 }, { id: 'c', name: 'C', sort: 3, done: 4, rate: 0.5 }, { id: 'd', name: 'D', sort: 4, done: 4, rate: 0.8 }];
+  eq(L.rank(rows, 'rate').map((x) => x.id + x.rank), ['a1', 'b1', 'd3', 'c4'], '実施率が同じ人は同じ順位（回数が違っても）。並びは回数の多い人が先');
+  eq(L.rank(rows, 'count').map((x) => x.id + x.rank), ['a1', 'd2', 'c2', 'b4'], '実施回数が同じ人は同じ順位');
+})();
 eq(L.periodStats(st, idx, wk.from, wk.to, st.today, { position: 'FL' }).rows.map((x) => x.name).sort(), ['森 健太', '橋本 侑青', '石川 大地'].sort(), 'ポジション（FL）で絞ると、サブがFLの人も入る（今週退部した森も今週分は入る）');
 eq(L.periodStats(st, idx, wk.from, wk.to, st.today, { group: 'BK' }).rows.map((x) => x.name).sort(), ['入部 太郎', '小川 陽向太', '村上 樹', '近藤 蒼', '長谷川 湊'].sort().filter((n) => M(n).group === 'BK'), 'BKで絞れる');
 const pos = L.positionStats(st, idx, wk.from, wk.to, st.today, st.positions);

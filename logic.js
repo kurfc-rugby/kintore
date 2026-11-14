@@ -195,7 +195,7 @@
       var no = list.filter(function (r) { return r.rate === null; });
       has.sort(function (a, b) { return (b.rate - a.rate) || (b.done - a.done) || byName(a, b); });
       for (i = 0; i < has.length; i++) {
-        if (!prev || prev.rate !== has[i].rate || prev.done !== has[i].done) rk = i + 1;
+        if (!prev || prev.rate !== has[i].rate) rk = i + 1; // 実施率が同じなら同じ順位（並びは回数の多い人が先）
         out.push(Object.assign({ rank: rk }, has[i])); prev = has[i];
       }
       no.sort(function (a, b) { return (b.done - a.done) || byName(a, b); });

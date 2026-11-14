@@ -478,6 +478,7 @@ const ok = (c, label) => { if (c) { pass++; console.log('  ✓ ' + label); } els
       ok((await p3.locator('[data-act="kind"][aria-pressed="true"]').getAttribute('data-v')) !== v0, '週・月の切り替えは動きのあとに正しく切り替わる');
       await p3.click('[data-act="kind"][data-v="' + v0 + '"]'); await p3.waitForTimeout(500);
     }
+    await p3.waitForTimeout(400);
     const href = await p3.locator('.rrank a').first().getAttribute('href');
     const push = await p3.evaluate((h) => new Promise((res) => { location.hash = h; requestAnimationFrame(() => res(document.documentElement.dataset.vt || '')); }), href);
     await p3.waitForTimeout(600);

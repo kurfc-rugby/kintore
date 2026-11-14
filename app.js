@@ -3,7 +3,7 @@
   'use strict';
   const L = window.KLogic;
   const API = window.KINTORE_API;
-  const VERSION = '2.10.0';
+  const VERSION = '2.10.1';
   const WD = ['日', '月', '火', '水', '木', '金', '土'];
   const PERM = { admin: '管理者', manager: 'マネージャー', leader: 'FWリーダー', member: '一般部員' };
   const MODE = { leader: 'メニュー参加', self: '自主トレ' };
@@ -452,7 +452,7 @@
       if (!ind) { ind = document.createElement('div'); ind.className = 'ptr'; ind.setAttribute('aria-hidden', 'true'); ind.innerHTML = '<span class="ptr-i">' + icon('reload') + '</span>'; document.body.appendChild(ind); }
       return ind;
     };
-    const hide = () => { if (!ind) return; ind.classList.remove('spin', 'ready'); ind.classList.add('back'); ind.style.transform = ''; ind.style.opacity = ''; setTimeout(() => { if (ind) ind.classList.remove('back'); }, 300); };
+    const hide = () => { if (!ind) return; ind.classList.remove('loading', 'ready'); ind.classList.add('back'); ind.style.transform = ''; ind.style.opacity = ''; setTimeout(() => { if (ind) ind.classList.remove('back'); }, 300); };
     const blocked = (t) => !!t.closest('input, textarea, select, .matrix-wrap, .wk-wrap, .poschips, .seg, .stamps, .podium, .guide, #sheet-root, .sheet-ghost');
     document.addEventListener('touchstart', (ev) => {
       if (ev.touches.length !== 1 || !S.data || S.data.locked || busyPull || $('#sheet-root').innerHTML || $('#guide-root').innerHTML) { st = null; return; }
@@ -481,10 +481,12 @@
         if (s0.d < PULL || S.route.name === 'record' && recDirty()) { hide(); return; }
         busyPull = true;
         const el = indicator();
-        el.classList.add('spin'); el.style.transform = 'translate(-50%, ' + PULL + 'px)';
+        el.classList.add('loading'); el.style.transform = 'translate(-50%, ' + PULL + 'px)'; el.style.opacity = '1';
         tick(8);
-        await loadState(); render();
-        busyPull = false; hide();
+        // 通信が長引いても、くるくるが出たままにならないように（20秒で止める）
+        const guard = setTimeout(() => { busyPull = false; hide(); }, 20000);
+        try { await loadState(); render(); }
+        finally { clearTimeout(guard); busyPull = false; hide(); }
         toast(S.loadError ? S.loadError : '最新の情報に更新しました', S.loadError ? 'err' : '');
         return;
       }
@@ -594,8 +596,9 @@
     if (S.kind === 'week') h += isNow ? mvpLine(pre.rows, pv.from, '先週のMVP') : (p.to < today ? mvpLine(cur.rows, p.from, 'この週のMVP') : '');
     if (!ranked.length) h += emptyState('rank', 'この期間の記録はまだありません', can('record') ? 'やった人の「実施した」を押すと、ここに順位が出ます。' : 'マネージャーが記録すると、ここに順位が出ます。', can('record') ? '<div class="toolbar center"><a class="btn primary" href="#record">' + icon('check') + '記録をつける</a></div>' : '');
     else {
-      h += podium(ranked.slice(0, 3));
-      const rest = ranked.slice(3, 8);
+      const pod = podiumPeople(ranked);
+      if (pod.length) h += podium(pod);
+      const rest = ranked.slice(pod.length, pod.length + 5);
       if (rest.length) h += '<ol class="rlist">' + rest.map(rankRow).join('') + '</ol>';
     }
     h += '</section>';
@@ -610,13 +613,13 @@
     const g = t.goal;
     if (S.kind === 'week') {
       const n = t.goalNow + t.goalClosed, ok = t.goalNowOk + t.goalHit, w = n ? Math.round(ok / n * 100) : 0;
-      return '<div class="board-cell"><div class="board-k">週' + g + '回の達成（マスト）</div><div class="board-v2"><span class="num" data-count="' + ok + '">' + ok + '</span><span class="unit">/' + n + '人</span></div>' +
+      return '<div class="board-cell"><div class="board-k">週' + g + '回を達成した人</div><div class="board-v2"><span class="num" data-count="' + ok + '">' + ok + '</span><span class="unit">/' + n + '人</span></div>' +
         '<div class="meter" role="img" aria-label="' + w + '%"><i style="width:' + w + '%"></i></div>' +
         '<div class="board-s">' + (t.goalNow ? '日曜までに' + g + '回で達成' : 'この週に' + g + '回以上の人') + (t.goalNowEx ? '・免除 ' + t.goalNowEx + '人' : '') + '</div></div>';
     }
     const r = t.goalClosed ? Math.round(t.goalHit / t.goalClosed * 100) : null;
-    return '<div class="board-cell"><div class="board-k">週' + g + '回の達成率（マスト）</div><div class="board-v2"><span class="num"' + (r === null ? '' : ' data-count="' + r + '"') + '>' + (r === null ? '－' : r) + '</span>' + (r === null ? '' : '<span class="unit">%</span>') + '</div>' +
-      '<div class="board-s">' + (r === null ? 'まだ終わった週がありません' : '終わった週 ' + t.goalHit + '/' + t.goalClosed + '（人×週）') + '</div></div>';
+    return '<div class="board-cell"><div class="board-k">週' + g + '回の達成率</div><div class="board-v2"><span class="num"' + (r === null ? '' : ' data-count="' + r + '"') + '>' + (r === null ? '－' : r) + '</span>' + (r === null ? '' : '<span class="unit">%</span>') + '</div>' +
+      '<div class="board-s">' + (r === null ? 'まだ終わった週がありません' : 'のべ' + t.goalClosed + '週のうち ' + t.goalHit + '週で達成') + '</div></div>';
   }
   function goalBlock(rows, isNow, p) {
     const g = goal();
@@ -691,11 +694,19 @@
     return '<span class="chip g-' + w.group + '">' + MGROUP[w.group] + '</span>';
   }
 
+  /** 表彰台に乗せる人：3位以内の人（同率はみんな）。5人をこえるときは1位の人だけ、それでも多ければ乗せない */
+  function podiumPeople(ranked) {
+    let top = ranked.filter((r) => r.rank !== null && r.rank <= 3);
+    if (top.length > 5) top = ranked.filter((r) => r.rank === 1);
+    return top.length > 5 ? [] : top;
+  }
   function podium(top) {
-    const order = top.length === 3 ? [top[1], top[0], top[2]] : top;
-    return '<ol class="podium n' + top.length + '">' + order.map((r) =>
-      '<li class="pod r' + r.rank + (r === top[0] ? ' lead' : '') + '"><a href="#member/' + r.id + '" aria-label="' + r.rank + '位 ' + esc(r.name) + ' ' + r.done + '回">' +
-      jersey({ num: r.rank, suffix: '位', name: r.name.split(/\s+/)[0], shine: r === top[0] && r.rank === 1 }) +
+    const tie = top.filter((r) => r.rank === 1).length > 1 || top.length > 3; // 1位が複数・4人以上のときだけ横並び
+    // 同率がなければ 2位・1位・3位 の並び。同率があれば順位の順に同じ大きさで並べる
+    const order = !tie && top.length === 3 ? [top[1], top[0], top[2]] : top;
+    return '<ol class="podium n' + top.length + (tie ? ' tie' + (top.length > 3 ? ' many' : '') : '') + '">' + order.map((r) =>
+      '<li class="pod r' + r.rank + (r.rank === 1 ? ' lead' : '') + '"><a href="#member/' + r.id + '" aria-label="' + r.rank + '位 ' + esc(r.name) + ' ' + r.done + '回">' +
+      jersey({ num: r.rank, suffix: '位', name: r.name.split(/\s+/)[0], shine: r.rank === 1 && top.filter((x) => x.rank === 1).length === 1 }) +
       '<span class="pod-name">' + esc(r.name) + '</span>' +
       '<span class="pod-val"><span class="num">' + r.done + '</span>回' + (r.rate !== null ? '<small>' + Math.round(r.rate * 100) + '%</small>' : '') + '</span>' +
       '</a></li>').join('') + '</ol>';
@@ -1088,9 +1099,10 @@
     h += filterBar(S.group, S.position, 'f');
     if (filterNote()) h += '<p class="fnote">' + esc(filterNote()) + '</p>';
     if (!rk.length) return h + emptyState('people', '表示できる部員がいません', S.group !== 'ALL' || S.position ? '絞り込みを「全体」に戻してみてください。' : '');
-    const top = rk.filter((r) => r.rank !== null).slice(0, 3);
+    const ranked = rk.filter((r) => r.rank !== null), top = podiumPeople(ranked);
     h += '<section class="block">';
     if (top.length) h += podium(top);
+    else if (ranked.length) h += '<p class="pod-skip">' + icon('crown') + '1位が ' + ranked.filter((r) => r.rank === 1).length + '人 並んでいます（同じ順位なので表彰台は省きます）</p>';
     // 並び順は表の見出しを押して変える（▼が今の並び順）
     const sh = (k, label, sub) => '<button class="rsort' + (S.sort === k ? ' on' : '') + '" data-act="sort" data-v="' + k + '" aria-pressed="' + (S.sort === k) + '" aria-label="' + label + 'の順に並べる">' + label + (S.sort === k ? '<i aria-hidden="true">▼</i>' : '') + (sub ? '<small>' + sub + '</small>' : '') + '</button>';
     h += '<div class="rhead"><span>順位</span><span>名前</span>' + sh('count', '実施回数') + sh('rate', '実施率', '実施/対象') + '</div>' +
@@ -1107,7 +1119,7 @@
       '<li><b>実施回数</b>：マネージャーが「実施した」と記録した日数。全員が同じ条件です。</li>' +
       '<li><b>実施率</b>：FWリーダーメニューに参加している人だけ。実施した対象日 ÷ 対象日。対象日に記録が無ければ、翌日から「実施していない」になります（今日の分は、実施したときだけ数えます）。</li>' +
       '<li>自主トレの人は実施率を出さず「－」。実施回数で比べます。</li>' +
-      '<li>実施率が同じときは、実施回数の多い人が上です。</li>' +
+      '<li>回数（または実施率）が同じ人は<b>同じ順位</b>です。実施率が同じときの並びは、実施回数の多い人が先。表彰台にも同じ順位で並びます。</li>' +
       '<li>ポジションで絞ると、メインかサブがそのポジションの人が入ります。</li>' +
       '<li><b>週' + goal() + '回以上がマスト</b>：月曜〜日曜の週ごとに' + goal() + '回以上「実施した」で達成。週間ではその週の達成、月間では終わった週のうち達成した週の数を出します。</li>' +
       '<li>週は月曜〜日曜、月は1日〜月末（日本時間）。</li></ul></details>';
