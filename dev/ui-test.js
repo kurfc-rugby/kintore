@@ -44,9 +44,16 @@ const ok = (c, label) => { if (c) { pass++; console.log('  ✓ ' + label); } els
   await page.goto(BASE); await page.waitForSelector('.board');
   ok(await count('.nav a[href="#record"]') === 0, '「記録」のタブが出ない');
   ok(await count('.podium .jersey') >= 1, 'ランキング上位がジャージ（背番号＝順位）で出る');
-  ok(await count('.pitch .pnode') === 10, 'フォーメーション図に10ポジションが出る');
+  ok(await count('.pitch') === 0 && await count('.versus') === 0 && await count('.to-stats') === 1, 'ホームは「いま」だけ（分析はランキングの「分析」へ。ホームにはその入口）');
+  ok(await count('.voice') <= 1 && await count('.mvp') === 0, '「連続がピンチ」などは「声をかけたい人」にまとまり、MVPはランキングの中の1行');
+  await page.click('.to-stats'); await page.waitForTimeout(600);
+  ok(page.url().endsWith('#rank') && await count('[data-act="rank-tab"][data-v="stats"][aria-pressed="true"]') === 1, '「くわしい分析」から、ランキングの「分析」を開く');
+  ok(await count('.pitch .pnode') === 10 && await count('.versus') === 1 && await count('.spread') === 1, '分析に、FW対BK・フォーメーション図（10ポジション）・達成率の分布');
   await page.click('.pnode[data-v="LO"]'); await page.waitForTimeout(500);
-  ok(page.url().endsWith('#rank') && (await text('.poschips [aria-pressed="true"]')) === 'LO', 'フォーメーションのジャージを押すと、そのポジションのランキングを開く');
+  ok(page.url().endsWith('#rank') && (await text('.poschips [aria-pressed="true"]')) === 'LO' && await count('[data-act="rank-tab"][data-v="list"][aria-pressed="true"]') === 1, 'フォーメーションのジャージを押すと、そのポジションの順位に切り替わる');
+  await page.click('.rsort[data-v="rate"]'); await page.waitForTimeout(400);
+  ok(await count('.rsort.on[data-v="rate"]') === 1, '表の見出し（実施率）を押すと、その順に並べ替わる');
+  await page.click('.rsort[data-v="count"]'); await page.waitForTimeout(400);
   const loNames = await page.locator('.rlist .rname b').allInnerTexts();
   ok(loNames.length === 2 && loNames.includes('岡本 蓮') && loNames.includes('藤井 翔'), 'LOで絞ると、メインかサブがLOの人だけ（岡本・藤井）');
   await page.click('[data-act="f-pos"][data-v="FL"]'); await page.waitForTimeout(200);
@@ -70,8 +77,11 @@ const ok = (c, label) => { if (c) { pass++; console.log('  ✓ ' + label); } els
   await go('#home');
   ok(await count('.feed .feed-i') >= 1, 'ホームに「おめでとう」（最近の達成）が出る');
   const st0 = page.locator('.feed .stamps').first();
-  const before0 = await st0.locator('.stamp[data-k="party"]').innerText();
-  await st0.locator('.stamp[data-k="party"]').click(); await page.waitForTimeout(700);
+  ok(await st0.locator('.stamp:visible:not(.more)').count() < 9, 'スタンプは、押されたものだけを見せる（ふだんは9種類を並べない）');
+  await st0.locator('.stamp.more').click(); await page.waitForTimeout(200);
+  ok(await page.locator('.feed .stamps').first().locator('.stamp:visible:not(.more)').count() === 9, '「＋」で9種類が出る');
+  const before0 = await page.locator('.feed .stamps').first().locator('.stamp[data-k="party"]').innerText();
+  await page.locator('.feed .stamps').first().locator('.stamp[data-k="party"]').click(); await page.waitForTimeout(700);
   const after0 = await page.locator('.feed .stamps').first().locator('.stamp[data-k="party"]').innerText();
   ok((parseInt(after0.replace(/\D/g, ''), 10) || 0) === (parseInt(before0.replace(/\D/g, ''), 10) || 0) + 1 && await count('.feed .stamp.on') >= 1, 'ログインなしで応援スタンプを押せる（数が増える）');
   await page.locator('.feed .stamps').first().locator('.stamp[data-k="party"]').click(); await page.waitForTimeout(700);
@@ -88,9 +98,16 @@ const ok = (c, label) => { if (c) { pass++; console.log('  ✓ ' + label); } els
   ok(await page.evaluate(() => document.documentElement.dataset.theme + document.documentElement.dataset.size) === 'darkl', '開き直しても見やすさの設定が残る');
   await page.click('[data-act="pref-theme"][data-v="light"]'); await page.click('[data-act="pref-size"][data-v="m"]');
   await go('#member/' + await page.evaluate(() => (JSON.parse(localStorage.getItem('kintore.self')))));
+  ok(await count('.mcal') === 1 && await count('.bests') === 0 && await count('[data-act="member-tab"]') === 3, '部員の画面は「記録・実績・体」に分かれていて、はじめは記録（カレンダー）');
+  await page.click('[data-act="member-tab"][data-v="best"]');
   await page.waitForSelector('.bests', { timeout: 4000 });
-  ok(await count('.bests .best') === 4 && await count('.badges .badge.on') >= 1, '部員の画面に自己ベストと称号が出る');
-  ok(await count('.bnow .bv') >= 1 && await count('.bchart:not(.vs)') === 1, '体重・体組成の最新とグラフが出る（みんなが見られる）');
+  ok(await count('.bests .best') === 4 && await count('.badges .badge.on') >= 1, '「実績」に自己ベストと称号');
+  await page.click('.badges .badge.on button'); await page.waitForSelector('.badge-detail');
+  ok(await count('.sheet .badge-detail .stamps') === 1, '称号のメダルを押すと、取った日と応援スタンプが出る');
+  await page.keyboard.press('Escape');
+  await page.click('[data-act="member-tab"][data-v="body"]'); await page.waitForTimeout(400);
+  ok(await count('.bnow .bv') >= 1 && await count('.bchart:not(.vs)') === 1, '「体」に体重・体組成の最新とグラフ（みんなが見られる）');
+  await page.click('[data-act="member-tab"][data-v="rec"]'); await page.waitForTimeout(300);
   await go('#members'); await page.click('.gone-box summary:has-text("体重")'); ok(await count('.btable tbody tr') >= 5, '部員の画面に体組成の一覧が出る');
   await go('#settings'); await page.click('[data-act="login"]'); await page.click('[data-act="pinreq-open"]');
   ok(await count('form[data-form="pinreq"] select[name="memberId"]') === 1, 'ログイン画面から「暗証番号を忘れたとき」の依頼を開ける');
@@ -321,19 +338,19 @@ const ok = (c, label) => { if (c) { pass++; console.log('  ✓ ' + label); } els
       await q.click('form[data-form="login"] button[type="submit"]'); await q.waitForTimeout(1000);
     };
     await q.goto(BASE); await q.waitForSelector('.board'); await q.waitForTimeout(400);
-    ok(await q.locator('.versus .vs-side').count() === 2 && /FW|BK|互角/.test(await q.locator('.versus .count').innerText()), 'ホームに「FW対BK」（1人あたりの回数で比べる）');
-    const mvp = await q.locator('.mvp').count();
-    ok(mvp === 0 || (await q.locator('.mvp .mvp-list li').count()) >= 1, 'ホームに「先週のMVP」（先週に記録があれば）');
+    ok(await q.locator('.mvp-line').count() <= 1, 'ランキングの中に「先週のMVP」（先週に記録があれば）');
     ok(await q.locator('.selfcard').count() === 0 || /先週の同じ時点/.test(await q.locator('.selfcard').innerText()), '「わたし」に先週の同じ時点との比べ');
-    await qgo('#rank');
-    ok(await q.locator('.spread li').count() === 4, 'ランキングに「達成率の分布」（0%・1〜49%・50〜99%・100%）');
+    await qgo('#rank'); await q.click('[data-act="rank-tab"][data-v="stats"]'); await q.waitForTimeout(400);
+    ok(await q.locator('.versus .vs-side').count() === 2 && /FW|BK|互角/.test(await q.locator('.versus .count').innerText()), '分析に「FW対BK」（1人あたりの回数で比べる）');
+    ok(await q.locator('.spread li').count() === 4, '分析に「達成率の分布」（0%・1〜49%・50〜99%・100%）');
+    await q.click('[data-act="rank-tab"][data-v="list"]'); await q.waitForTimeout(300);
     // スタンプの「＋」
     await qgo('#home');
     const more = q.locator('.stamps .stamp.more').first();
     if (await more.count()) {
       const before = await q.locator('.stamps').first().locator('.stamp:visible').count();
       await more.click(); await q.waitForTimeout(200);
-      const after = await q.locator('.stamps').first().locator('.stamp:visible').count();
+      const after = await q.locator('.stamps').first().locator('.stamp:visible:not(.more)').count();
       ok(after > before && await q.locator('.stamps.open').count() >= 1, 'スタンプは「＋」で🏉👑⭐📣も出る');
     } else ok(await q.locator('.stamps').count() === 0, 'スタンプは「＋」で🏉👑⭐📣も出る（応援できる人がいない）');
     // 引っぱって更新・横にはらう（タッチを作って送る）
@@ -378,14 +395,16 @@ const ok = (c, label) => { if (c) { pass++; console.log('  ✓ ' + label); } els
     ok((await q.locator('.toast').allInnerTexts()).some((t) => t.includes('重さの目安を保存')), '管理者は重さの目安（種目と倍率）を変えられる');
     // 体重の目標・重さの目安・体重と回数
     const bodyMember = await page.evaluate(() => JSON.parse(localStorage.getItem('kintore.self')));
-    await qgo('#member/' + bodyMember); await q.waitForSelector('.bests', { timeout: 5000 }).catch(() => {});
+    await qgo('#member/' + bodyMember); await q.click('[data-act="member-tab"][data-v="body"]'); await q.waitForTimeout(500);
     await q.click('[data-act="body-goal"]');
     await q.fill('form[data-form="bodygoal"] input[name="weight"]', '85'); await q.fill('form[data-form="bodygoal"] input[name="date"]', '2027-03-31');
     await q.click('form[data-form="bodygoal"] button[type="submit"]'); await q.waitForTimeout(900);
     ok((await q.locator('.bgoal').innerText()).includes('85') && await q.locator('.bchart line.goal').count() === 1, '目標体重を入れると、「あと何kg」とグラフに目標の線が出る');
     ok(await q.locator('.lifts li').count() === 4 && (await q.locator('.lifts').innerText()).includes('パワークリーン'), '体重から種目ごとの重さの目安が出る');
     ok(await q.locator('.bchart.vs').count() <= 1, '体重と月の実施回数のグラフ（測定が2か月以上あれば）');
+    await q.click('[data-act="member-tab"][data-v="best"]'); await q.waitForSelector('.badges', { timeout: 5000 }).catch(() => {});
     ok(await q.locator('.badges .medal').count() >= 1, '称号はメダル（数字入り）で見せる');
+    await q.click('[data-act="member-tab"][data-v="rec"]'); await q.waitForTimeout(300);
     // 自主トレのおすすめ（型に印 → だれでも見られる）
     await qgo('#menus'); await q.click('[data-act="menu-tab"][data-v="templates"]'); await q.click('[data-act="tpl-new"]');
     await q.fill('input[name="title"]', '自重サーキット'); await q.fill('textarea[name="content"]', '腕立て\nスクワット\nプランク');
