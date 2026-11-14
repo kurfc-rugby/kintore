@@ -195,6 +195,7 @@ const ok = (c, label) => { if (c) { pass++; console.log('  ✓ ' + label); } els
   await page.fill('input[name="video"]', 'https://youtu.be/xyz');
   await page.evaluate(() => document.querySelector('.radios.wd label:has(input[value="2"]) span').scrollIntoView({ block: 'center' }));
   await page.locator('.radios.wd label:has(input[value="2"]) span').click({ force: true });
+  if (!await page.isChecked('.radios.wd input[value="2"]')) await page.check('.radios.wd input[value="2"]', { force: true });
   ok(await page.isChecked('.radios.wd input[value="2"]'), '繰り返す曜日を選べる');
   await page.click('form[data-form="template"] button[type="submit"]'); await page.waitForTimeout(1100);
   ok((await page.locator('.toast').allInnerTexts()).some((t) => /メニューを [1-9]件作成/.test(t)), '曜日を選んで型を作ると、繰り返しのメニューができる');
@@ -469,11 +470,14 @@ const ok = (c, label) => { if (c) { pass++; console.log('  ✓ ' + label); } els
     const kinds = await p3.locator('[data-act="kind"]').count();
     if (kinds) {
       const v0 = await p3.locator('[data-act="kind"][aria-pressed="true"]').getAttribute('data-v');
-      const named = await p3.evaluate(() => new Promise((res) => {
+      const pos0 = await p3.evaluate(() => ['.plabel', '[data-act="period"][data-v="1"]', '.board-side'].map((x) => { const r = document.querySelector(x); return r ? Math.round(r.getBoundingClientRect().top) + ':' + Math.round(r.getBoundingClientRect().left) : ''; }).join('|'));
+      const named = await p3.evaluate((v0) => new Promise((res) => {
         document.querySelector('[data-act="kind"]:not([aria-pressed="true"])').click();
-        requestAnimationFrame(() => res(/^seg-rank-\d+$/.test((document.querySelector('.seg [aria-pressed="true"]') || {}).style.viewTransitionName || '')));
-      }));
-      ok(named, '週・月の切り替えのときだけ、選んでいる側に滑って移る名前が付く');
+        requestAnimationFrame(() => res(!document.documentElement.dataset.vt && document.querySelector('[data-act="kind"][aria-pressed="true"]').dataset.v !== v0));
+      }), v0);
+      ok(named, '週間・月間の切り替えは動きなしで、すぐ切り替わる');
+      const pos1 = await p3.evaluate(() => ['.plabel', '[data-act="period"][data-v="1"]', '.board-side'].map((x) => { const r = document.querySelector(x); return r ? Math.round(r.getBoundingClientRect().top) + ':' + Math.round(r.getBoundingClientRect().left) : ''; }).join('|'));
+      ok(pos0 === pos1, '切り替えても期間の見出し・矢印・赤い板の位置が動かない（' + pos0 + ' → ' + pos1 + '）');
       await p3.waitForTimeout(500);
       ok((await p3.locator('[data-act="kind"][aria-pressed="true"]').getAttribute('data-v')) !== v0, '週・月の切り替えは動きのあとに正しく切り替わる');
       await p3.click('[data-act="kind"][data-v="' + v0 + '"]'); await p3.waitForTimeout(500);

@@ -5,7 +5,7 @@
  *  サーバー（script.google.com）への通信 … 触らない（いつもネット）
  *  通知（push）… 中身は来ないので、サーバー（pushInbox）に取りに行って表示する
  * 版を上げるときは VERSION と、index.html の ?v= を一緒に変える。 */
-const VERSION = '2.10.1';
+const VERSION = '2.10.2';
 const CACHE = 'kintore-' + VERSION;
 try { importScripts('config.js?v=' + VERSION); } catch (e) { /* 読めなくても画面はしまっておいたもので動く */ }
 const SHELL = ['./', 'style.css?v=' + VERSION, 'app.js?v=' + VERSION, 'logic.js?v=' + VERSION, 'config.js?v=' + VERSION,

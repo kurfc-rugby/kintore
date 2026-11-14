@@ -1260,3 +1260,14 @@ html[data-vt="next"]::view-transition-new(root), html[data-vt="prev"]::view-tran
 .pod-skip .ic { width: 18px; height: 18px; color: var(--gold); }
 html[data-vt="tab"]::view-transition-old(root) { animation: vt-fade-out .1s ease both; }
 html[data-vt="tab"]::view-transition-new(root) { animation: vt-rise-in .28s var(--ease-out) .06s both; }
+/* v2.10.2：期間の見出しは2行・幅固定、赤い板の内訳は1行（週間・月間で位置も高さも変わらない） */
+.plabel { width: 150px; flex: none; }
+.plabel b, .plabel span { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.board-cell .board-s, .board-main .board-s { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.board-cell { min-width: 0; }
+@media (max-width: 360px) {
+  .plabel { width: 122px; }
+  .plabel span { font-size: 10.5px; }
+  .pbar .seg button { padding: 0 11px; }
+  .pnav .ibtn { width: 34px; }
+}

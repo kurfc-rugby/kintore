@@ -3,7 +3,7 @@
   'use strict';
   const L = window.KLogic;
   const API = window.KINTORE_API;
-  const VERSION = '2.10.1';
+  const VERSION = '2.10.2';
   const WD = ['日', '月', '火', '水', '木', '金', '土'];
   const PERM = { admin: '管理者', manager: 'マネージャー', leader: 'FWリーダー', member: '一般部員' };
   const MODE = { leader: 'メニュー参加', self: '自主トレ' };
@@ -41,6 +41,8 @@
   /** 画面の切り替えを滑らかにする（View Transitions。使えない端末・動きを減らす設定ではそのまま切り替える）
    *  kind: tab（タブ移動）/ push・pop（詳細へ進む・戻る）/ next・prev（期間を送る）/ swap（表示の切り替え） */
   function vt(fn, kind) {
+    // 同じ画面の中の切り替え（週間・月間、期間送り、表示の切り替え、並べ替え）は動かさずにすぐ変える
+    if (!kind || kind === 'swap' || kind === 'next' || kind === 'prev') { fn(); return; }
     if (!document.startViewTransition || reduceMotion() || document.hidden || !S.data) { fn(); return; }
     const root = document.documentElement;
     root.dataset.vt = kind || 'swap';
@@ -530,9 +532,15 @@
   }
   function periodLabel(p) {
     const t = S.data.today;
-    let tag = '';
-    if (t >= p.from && t <= p.to) tag = S.kind === 'week' ? '今週' : '今月';
-    else if (L.prevPeriod(S.kind, (S.kind === 'week' ? L.weekRange(t) : L.monthRange(t)).from).from === p.from) tag = S.kind === 'week' ? '先週' : '先月';
+    // 見出しは必ず2行（今週／先週／3週前、今月／先月／3か月前 ＋ 日付）。幅も固定して、切り替えで矢印が動かないように
+    let tag;
+    if (S.kind === 'week') {
+      const n = Math.round((L.parse(L.weekStart(t)) - L.parse(p.from)) / (7 * 86400000));
+      tag = n <= 0 ? '今週' : n === 1 ? '先週' : n + '週前';
+    } else {
+      const n = (+t.slice(0, 4) - +p.from.slice(0, 4)) * 12 + (+t.slice(5, 7) - +p.from.slice(5, 7));
+      tag = n <= 0 ? '今月' : n === 1 ? '先月' : n + 'か月前';
+    }
     return { tag: tag, text: S.kind === 'week' ? mdw(p.from) + '〜' + mdw(p.to) : ymLabel(p.from) };
   }
   function periodBar() {
@@ -543,7 +551,7 @@
       '<button data-act="kind" data-v="week" aria-pressed="' + (S.kind === 'week') + '">週間</button>' +
       '<button data-act="kind" data-v="month" aria-pressed="' + (S.kind === 'month') + '">月間</button></div>' +
       '<div class="pnav"><button class="ibtn" data-act="period" data-v="-1" aria-label="前の' + (S.kind === 'week' ? '週' : '月') + '">' + icon('back') + '</button>' +
-      '<div class="plabel">' + (lb.tag ? '<b>' + lb.tag + '</b>' : '') + '<span>' + lb.text + '</span></div>' +
+      '<div class="plabel"><b>' + lb.tag + '</b><span>' + lb.text + '</span></div>' +
       '<button class="ibtn" data-act="period" data-v="1" aria-label="次の' + (S.kind === 'week' ? '週' : '月') + '"' + (atNow ? ' disabled' : '') + '>' + icon('next') + '</button></div></div>';
   }
   /** グループとポジションの絞り込み。act は data-act の前置き（例 'f' → f-group / f-pos） */
@@ -610,16 +618,21 @@
 
   // 週◯回（マスト）の達成。週間は人数、月間は「終わった週」の達成率
   function goalCell(t) {
+    // 週間・月間とも「週◯回の達成率」。％＋メーター＋内訳1行の同じ形（切り替えで高さが変わらない）
     const g = t.goal;
+    let r, sub;
     if (S.kind === 'week') {
-      const n = t.goalNow + t.goalClosed, ok = t.goalNowOk + t.goalHit, w = n ? Math.round(ok / n * 100) : 0;
-      return '<div class="board-cell"><div class="board-k">週' + g + '回を達成した人</div><div class="board-v2"><span class="num" data-count="' + ok + '">' + ok + '</span><span class="unit">/' + n + '人</span></div>' +
-        '<div class="meter" role="img" aria-label="' + w + '%"><i style="width:' + w + '%"></i></div>' +
-        '<div class="board-s">' + (t.goalNow ? '日曜までに' + g + '回で達成' : 'この週に' + g + '回以上の人') + (t.goalNowEx ? '・免除 ' + t.goalNowEx + '人' : '') + '</div></div>';
+      const n = t.goalNow + t.goalClosed, ok = t.goalNowOk + t.goalHit;
+      r = n ? Math.round(ok / n * 100) : null;
+      sub = n ? '達成 ' + ok + '/' + n + '人' + (t.goalNowEx ? '・免除' + t.goalNowEx + '人' : '') : (t.goalNowEx ? '今週は全員免除' : 'まだ対象の人がいません');
+    } else {
+      r = t.goalClosed ? Math.round(t.goalHit / t.goalClosed * 100) : null;
+      sub = t.goalClosed ? '達成 ' + t.goalHit + '/' + t.goalClosed + '週（人×週）' : 'まだ終わった週がありません';
     }
-    const r = t.goalClosed ? Math.round(t.goalHit / t.goalClosed * 100) : null;
-    return '<div class="board-cell"><div class="board-k">週' + g + '回の達成率</div><div class="board-v2"><span class="num"' + (r === null ? '' : ' data-count="' + r + '"') + '>' + (r === null ? '－' : r) + '</span>' + (r === null ? '' : '<span class="unit">%</span>') + '</div>' +
-      '<div class="board-s">' + (r === null ? 'まだ終わった週がありません' : 'のべ' + t.goalClosed + '週のうち ' + t.goalHit + '週で達成') + '</div></div>';
+    return '<div class="board-cell"><div class="board-k">週' + g + '回の達成率（マスト）</div>' +
+      '<div class="board-v2"><span class="num"' + (r === null ? '' : ' data-count="' + r + '"') + '>' + (r === null ? '－' : r) + '</span>' + (r === null ? '' : '<span class="unit">%</span>') + '</div>' +
+      '<div class="meter" role="img" aria-label="' + (r || 0) + '%"><i style="width:' + (r || 0) + '%"></i></div>' +
+      '<div class="board-s">' + sub + '</div></div>';
   }
   function goalBlock(rows, isNow, p) {
     const g = goal();
