@@ -57,7 +57,7 @@ const FONT_CSS = [['Noto Sans JP', 500, 'noto-sans-jp-latin-500-normal'], ['Noto
   await page.click('[data-act="sheet-close"]');
   await go('#members'); await shot('09-members'); await overflow('members');
   await page.click('.mlist a'); await page.waitForTimeout(400); await shot('10-member'); await overflow('member');
-  await page.evaluate(() => { location.hash = '#member/' + JSON.parse(localStorage.getItem('kintore.self')); }); await page.waitForSelector('.bests'); await page.waitForTimeout(300);
+  await page.evaluate(() => { location.hash = '#member/' + JSON.parse(localStorage.getItem('kintore.self')); }); await page.waitForTimeout(300);
   await shot('10b-member-self'); await overflow('member-self');
   await go('#settings'); await shot('11-settings');
   await page.click('[data-act="login"]'); await page.click('[data-act="pinreq-open"]'); await shot('11b-pinreq', false); await page.keyboard.press('Escape');

@@ -367,7 +367,9 @@ section('自己ベスト・称号・ピンチ・おめでとう（集計）');
     ok(q.earned.w5 === '2026-10-09' && q.earned.back === '2026-10-28', '「週5回」（5回目の日）と「復活」（2週以上とぎれてまた達成した日）');
     const st2 = { members: [m2, { id: 'c', name: 'C', player: true, active: true }, { id: 'e', name: 'E', player: true, active: true }],
       records: [['c', '2026-11-03', 1, 0, ''], ['c', '2026-10-28', 1, 0, ''], ['e', '2026-11-02', 1, 0, ''], ['e', '2026-11-03', 1, 0, ''], ['e', '2026-11-04', 1, 0, '']], exempts: [] };
-    const sl = L.slipList(st2, L.buildIndex(st2), '2026-11-13', 3);
+    const sl = L.slipList(st2, L.buildIndex(st2), '2026-11-13', 3, '2026-10-05');
+    eq(L.slipList(st2, L.buildIndex(st2), '2026-11-13', 3, '2026-11-04').length, 0, '部で記録を始める前の週は数えない（使い始めに全員が「落ちてきている人」に並ばない）');
+    eq(L.slipList(st2, L.buildIndex(st2), '2026-11-13', 3, '').length, 0, 'まだ部で1件も記録が無ければ出さない');
     eq(sl.map((x) => x.id), ['b', 'c'], '落ちてきている人：終わった直近2週とも届かなかった人（少ない順。先週届いた人は入らない）');
     ok(sl[1].last === '2026-11-03' && sl[1].weeks[1].count === 1 && sl[1].weeks[0].count === 1, '最後に実施した日と、2週の回数がわかる');
   })();

@@ -394,9 +394,11 @@
   }
 
   // ---------- 落ちてきている人（終わった直近2週とも、週の目標に届かなかった） ----------
-  function slipList(state, idx, today, goal) {
+  //  start … 部で最初に記録した日。記録を始める前の週は「届かなかった週」に数えない（使い始めに全員が並ばないように）
+  function slipList(state, idx, today, goal, start) {
     goal = goalOf(goal);
     var ws = weekStart(today), w1 = addDays(ws, -7), w2 = addDays(ws, -14), out = [];
+    if (!start || w2 < weekStart(start)) return out;
     (state.members || []).forEach(function (m) {
       if (!m.player || m.active === false || !inRosterRange(m, w2, addDays(w1, 6))) return;
       var n1 = weekNeed(idx, m, w1, goal), n2 = weekNeed(idx, m, w2, goal);

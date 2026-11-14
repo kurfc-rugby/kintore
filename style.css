@@ -1283,3 +1283,10 @@ html[data-vt="tab"]::view-transition-new(root) { animation: vt-rise-in .28s var(
   .pbar .seg button { padding: 0 11px; }
   .pnav .ibtn { width: 34px; }
 }
+
+/* v2.10.4 文字サイズ「大」「特大」：期間の切り替えは2段に。だれ向けの切り替えは折り返す */
+html[data-size="l"] .pbar, html[data-size="xl"] .pbar { flex-wrap: wrap; row-gap: 6px; }
+html[data-size="l"] .pbar .pnav, html[data-size="xl"] .pbar .pnav { flex: 1 1 100%; justify-content: space-between; }
+html[data-size="l"] .help-seg, html[data-size="xl"] .help-seg { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5px; width: 100%; background: var(--ink); }
+html[data-size="l"] .help-seg button, html[data-size="xl"] .help-seg button { border: 0; background: var(--paper); }
+html[data-size="l"] .help-seg button[aria-pressed="true"], html[data-size="xl"] .help-seg button[aria-pressed="true"] { background: var(--ink); }

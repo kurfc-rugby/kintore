@@ -3,7 +3,7 @@
   'use strict';
   const L = window.KLogic;
   const API = window.KINTORE_API;
-  const VERSION = '2.10.3';
+  const VERSION = '2.10.4';
   const WD = ['日', '月', '火', '水', '木', '金', '土'];
   const PERM = { admin: '管理者', manager: 'マネージャー', leader: 'FWリーダー', member: '一般部員' };
   const MODE = { leader: 'メニュー参加', self: '自主トレ' };
@@ -579,11 +579,15 @@
   function vHome() {
     const d = S.data, today = d.today, p = curPeriod(), pv = L.prevPeriod(S.kind, p.from);
     const cur = L.periodStats(d, S.idx, p.from, p.to, today, { goal: goal() });
-    const pre = L.periodStats(d, S.idx, pv.from, pv.to, today, { goal: goal() });
+    const isNow = today >= p.from && today <= p.to;
+    // 途中の週・月は、前の期間も「同じ時点まで」で比べる（月の半ばに前の月まるごとと比べない）
+    const span = Math.round((Date.parse(today) - Date.parse(p.from)) / 864e5);
+    const pvTo = isNow && L.addDays(pv.from, span) < pv.to ? L.addDays(pv.from, span) : pv.to;
+    const pre = L.periodStats(d, S.idx, pv.from, pvTo, today, { goal: goal() });
+    const preFull = pvTo === pv.to ? pre : L.periodStats(d, S.idx, pv.from, pv.to, today, { goal: goal() });
     const rk = L.rank(cur.rows, 'count');
     const ranked = rk.filter((r) => r.rank !== null);
-    const isNow = today >= p.from && today <= p.to;
-    const prevWord = S.kind === 'week' ? '前の週' : '前の月';
+    const prevWord = (S.kind === 'week' ? '前の週' : '前の月') + (pvTo !== pv.to ? 'の同じ時点' : '');
     const t = cur.team;
     let h = pinReqBanner() + selfCard() + periodBar();
     h += '<section class="board" aria-label="部全体の状況"><svg class="board-streaks" viewBox="25 40 85 66" preserveAspectRatio="xMidYMid slice" aria-hidden="true"><use href="#jk-streaks"/></svg>' +
@@ -601,7 +605,7 @@
     if (S.kind === 'week') h += goalBlock(cur.rows, isNow, p);
     if (S.kind === 'week' && isNow) h += voiceBlock();
     h += '<section class="block"><div class="block-h"><h2>ランキング</h2><a class="more" href="#rank">すべて見る</a></div>';
-    if (S.kind === 'week') h += isNow ? mvpLine(pre.rows, pv.from, '先週のMVP') : (p.to < today ? mvpLine(cur.rows, p.from, 'この週のMVP') : '');
+    if (S.kind === 'week') h += isNow ? mvpLine(preFull.rows, pv.from, '先週のMVP') : (p.to < today ? mvpLine(cur.rows, p.from, 'この週のMVP') : '');
     if (!ranked.length) h += emptyState('rank', 'この期間の記録はまだありません', can('record') ? 'やった人の「実施した」を押すと、ここに順位が出ます。' : 'マネージャーが記録すると、ここに順位が出ます。', can('record') ? '<div class="toolbar center"><a class="btn primary" href="#record">' + icon('check') + '記録をつける</a></div>' : '');
     else {
       const pod = podiumPeople(ranked);
@@ -1053,9 +1057,16 @@
       '<p class="note">人数が違うので、1人あたりの実施回数で比べます。達成は週' + goal() + '回（マスト）を達成した割合です。</p></section>';
   }
   /** 落ちてきている人（スタッフだけ）：終わった直近2週とも週の目標に届かなかった人 */
+  /** 部で最初に「実施した」が記録された日（通算の最初の日の中でいちばん前） */
+  function teamStart() {
+    let st = '';
+    Object.keys(S.data.life || {}).forEach((k) => { const f = S.data.life[k][1]; if (f && (!st || f < st)) st = f; });
+    (S.data.records || []).forEach((r) => { if (+r[2] === 1 && (!st || r[1] < st)) st = r[1]; });
+    return st;
+  }
   function slipBlock() {
     if (!can('record') && !can('menu')) return '';
-    const list = L.slipList(S.data, S.idx, S.data.today, goal());
+    const list = L.slipList(S.data, S.idx, S.data.today, goal(), teamStart());
     if (!list.length) return '';
     const FIRST = 6;
     const li = (r) => '<li><a href="#member/' + r.id + '"><span class="slip-n">' + esc(r.name) + '<small>' + (r.last ? '最後の実施 ' + mdw(r.last) : 'まだ記録なし') + '</small></span>' +
@@ -1064,7 +1075,7 @@
     return '<div class="slip"><h3 class="sub3">落ちてきている人<small>' + list.length + '人・スタッフだけに表示</small></h3>' +
       '<ul class="slip-list">' + list.slice(0, FIRST).map(li).join('') + '</ul>' +
       (list.length > FIRST ? '<details class="goal-more"><summary>ほか ' + (list.length - FIRST) + '人を見る</summary><ul class="slip-list">' + list.slice(FIRST).map(li).join('') + '</ul></details>' : '') +
-      '<p class="note">先々週・先週と2週続けて週' + goal() + '回に届かなかった人です（免除の週がある人は入りません）。責めずに理由を聞いてみてください。</p></div>';
+      '<p class="note">先々週・先週と2週続けて週' + goal() + '回に届かなかった人です（免除の週がある人は入りません）。</p></div>';
   }
   /** 達成率の分布：週は「回数÷必要な回数」、月は「達成した週÷終わった週」で、何人がどのくらいか */
   function spreadBlock(rows) {
@@ -2218,7 +2229,7 @@
     const role = S.helpRole, open = S.route.arg || '';
     const show = (r) => role === 'all' ? r === 'all' : (r === role || r === 'staff' || (role === 'admin' && r !== 'all'));
     let h = '<div class="sub-h"><a class="ibtn" href="#settings" data-act="go-back" aria-label="戻る">' + icon('back') + '</a><h1>使い方ガイド</h1></div>' +
-      '<div class="fbar"><div class="seg small" role="group" aria-label="だれ向け">' + HELP_ROLES.map((x) => '<button data-act="help-role" data-v="' + x[0] + '" aria-pressed="' + (role === x[0]) + '">' + x[1] + '</button>').join('') + '</div></div>' +
+      '<div class="fbar"><div class="seg small help-seg" role="group" aria-label="だれ向け">' + HELP_ROLES.map((x) => '<button data-act="help-role" data-v="' + x[0] + '" aria-pressed="' + (role === x[0]) + '">' + x[1] + '</button>').join('') + '</div></div>' +
       '<button class="howvid" data-act="video-open" aria-label="40秒でわかる使い方の動画を全画面で再生"><span class="hv-thumb"><img src="media/howto.jpg?v=2" alt="" width="132" height="235"><span class="hv-play" aria-hidden="true">' + icon('play') + '</span></span>' +
       '<span class="howvid-t"><b>40秒でわかる使い方</b><small>ホーム・ランキング・自分の名前・応援・メニュー・要望の送り方（音はありません）</small><span class="hv-go">' + icon('play') + '全画面で見る</span></span></button>' +
       (role === 'all' ? '<p class="note is-top">知りたいところを押すと開きます。マネージャー・FWリーダー・管理者の使い方は、上で切り替えてください。</p>' : '<p class="note is-top">ログインしてできることです。みんな向けの使い方は「みんな」にあります。</p>') +
