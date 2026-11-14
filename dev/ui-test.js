@@ -326,13 +326,18 @@ const ok = (c, label) => { if (c) { pass++; console.log('  ✓ ' + label); } els
       setTimeout(() => { mo.disconnect(); res({ got, after: document.documentElement.dataset.vt || '', rank: !!document.querySelector('.main.view-rank') }); }, 800);
     }));
     ok(seen.got.indexOf('tab') >= 0 && !seen.after && seen.rank, 'タブを移ると切り替えの動きが付き、終われば元に戻る');
-    ok(await p3.evaluate(() => /^seg-rank-\d+$/.test((document.querySelector('.seg [aria-pressed="true"]') || {}).style.viewTransitionName || '')), '区切りボタンの選んでいる側に、滑って移るための名前が付く');
+    ok(await p3.evaluate(() => [...document.querySelectorAll('.seg button')].every((b) => !b.style.viewTransitionName)), 'タブを移ったあと、区切りボタンには滑るための名前が残らない（画面と一緒に動く）');
     const pod = await p3.evaluate(() => { const el = document.querySelector('.main.enter .podium .pod'); return el ? getComputedStyle(el).animationName : ''; });
     ok(pod === 'pod-rise', 'ランキングを開くと表彰台がせり上がる');
     const kinds = await p3.locator('[data-act="kind"]').count();
     if (kinds) {
       const v0 = await p3.locator('[data-act="kind"][aria-pressed="true"]').getAttribute('data-v');
-      await p3.click('[data-act="kind"]:not([aria-pressed="true"])'); await p3.waitForTimeout(500);
+      const named = await p3.evaluate(() => new Promise((res) => {
+        document.querySelector('[data-act="kind"]:not([aria-pressed="true"])').click();
+        requestAnimationFrame(() => res(/^seg-rank-\d+$/.test((document.querySelector('.seg [aria-pressed="true"]') || {}).style.viewTransitionName || '')));
+      }));
+      ok(named, '週・月の切り替えのときだけ、選んでいる側に滑って移る名前が付く');
+      await p3.waitForTimeout(500);
       ok((await p3.locator('[data-act="kind"][aria-pressed="true"]').getAttribute('data-v')) !== v0, '週・月の切り替えは動きのあとに正しく切り替わる');
       await p3.click('[data-act="kind"][data-v="' + v0 + '"]'); await p3.waitForTimeout(500);
     }

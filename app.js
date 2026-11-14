@@ -3,7 +3,7 @@
   'use strict';
   const L = window.KLogic;
   const API = window.KINTORE_API;
-  const VERSION = '2.8.0';
+  const VERSION = '2.8.1';
   const WD = ['日', '月', '火', '水', '木', '金', '土'];
   const PERM = { admin: '管理者', manager: 'マネージャー', leader: 'FWリーダー', member: '一般部員' };
   const MODE = { leader: 'メニュー参加', self: '自主トレ' };
@@ -44,9 +44,12 @@
     if (!document.startViewTransition || reduceMotion() || document.hidden || !S.data) { fn(); return; }
     const root = document.documentElement;
     root.dataset.vt = kind || 'swap';
+    // 区切りボタンの印が滑るのは同じ画面の中の切り替えだけ。画面ごと移るときは中身と一緒に動かす
+    const morph = (kind || 'swap') === 'swap';
+    if (morph) nameMorphs();
     try {
-      const t = document.startViewTransition(fn);
-      t.finished.catch(() => {}).then(() => { if (root.dataset.vt === (kind || 'swap')) delete root.dataset.vt; });
+      const t = document.startViewTransition(() => { fn(); if (morph) nameMorphs(); });
+      t.finished.catch(() => {}).then(() => { clearMorphs(); if (root.dataset.vt === (kind || 'swap')) delete root.dataset.vt; });
       t.ready.catch(() => {});
     } catch (e) { delete root.dataset.vt; fn(); }
   }
@@ -2042,8 +2045,10 @@
     });
   }
   /** 区切りボタンの「選んでいる印」と下のタブの印に名前を付け、切り替えで滑って移るようにする */
+  function clearMorphs() { $$('.seg button').forEach((b) => { if (b.style.viewTransitionName) b.style.viewTransitionName = ''; }); }
   function nameMorphs() {
     if (!document.startViewTransition) return;
+    clearMorphs();
     // 画面ごとに名前を変える（別の画面の区切りボタンへ飛んでいかないように）
     const r = S.route.name.replace(/[^a-z]/g, '');
     $$('.seg').forEach((s, i) => { const on = $('[aria-pressed="true"]', s); if (on) on.style.viewTransitionName = 'seg-' + r + '-' + i; });
@@ -2067,7 +2072,6 @@
       if (main && !reduceMotion()) { main.classList.add('enter'); setTimeout(() => main.classList.remove('enter'), 1200); }
       if (r.name === 'home') countUp();
     }
-    nameMorphs();
     if ((r.name === 'help' || r.name === 'settings') && r.arg) {
       const el = document.getElementById(r.name === 'help' ? 'h-' + r.arg : r.arg);
       if (el) setTimeout(() => el.scrollIntoView({ block: 'start', behavior: reduceMotion() ? 'auto' : 'smooth' }), 60);
