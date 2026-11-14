@@ -11,8 +11,8 @@ const FONT_CSS = [['Noto Sans JP', 500, 'noto-sans-jp-latin-500-normal'], ['Noto
 (async () => {
   const browser = await chromium.launch(process.env.CHROME ? { executablePath: process.env.CHROME, args: ['--no-sandbox'] } : {});
   const ctx = await browser.newContext(mode === 'mobile'
-    ? { viewport: { width: 375, height: 760 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true }
-    : { viewport: { width: 1280, height: 860 } });
+    ? { viewport: { width: 375, height: 760 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true, reducedMotion: 'reduce' }
+    : { viewport: { width: 1280, height: 860 }, reducedMotion: 'reduce' });
   await ctx.route(/fonts\.googleapis\.com/, (r) => r.fulfill({ status: 200, contentType: 'text/css', body: FONT_CSS }));
   await ctx.route(/fonts\.gstatic\.com/, (r) => r.abort());
   const page = await ctx.newPage();
@@ -38,9 +38,12 @@ const FONT_CSS = [['Noto Sans JP', 500, 'noto-sans-jp-latin-500-normal'], ['Noto
   await page.waitForSelector('.guide');
   await page.waitForTimeout(500);
   await shot('00-guide', false);
-  await page.click('[data-act="guide-next"]'); await page.click('[data-act="guide-next"]'); await page.click('[data-act="guide-next"]');
-  await page.selectOption('.guide select', { label: '岡本 蓮' }); await shot('00b-guide-self', false);
-  await page.click('[data-act="guide-next"]'); await page.click('.guide [data-act="guide-close"]');
+  // ガイドを最後まで進める（途中に「自分」を選ぶ段があれば 岡本 蓮 を選ぶ）
+  for (let i = 0; i < 12 && await page.$('.guide [data-act="guide-next"]'); i++) {
+    if (await page.$('.guide select')) { await page.selectOption('.guide select', { label: '岡本 蓮' }); await shot('00b-guide-self', false); }
+    await page.click('.guide [data-act="guide-next"]');
+  }
+  await page.click('.guide [data-act="guide-close"]');
   await page.waitForTimeout(900);
   await shot('01-home-week'); await overflow('home');
   await page.click('[data-act="kind"][data-v="month"]'); await shot('02-home-month'); await overflow('home-month');

@@ -5,7 +5,8 @@ let pass = 0, fail = 0;
 const ok = (c, label) => { if (c) { pass++; console.log('  ✓ ' + label); } else { fail++; console.log('  ✗ ' + label); } };
 (async () => {
   const browser = await chromium.launch(process.env.CHROME ? { executablePath: process.env.CHROME, args: ['--no-sandbox'] } : {});
-  const ctx = await browser.newContext({ viewport: { width: 375, height: 760 }, isMobile: true, hasTouch: true });
+  // 機能のテストは動きを止めて行う（動きは最後の「動き」でまとめて確かめる）
+  const ctx = await browser.newContext({ viewport: { width: 375, height: 760 }, isMobile: true, hasTouch: true, reducedMotion: 'reduce' });
   await ctx.route(/fonts\.(googleapis|gstatic)\.com/, (r) => r.abort());
   const page = await ctx.newPage();
   const errors = [];
@@ -246,7 +247,7 @@ const ok = (c, label) => { if (c) { pass++; console.log('  ✓ ' + label); } els
   ok(true, '幅320・768・1280px で主な画面が横にはみ出さない（はみ出しがあれば上に出る）');
   console.log('■ ホーム画面のアプリ（PWA）');
   {
-    const c2 = await browser.newContext({ viewport: { width: 375, height: 760 }, isMobile: true, hasTouch: true });
+    const c2 = await browser.newContext({ viewport: { width: 375, height: 760 }, isMobile: true, hasTouch: true, reducedMotion: 'reduce' });
     await c2.route(/fonts\.(googleapis|gstatic)\.com/, (r) => r.abort());
     await c2.addInitScript(() => { localStorage.setItem('kintore.swdev', '1'); localStorage.setItem('kintore.guided', '1'); });
     const p2 = await c2.newPage();
@@ -302,6 +303,87 @@ const ok = (c, label) => { if (c) { pass++; console.log('  ✓ ' + label); } els
     await p2.click('[data-act="push-off"]'); await p2.waitForTimeout(800);
     ok((await p2.locator('#push').innerText()).includes('通知をオンにする'), '通知をオフにできる');
     await c2.close();
+  }
+  console.log('■ 動き（画面の切り替え・シート・記録）');
+  {
+    const c3 = await browser.newContext({ viewport: { width: 375, height: 760 }, isMobile: true, hasTouch: true });
+    await c3.route(/fonts\.(googleapis|gstatic)\.com/, (r) => r.abort());
+    const p3 = await c3.newPage();
+    p3.on('pageerror', (e) => errors.push('motion: ' + e.message));
+    p3.on('dialog', (d) => d.accept());
+    await p3.addInitScript(() => { try { localStorage.setItem('kintore.guided', '1'); } catch (e) { /* なし */ } });
+    await p3.goto(BASE); await p3.waitForSelector('.board'); await p3.waitForTimeout(300);
+    if (await p3.locator('.guide').count()) { await p3.click('.guide [data-act="guide-close"]').catch(() => {}); await p3.waitForTimeout(300); }
+    ok(await p3.evaluate(() => typeof document.startViewTransition === 'function'), 'このブラウザは画面の切り替えの動き（View Transitions）に対応');
+    const top = await p3.evaluate(() => ({ h: document.querySelector('.top').getBoundingClientRect().height, brand: getComputedStyle(document.querySelector('.brand-t')).display, title: document.querySelector('.top-title').innerText }));
+    ok(top.h <= 53 && top.brand === 'none' && top.title === 'ホーム', 'スマホの見出しは1行（校章＋画面の名前）');
+    ok(await p3.evaluate(() => document.querySelectorAll('.nav .nav-ind').length === 1 && getComputedStyle(document.querySelector('.nav-ind')).viewTransitionName === 'nav-ind'), '下のタブの選んでいる印は1つで、切り替えで滑る名前が付いている');
+    const seen = await p3.evaluate(() => new Promise((res) => {
+      const got = [];
+      const mo = new MutationObserver(() => { const v = document.documentElement.dataset.vt; if (v && got.indexOf(v) < 0) got.push(v); });
+      mo.observe(document.documentElement, { attributes: true, attributeFilter: ['data-vt'] });
+      location.hash = '#rank';
+      setTimeout(() => { mo.disconnect(); res({ got, after: document.documentElement.dataset.vt || '', rank: !!document.querySelector('.main.view-rank') }); }, 800);
+    }));
+    ok(seen.got.indexOf('tab') >= 0 && !seen.after && seen.rank, 'タブを移ると切り替えの動きが付き、終われば元に戻る');
+    ok(await p3.evaluate(() => /^seg-rank-\d+$/.test((document.querySelector('.seg [aria-pressed="true"]') || {}).style.viewTransitionName || '')), '区切りボタンの選んでいる側に、滑って移るための名前が付く');
+    const pod = await p3.evaluate(() => { const el = document.querySelector('.main.enter .podium .pod'); return el ? getComputedStyle(el).animationName : ''; });
+    ok(pod === 'pod-rise', 'ランキングを開くと表彰台がせり上がる');
+    const kinds = await p3.locator('[data-act="kind"]').count();
+    if (kinds) {
+      const v0 = await p3.locator('[data-act="kind"][aria-pressed="true"]').getAttribute('data-v');
+      await p3.click('[data-act="kind"]:not([aria-pressed="true"])'); await p3.waitForTimeout(500);
+      ok((await p3.locator('[data-act="kind"][aria-pressed="true"]').getAttribute('data-v')) !== v0, '週・月の切り替えは動きのあとに正しく切り替わる');
+      await p3.click('[data-act="kind"][data-v="' + v0 + '"]'); await p3.waitForTimeout(500);
+    }
+    const href = await p3.locator('.rrank a').first().getAttribute('href');
+    const push = await p3.evaluate((h) => new Promise((res) => { location.hash = h; requestAnimationFrame(() => res(document.documentElement.dataset.vt || '')); }), href);
+    await p3.waitForTimeout(600);
+    ok(push === 'push' && await p3.locator('.main.view-member').count() === 1, '部員の詳細へは右から進む動き');
+    await p3.goBack(); await p3.waitForTimeout(600);
+    ok(await p3.locator('.main.view-rank').count() === 1, '戻ると一覧に戻る');
+    await p3.evaluate(() => { location.hash = '#menus'; }); await p3.waitForTimeout(600);
+    await p3.locator('.menu-card').first().click(); await p3.waitForSelector('#sheet-root .sheet'); await p3.waitForTimeout(650);
+    const sh = await p3.evaluate(() => getComputedStyle(document.querySelector('.sheet-h'), '::before').content);
+    ok(sh && sh !== 'none', 'シートの上につまみ（引いて閉じられる印）がある');
+    await p3.keyboard.press('Escape');
+    const g = await p3.evaluate(() => ({ root: document.getElementById('sheet-root').innerHTML, ghost: !!document.querySelector('.sheet-ghost'), acts: document.querySelectorAll('.sheet-ghost [data-act], .sheet-ghost [id]').length, sheets: document.querySelectorAll('.sheet').length }));
+    ok(g.root === '' && g.ghost && g.acts === 0 && g.sheets === 0, '閉じるとすぐ中身は消え、閉じる動きは操作できない複製で見せる');
+    await p3.waitForTimeout(500);
+    ok(await p3.locator('.sheet-ghost').count() === 0, '閉じる動きのあとは複製も消える');
+    await p3.locator('.menu-card').first().click(); await p3.waitForSelector('#sheet-root .sheet'); await p3.waitForTimeout(650);
+    const hb = await p3.locator('#sheet-root .sheet-h').boundingBox();
+    await p3.mouse.move(hb.x + hb.width / 2, hb.y + 10); await p3.mouse.down();
+    for (let i = 1; i <= 8; i++) { await p3.mouse.move(hb.x + hb.width / 2, hb.y + 10 + i * 30); await p3.waitForTimeout(16); }
+    await p3.mouse.up(); await p3.waitForTimeout(500);
+    ok(await p3.locator('#sheet-root .sheet').count() === 0 && await p3.locator('.sheet-ghost').count() === 0, 'シートは下に引くと閉じる');
+    await p3.locator('.menu-card').first().click(); await p3.waitForSelector('#sheet-root .sheet'); await p3.waitForTimeout(650);
+    const hb2 = await p3.locator('#sheet-root .sheet-h').boundingBox();
+    await p3.mouse.move(hb2.x + hb2.width / 2, hb2.y + 10); await p3.mouse.down();
+    await p3.mouse.move(hb2.x + hb2.width / 2, hb2.y + 40, { steps: 4 }); await p3.waitForTimeout(250); await p3.mouse.up(); await p3.waitForTimeout(500);
+    ok(await p3.locator('#sheet-root .sheet').count() === 1 && await p3.evaluate(() => document.querySelector('#sheet-root .sheet').style.transform === ''), '少し引いただけなら元の位置に戻る');
+    await p3.keyboard.press('Escape'); await p3.waitForTimeout(400);
+    await p3.evaluate(() => { location.hash = '#settings'; }); await p3.waitForTimeout(600);
+    await p3.click('[data-act="login"]'); await p3.waitForTimeout(600);
+    await p3.selectOption('select[name="memberId"]', { label: 'マネ 花子（マネージャー）' });
+    await p3.fill('input[name="pin"]', 'test-mgr-01');
+    await p3.click('form[data-form="login"] button[type="submit"]'); await p3.waitForTimeout(1200);
+    await p3.evaluate(() => { location.hash = '#record'; }); await p3.waitForTimeout(700);
+    const btn = p3.locator('.rec-btn[aria-pressed="false"]').first();
+    if (await btn.count()) {
+      const id = await btn.getAttribute('data-id');
+      await btn.click(); await p3.waitForTimeout(60);
+      const st = await p3.evaluate((i) => ({ pop: !!document.querySelector('.rec-row[data-id="' + i + '"] .rec-btn.pop-on'), bump: !!document.querySelector('#rec-bar .num.bump') }), id);
+      ok(st.pop && st.bump, '「実施した」を押すとボタンが弾み、下の人数が跳ねる');
+      await p3.click('.rec-row[data-id="' + id + '"] .rec-btn'); await p3.waitForTimeout(100);
+      ok(await p3.locator('.rec-row[data-id="' + id + '"] .rec-btn[aria-pressed="false"]').count() === 1, 'もう一度押すと取り消せる（動きがあっても状態は正しい）');
+    } else ok(false, '記録の画面に押せるボタンがある');
+    await p3.evaluate(() => { location.hash = '#home'; }); await p3.waitForTimeout(150);
+    const mid = await p3.evaluate(() => { const el = document.querySelector('.board-v .num[data-count]'); return el ? [el.textContent, el.dataset.count] : null; });
+    await p3.waitForTimeout(1100);
+    const fin = await p3.evaluate(() => document.querySelector('.board-v .num').textContent);
+    ok(mid && (+mid[1] === 0 || +mid[0] < +mid[1]) && fin === mid[1], 'ホームに入ると数字が 0 から数え上がり、最後は正しい値になる');
+    await c3.close();
   }
   ok(errors.length === 0, '画面のエラーなし' + (errors.length ? ': ' + errors.join(' / ') : ''));
   console.log('\n合格 ' + pass + ' / 不合格 ' + fail);

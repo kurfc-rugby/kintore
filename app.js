@@ -3,7 +3,7 @@
   'use strict';
   const L = window.KLogic;
   const API = window.KINTORE_API;
-  const VERSION = '2.7.3';
+  const VERSION = '2.8.0';
   const WD = ['日', '月', '火', '水', '木', '金', '土'];
   const PERM = { admin: '管理者', manager: 'マネージャー', leader: 'FWリーダー', member: '一般部員' };
   const MODE = { leader: 'メニュー参加', self: '自主トレ' };
@@ -38,6 +38,20 @@
   const mdw = (s) => md(s) + '(' + WD[L.dow(s)] + ')';
   const ymLabel = (s) => s.slice(0, 4) + '年' + +s.slice(5, 7) + '月';
   const reduceMotion = () => window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  /** 画面の切り替えを滑らかにする（View Transitions。使えない端末・動きを減らす設定ではそのまま切り替える）
+   *  kind: tab（タブ移動）/ push・pop（詳細へ進む・戻る）/ next・prev（期間を送る）/ swap（表示の切り替え） */
+  function vt(fn, kind) {
+    if (!document.startViewTransition || reduceMotion() || document.hidden || !S.data) { fn(); return; }
+    const root = document.documentElement;
+    root.dataset.vt = kind || 'swap';
+    try {
+      const t = document.startViewTransition(fn);
+      t.finished.catch(() => {}).then(() => { if (root.dataset.vt === (kind || 'swap')) delete root.dataset.vt; });
+      t.ready.catch(() => {});
+    } catch (e) { delete root.dataset.vt; fn(); }
+  }
+  /** 触ったときの小さな手ごたえ（対応する Android だけ） */
+  const tick = (ms) => { try { if (navigator.vibrate && !reduceMotion()) navigator.vibrate(ms || 8); } catch (e) { /* なし */ } };
 
   // ---------- 表示の設定（端末ごと） ----------
   const PREF = { theme: store.get('theme', 'light'), size: store.get('size', 'm'), self: store.get('self', '') };
@@ -301,12 +315,17 @@
     setTimeout(() => { el.classList.add('out'); setTimeout(() => el.remove(), 300); }, kind === 'err' ? 5000 : 2600);
   }
   let sheetLocked = false;
+  // 閉じるときの動きは「抜け殻」（操作できない複製）で見せる。中身はすぐ消すので、閉じた直後に次のシートを開いても混ざらない
+  let sheetGhost = null, ghostAt = 0;
+  function dropGhost() { if (sheetGhost) { sheetGhost.remove(); sheetGhost = null; } }
   function openSheet(title, html, opt) {
     opt = opt || {};
+    const replacing = !!$('#sheet-root .sheet') || (sheetGhost && performance.now() - ghostAt < 120);
+    dropGhost();
     sheetLocked = !!opt.locked;
     $('#sheet-root').innerHTML =
-      '<div class="sheet-bg" data-act="sheet-bg"></div>' +
-      '<section class="sheet' + (opt.wide ? ' wide' : '') + '" role="dialog" aria-modal="true" aria-label="' + esc(title) + '">' +
+      '<div class="sheet-bg' + (replacing ? ' still' : '') + '" data-act="sheet-bg"></div>' +
+      '<section class="sheet' + (opt.wide ? ' wide' : '') + (replacing ? ' swap' : '') + (opt.locked ? ' locked' : '') + '" role="dialog" aria-modal="true" aria-label="' + esc(title) + '">' +
       '<header class="sheet-h"><h2>' + esc(title) + '</h2>' +
       (opt.locked ? '' : '<button class="xbtn" data-act="sheet-close" aria-label="閉じる">×</button>') + '</header>' +
       '<div class="sheet-b">' + html + '</div></section>';
@@ -314,7 +333,54 @@
     const f = $('#sheet-root [autofocus]');
     if (f) setTimeout(() => f.focus(), 50);
   }
-  function closeSheet() { sheetLocked = false; $('#sheet-root').innerHTML = ''; document.body.classList.remove('sheet-open'); }
+  function closeSheet(drag) {
+    sheetLocked = false;
+    const root = $('#sheet-root'), sh = $('.sheet', root);
+    dropGhost();
+    if (sh && !reduceMotion()) {
+      const g = document.createElement('div');
+      g.className = 'sheet-ghost'; g.setAttribute('aria-hidden', 'true'); g.inert = true;
+      while (root.firstChild) g.appendChild(root.firstChild);
+      // 複製がテストや操作に拾われないよう、目印をはずす
+      $$('[id],[data-act],[data-form],[name],[autofocus]', g).forEach((el) => ['id', 'data-act', 'data-form', 'name', 'autofocus'].forEach((a) => el.removeAttribute(a)));
+      $$('.sheet, .sheet-bg, .sheet-h, .sheet-b', g).forEach((el) => { el.className = el.className.replace(/\bsheet(-bg|-h|-b)?\b/g, 'g$&'); });
+      if (drag) g.style.setProperty('--drag', drag + 'px');
+      document.body.appendChild(g);
+      sheetGhost = g; ghostAt = performance.now();
+      setTimeout(() => { if (sheetGhost === g) dropGhost(); else g.remove(); }, 320);
+    }
+    root.innerHTML = '';
+    document.body.classList.remove('sheet-open');
+  }
+  // 下に引いて閉じる（スマホの縦長シートだけ。必ず入力してもらうシートは閉じない）
+  (function sheetDrag() {
+    let st = null;
+    document.addEventListener('pointerdown', (ev) => {
+      const h = ev.target.closest && ev.target.closest('#sheet-root .sheet-h');
+      if (!h || ev.target.closest('button') || sheetLocked || innerWidth >= 560 || ev.button > 0) return;
+      const sh = h.parentElement;
+      st = { y: ev.clientY, t: performance.now(), sh, bg: $('#sheet-root .sheet-bg'), dy: 0, id: ev.pointerId };
+      sh.classList.add('dragging');
+      try { h.setPointerCapture(ev.pointerId); } catch (e) { /* なし */ }
+    });
+    document.addEventListener('pointermove', (ev) => {
+      if (!st || ev.pointerId !== st.id) return;
+      const raw = ev.clientY - st.y;
+      st.dy = raw > 0 ? raw : -Math.pow(-raw, .6); // 上へはゴムのように少しだけ
+      st.sh.style.transform = 'translateY(' + st.dy + 'px)';
+      if (st.bg) st.bg.style.opacity = String(Math.max(0, 1 - Math.max(0, st.dy) / (st.sh.offsetHeight || 600)));
+    });
+    const end = (ev) => {
+      if (!st || ev.pointerId !== st.id) return;
+      const s = st; st = null;
+      const v = s.dy / Math.max(1, performance.now() - s.t);
+      s.sh.classList.remove('dragging');
+      if (s.dy > Math.min(140, s.sh.offsetHeight * .3) || (s.dy > 24 && v > .5)) { tick(6); closeSheet(s.dy); return; }
+      s.sh.style.transform = ''; if (s.bg) s.bg.style.opacity = '';
+    };
+    document.addEventListener('pointerup', end);
+    document.addEventListener('pointercancel', end);
+  })();
   function sheetErrorIn(f, msg) {
     const el = f && $('.form-err', f);
     if (el) { el.textContent = msg; el.hidden = !msg; } else if (msg) toast(msg, 'err');
@@ -390,7 +456,7 @@
       '<div class="board-v"><span class="num" data-count="' + t.done + '">' + t.done + '</span><span class="unit">回</span></div>' +
       '<div class="board-s">' + prevWord + ' ' + pre.team.done + '回 ' + delta(t.done, pre.team.done, '回') + '</div></div>' +
       '<div class="board-side">' +
-      '<div class="board-cell"><div class="board-k">メニュー参加者の実施率</div><div class="board-v2"><span class="num">' + (t.rate === null ? '－' : Math.round(t.rate * 100)) + '</span>' + (t.rate === null ? '' : '<span class="unit">%</span>') + '</div>' +
+      '<div class="board-cell"><div class="board-k">メニュー参加者の実施率</div><div class="board-v2"><span class="num"' + (t.rate === null ? '' : ' data-count="' + Math.round(t.rate * 100) + '"') + '>' + (t.rate === null ? '－' : Math.round(t.rate * 100)) + '</span>' + (t.rate === null ? '' : '<span class="unit">%</span>') + '</div>' +
       '<div class="board-s">' + (t.rate === null ? 'まだ対象日がありません' : t.doneT + '/' + t.targetDays + '日') +
       (t.rate !== null && pre.team.rate !== null ? ' ' + delta(Math.round(t.rate * 100), Math.round(pre.team.rate * 100), 'pt') : '') + '</div></div>' +
       goalCell(t) +
@@ -417,12 +483,12 @@
     const g = t.goal;
     if (S.kind === 'week') {
       const n = t.goalNow + t.goalClosed, ok = t.goalNowOk + t.goalHit, w = n ? Math.round(ok / n * 100) : 0;
-      return '<div class="board-cell"><div class="board-k">週' + g + '回の達成（マスト）</div><div class="board-v2"><span class="num">' + ok + '</span><span class="unit">/' + n + '人</span></div>' +
+      return '<div class="board-cell"><div class="board-k">週' + g + '回の達成（マスト）</div><div class="board-v2"><span class="num" data-count="' + ok + '">' + ok + '</span><span class="unit">/' + n + '人</span></div>' +
         '<div class="meter" role="img" aria-label="' + w + '%"><i style="width:' + w + '%"></i></div>' +
         '<div class="board-s">' + (t.goalNow ? '日曜までに' + g + '回で達成' : 'この週に' + g + '回以上の人') + (t.goalNowEx ? '・免除 ' + t.goalNowEx + '人' : '') + '</div></div>';
     }
     const r = t.goalClosed ? Math.round(t.goalHit / t.goalClosed * 100) : null;
-    return '<div class="board-cell"><div class="board-k">週' + g + '回の達成率（マスト）</div><div class="board-v2"><span class="num">' + (r === null ? '－' : r) + '</span>' + (r === null ? '' : '<span class="unit">%</span>') + '</div>' +
+    return '<div class="board-cell"><div class="board-k">週' + g + '回の達成率（マスト）</div><div class="board-v2"><span class="num"' + (r === null ? '' : ' data-count="' + r + '"') + '>' + (r === null ? '－' : r) + '</span>' + (r === null ? '' : '<span class="unit">%</span>') + '</div>' +
       '<div class="board-s">' + (r === null ? 'まだ終わった週がありません' : '終わった週 ' + t.goalHit + '/' + t.goalClosed + '（人×週）') + '</div></div>';
   }
   function goalBlock(rows, isNow, p) {
@@ -1947,32 +2013,40 @@
     const navOn = r === 'member' ? 'members' : (r === 'logs' || r === 'help') ? 'settings' : r === 'archive' ? 'menus' : r;
     const items = NAV.filter((n) => n[0] !== 'record' || can('record'));
     return '<header class="top"><a class="brand" href="#home" aria-label="ホーム"><img class="mark" src="crest.webp?v=1" alt="" width="30" height="32"><span class="brand-t"><b>KURFC</b>筋トレ</span></a>' +
-      '<span class="top-title">' + (TITLE[r] || '') + '</span>' +
+      '<span class="top-title"><span>' + (TITLE[r] || '') + '</span></span>' +
       '<a class="top-help' + (r === 'help' ? ' on' : '') + '" href="#help" aria-label="使い方ガイド">' + icon('help') + '</a>' +
       '<a class="top-acct' + (navOn === 'settings' ? ' on' : '') + '" href="#settings" aria-label="設定">' + (m ? '<span class="who">' + PERM[m.perm] + '</span>' : '') + icon('gear') + '</a></header>' +
       '<div class="hoops" aria-hidden="true"></div>' +
       '<nav class="nav n' + items.length + '" aria-label="メニュー">' + items.map((n) =>
-        '<a href="#' + n[0] + '" class="' + (navOn === n[0] ? 'on' : '') + (n[0] === 'record' ? ' rec' : '') + '"' + (navOn === n[0] ? ' aria-current="page"' : '') + '>' + icon(n[2]) + '<span>' + n[1] + '</span></a>').join('') +
-      '<a href="#settings" class="nav-set ' + (navOn === 'settings' ? 'on' : '') + '">' + icon('gear') + '<span>設定</span></a></nav>' +
+        '<a href="#' + n[0] + '" class="' + (navOn === n[0] ? 'on' : '') + (n[0] === 'record' ? ' rec' : '') + '"' + (navOn === n[0] ? ' aria-current="page"' : '') + '>' + (navOn === n[0] ? '<i class="nav-ind" aria-hidden="true"></i>' : '') + icon(n[2]) + '<span>' + n[1] + '</span></a>').join('') +
+      '<a href="#settings" class="nav-set ' + (navOn === 'settings' ? 'on' : '') + '">' + (navOn === 'settings' ? '<i class="nav-ind" aria-hidden="true"></i>' : '') + icon('gear') + '<span>設定</span></a></nav>' +
       '<main class="main view-' + r + '" id="main">' +
       (S.loadError ? '<div class="banner err">' + esc(S.loadError) + '<button class="btn small" data-act="reload">再読み込み</button></div>' : '') +
       inner + '</main>';
   }
+  /** ホームの数字を 0 から数え上げる（画面に入ったときだけ） */
   function countUp() {
-    if (S.counted || reduceMotion()) { S.counted = true; return; }
-    const el = $('.board-v .num[data-count]');
-    if (!el) return;
-    S.counted = true;
-    const to = +el.dataset.count;
-    if (!to) return;
-    const t0 = performance.now(), dur = 700;
-    const step = (t) => {
-      const k = Math.min(1, (t - t0) / dur);
-      el.textContent = Math.round(to * (1 - Math.pow(1 - k, 3)));
-      if (k < 1) requestAnimationFrame(step);
-    };
-    el.textContent = '0';
-    requestAnimationFrame(step);
+    if (reduceMotion()) return;
+    $$('.board .num[data-count]').forEach((el, i) => {
+      const to = +el.dataset.count;
+      if (!(to > 0)) return;
+      const t0 = performance.now() + i * 60, dur = 760;
+      const step = (t) => {
+        if (!el.isConnected) return;
+        const k = Math.max(0, Math.min(1, (t - t0) / dur));
+        el.textContent = Math.round(to * (1 - Math.pow(1 - k, 4)));
+        if (k < 1) requestAnimationFrame(step);
+      };
+      el.textContent = '0';
+      requestAnimationFrame(step);
+    });
+  }
+  /** 区切りボタンの「選んでいる印」と下のタブの印に名前を付け、切り替えで滑って移るようにする */
+  function nameMorphs() {
+    if (!document.startViewTransition) return;
+    // 画面ごとに名前を変える（別の画面の区切りボタンへ飛んでいかないように）
+    const r = S.route.name.replace(/[^a-z]/g, '');
+    $$('.seg').forEach((s, i) => { const on = $('[aria-pressed="true"]', s); if (on) on.style.viewTransitionName = 'seg-' + r + '-' + i; });
   }
   function render() {
     const app = $('#app');
@@ -1986,7 +2060,14 @@
     const fn = { home: vHome, rank: vRank, cal: vCal, menus: vMenus, members: vMembers, record: vRecord, settings: vSettings, logs: vLogs, archive: vArchive, help: vHelp };
     app.innerHTML = shell(r.name === 'member' ? vMember(r.arg) : (fn[r.name] || vHome)());
     document.title = (TITLE[r.name] ? TITLE[r.name] + '｜' : '') + 'KURFC 筋トレ';
-    if (r.name === 'home') countUp();
+    const entering = S.enter !== false;
+    S.enter = false;
+    if (entering) {
+      const main = $('#main');
+      if (main && !reduceMotion()) { main.classList.add('enter'); setTimeout(() => main.classList.remove('enter'), 1200); }
+      if (r.name === 'home') countUp();
+    }
+    nameMorphs();
     if ((r.name === 'help' || r.name === 'settings') && r.arg) {
       const el = document.getElementById(r.name === 'help' ? 'h-' + r.arg : r.arg);
       if (el) setTimeout(() => el.scrollIntoView({ block: 'start', behavior: reduceMotion() ? 'auto' : 'smooth' }), 60);
@@ -2037,18 +2118,26 @@
     const h = (location.hash || '#home').slice(1).split('/');
     return { name: h[0] || 'home', arg: h[1] ? decodeURIComponent(h[1]) : '' };
   }
+  // 詳細の画面（一覧から進む先）。深さで「進む・戻る」の動きを決める
+  const DEPTH = { member: 1, logs: 1, archive: 1, help: 1 };
   function onHash() {
-    const next = parseHash();
+    const next = parseHash(), prev = S.route;
     if (S.route.name === 'record' && next.name !== 'record' && !recLeaveOk()) { history.replaceState(null, '', '#record'); return; }
     if (next.name === 'record' && next.arg && L.isDate(next.arg)) { S.rec.date = next.arg; S.rec.edits = {}; }
     if (next.name === 'member' && S.route.arg !== next.arg) S.memberMonth = null;
     if (next.name !== 'logs') S.logs = null;
     if (next.name !== 'archive') S.archive = null;
+    const newSection = prevHash.split('/')[0] !== location.hash.split('/')[0];
+    const da = DEPTH[prev.name] || 0, db = DEPTH[next.name] || 0;
+    const kind = prev.name === next.name ? 'swap' : db > da ? 'push' : db < da ? 'pop' : 'tab';
     S.route = next;
-    closeSheet();
-    render();
-    if (prevHash.split('/')[0] !== location.hash.split('/')[0]) window.scrollTo(0, 0);
+    if (prev.name !== next.name) S.enter = true;
     prevHash = location.hash;
+    closeSheet();
+    vt(() => {
+      render();
+      if (newSection) window.scrollTo(0, 0);
+    }, kind);
   }
 
   // ---------- 操作 ----------
@@ -2057,25 +2146,25 @@
     const v = el.dataset.v;
     if (key === 'group') { S.group = v; S.position = ''; }
     else S.position = S.position === v ? '' : v;
-    render();
+    vt(render, 'swap');
   };
   const acts = {
     'sheet-close': () => { if (!sheetLocked) closeSheet(); },
     'sheet-bg': () => { if (!sheetLocked) closeSheet(); },
     'go-back': (el, ev) => { if (history.length > 1 && prevHash) { ev.preventDefault(); history.back(); } },
-    kind: (el) => { S.kind = el.dataset.v; store.set('kind', S.kind); render(); },
+    kind: (el) => { if (S.kind === el.dataset.v) return; S.kind = el.dataset.v; store.set('kind', S.kind); vt(render, 'swap'); },
     period: (el) => {
       const p = curPeriod();
       const n = +el.dataset.v < 0 ? L.prevPeriod(S.kind, p.from) : L.nextPeriod(S.kind, p.from);
       if (n.from > S.data.today) return;
-      S.anchor = n.from; render();
+      S.anchor = n.from; vt(render, +el.dataset.v < 0 ? 'prev' : 'next');
     },
     'f-group': setFilter('group'),
     'f-pos': setFilter('pos'),
     'pos-go': (el, ev) => { ev.preventDefault(); S.position = el.dataset.v; S.group = 'ALL'; location.hash = '#rank'; },
-    sort: (el) => { S.sort = el.dataset.v; render(); },
-    'menu-tab': (el) => { S.menuTab = el.dataset.v; render(); },
-    'menu-group': (el) => { S.menuGroup = el.dataset.v; render(); },
+    sort: (el) => { if (S.sort === el.dataset.v) return; S.sort = el.dataset.v; vt(render, 'swap'); },
+    'menu-tab': (el) => { if (S.menuTab === el.dataset.v) return; S.menuTab = el.dataset.v; vt(render, 'swap'); },
+    'menu-group': (el) => { if (S.menuGroup === el.dataset.v) return; S.menuGroup = el.dataset.v; vt(render, 'swap'); },
     'menu-open': (el, ev) => { ev.preventDefault(); openMenu(el.dataset.id); },
     'menu-new': () => openMenuForm(''),
     'menu-edit': (el) => openMenuForm(el.dataset.id),
@@ -2090,7 +2179,7 @@
     mmonth: (el) => {
       const n = L.addMonths(S.memberMonth, +el.dataset.v);
       if (n > S.data.today) return;
-      S.memberMonth = n; render();
+      S.memberMonth = n; vt(render, +el.dataset.v < 0 ? 'prev' : 'next');
     },
     'member-new': () => openMemberForm(''),
     'member-edit': (el) => openMemberForm(el.dataset.id),
@@ -2264,6 +2353,11 @@
       const next = !recCur(row);
       if (next === row.saved) delete S.rec.edits[id]; else S.rec.edits[id] = next;
       recRefreshRow(id);
+      tick(next ? 10 : 5);
+      const b = $('.rec-row[data-id="' + id + '"] .rec-btn');
+      if (b) b.classList.add(next ? 'pop-on' : 'pop-off');
+      const n = $('#rec-bar .s-on .num');
+      if (n) { n.classList.remove('bump'); void n.offsetWidth; n.classList.add('bump'); }
     },
     'rec-del': async (el) => {
       const m = memberById(el.dataset.id), date = S.rec.date;
