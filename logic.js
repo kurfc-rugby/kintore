@@ -291,7 +291,7 @@
   //  idx は buildIndex({ records: その人の全記録, exempts: その人と部全体の免除 }) で作る
   var STREAK_MARKS = [4, 8, 12, 26, 52];
   var MONTH_MARKS = [10, 15, 20];
-  var TOTAL_MARKS = [50, 100, 200, 300, 500];
+  var TOTAL_MARKS = [10, 30, 50, 100, 200, 300, 500];
   function doneDates(idx, id) {
     var out = [], k;
     for (k in idx.rec) { if (k.indexOf(id + '|') === 0 && idx.rec[k].s === 1) out.push(k.slice(id.length + 1)); }
@@ -324,13 +324,13 @@
       MONTH_MARKS.forEach(function (n) { if (list.length >= n) earn('m' + n, list[n - 1]); });
     });
     // 週（最初の記録の週から今週まで）
-    var streak = 0, monthWeeks = {};
+    var streak = 0, monthWeeks = {}, missRun = 0;
     for (var ws = weekStart(ds[0]); ws <= today; ws = addDays(ws, 7)) {
       var we = addDays(ws, 6), cnt = 0, hitDay = '';
       var nd = weekNeed(idx, m, ws, goal);
       for (var i = 0; i < 7; i++) {
         var d = addDays(ws, i), r = getRec(idx, m.id, d);
-        if (r && r.s === 1) { cnt++; if (nd.need && cnt === nd.need) hitDay = d; }
+        if (r && r.s === 1) { cnt++; if (nd.need && cnt === nd.need) hitDay = d; if (cnt === 5) earn('w5', d); }
       }
       if (cnt > o.bestWeek.count) o.bestWeek = { count: cnt, from: ws };
       var open = we >= today;
@@ -339,12 +339,14 @@
       var ok = cnt >= nd.need;
       if (open) mw.open = true; else { mw.closed++; if (ok) mw.hit++; mw.end = we; }
       if (ok) {
+        if (missRun >= 2 && o.goalHits > 0) earn('back', hitDay); // 2週以上とぎれてから、また達成
+        missRun = 0;
         o.goalHits++;
         earn('goal1', hitDay);
         streak++;
         if (streak > o.streakMax) o.streakMax = streak;
         STREAK_MARKS.forEach(function (n) { if (streak >= n) earn('s' + n, hitDay); });
-      } else if (!open) streak = 0;
+      } else if (!open) { streak = 0; missRun++; }
     }
     o.streakNow = streakWeeks(idx, m, today, ds[0], goal);
     Object.keys(monthWeeks).sort().forEach(function (k) {
@@ -364,6 +366,8 @@
     STREAK_MARKS.forEach(function (n) { b.push({ key: 's' + n, name: (n === 26 ? '半年' : n === 52 ? '1年' : n + '週') + '連続', desc: '週' + goal + '回を' + n + '週続けて達成' }); });
     MONTH_MARKS.forEach(function (n) { b.push({ key: 'm' + n, name: '月' + n + '回', desc: '1か月に' + n + '回実施' }); });
     b.push({ key: 'pm', name: '皆勤の月', desc: '1か月の週すべてで週' + goal + '回を達成' });
+    b.push({ key: 'w5', name: '週5回', desc: '1週間に5回実施' });
+    b.push({ key: 'back', name: '復活', desc: '2週以上とぎれたあと、また週' + goal + '回を達成' });
     TOTAL_MARKS.forEach(function (n) { b.push({ key: 't' + n, name: '通算' + n + '回', desc: 'これまでに' + n + '回実施' }); });
     return b;
   }
@@ -387,6 +391,24 @@
       out.push({ id: m.id, name: m.name, sort: m.sort || 0, streak: st, count: c, need: nd.need, left: left, daysLeft: daysLeft, slack: daysLeft - left });
     });
     return out.sort(function (a, b) { return (a.slack - b.slack) || (b.streak - a.streak) || (a.sort - b.sort); });
+  }
+
+  // ---------- 落ちてきている人（終わった直近2週とも、週の目標に届かなかった） ----------
+  function slipList(state, idx, today, goal) {
+    goal = goalOf(goal);
+    var ws = weekStart(today), w1 = addDays(ws, -7), w2 = addDays(ws, -14), out = [];
+    (state.members || []).forEach(function (m) {
+      if (!m.player || m.active === false || !inRosterRange(m, w2, addDays(w1, 6))) return;
+      var n1 = weekNeed(idx, m, w1, goal), n2 = weekNeed(idx, m, w2, goal);
+      if (n1.need === 0 || n2.need === 0) return;
+      var c1 = weekCount(idx, m, w1), c2 = weekCount(idx, m, w2);
+      if (c1 >= n1.need || c2 >= n2.need) return;
+      var last = '';
+      (state.records || []).forEach(function (r) { if (r[0] === m.id && +r[2] === 1 && r[1] <= today && r[1] > last) last = r[1]; });
+      out.push({ id: m.id, name: m.name, sort: m.sort || 0, group: m.group || '', weeks: [{ from: w2, count: c2, need: n2.need }, { from: w1, count: c1, need: n1.need }],
+        now: weekCount(idx, m, ws), last: last });
+    });
+    return out.sort(function (a, b) { return ((a.weeks[0].count + a.weeks[1].count) - (b.weeks[0].count + b.weeks[1].count)) || (a.last < b.last ? -1 : a.last > b.last ? 1 : 0) || (a.sort - b.sort); });
   }
 
   // ---------- おめでとう（最近のできごと） ----------
@@ -435,6 +457,6 @@
     buildIndex: buildIndex, getRec: getRec, inRoster: inRoster, inRosterRange: inRosterRange, isTarget: isTarget, hasPosition: hasPosition,
     cellState: cellState, memberStats: memberStats, periodStats: periodStats, positionStats: positionStats, rank: rank, dayStatus: dayStatus,
     DEFAULT_GOAL: DEFAULT_GOAL, goalOf: goalOf, weekCount: weekCount, weekNeed: weekNeed, exemptOn: exemptOn, goalWeeks: goalWeeks, goalSummary: goalSummary, streakWeeks: streakWeeks, pct: pct,
-    personal: personal, badgeList: badgeList, pinchList: pinchList, feedEvents: feedEvents, doneDates: doneDates
+    personal: personal, badgeList: badgeList, pinchList: pinchList, slipList: slipList, TOTAL_MARKS: TOTAL_MARKS, feedEvents: feedEvents, doneDates: doneDates
   };
 });

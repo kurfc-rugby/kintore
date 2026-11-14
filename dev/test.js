@@ -351,7 +351,21 @@ section('自己ベスト・称号・ピンチ・おめでとう（集計）');
   ok(p.earned.first === '2026-10-05' && p.earned.goal1 === '2026-10-09' && p.earned.s4 === '2026-10-30' && p.earned.m10 === '2026-10-26', '称号を取った日（初記録・初達成・4週連続・月10回）');
   ok(!p.earned.s8 && !p.earned.t50, 'まだの称号は無い');
   ok(p.perfectMonths.indexOf('2026-10') >= 0 && p.earned.pm, '10月は週の目標を全部達成（皆勤の月）');
-  ok(L.badgeList(3).length === 16 && L.badgeList(3)[1].name === '週3回クリア', '称号の一覧');
+  ok(L.badgeList(3).length === 20 && L.badgeList(3)[1].name === '週3回クリア', '称号の一覧（v2.9：通算10回・30回・週5回・復活を追加）');
+  ok(p.earned.t10 && !p.earned.w5 && !p.earned.back, '通算10回の称号。まだの「週5回」「復活」は無い');
+  (function () {
+    const m2 = { id: 'b', name: 'B', player: true, active: true, start: '', left: '' };
+    // 10/5の週：5回、10/12・10/19の週：0回、10/26の週：3回（復活）
+    const dd = ['2026-10-05', '2026-10-06', '2026-10-07', '2026-10-08', '2026-10-09', '2026-10-26', '2026-10-27', '2026-10-28'];
+    const ix = L.buildIndex({ records: dd.map((d) => ['b', d, 1, 0, '']), exempts: [] });
+    const q = L.personal(ix, m2, '2026-11-13', 3);
+    ok(q.earned.w5 === '2026-10-09' && q.earned.back === '2026-10-28', '「週5回」（5回目の日）と「復活」（2週以上とぎれてまた達成した日）');
+    const st2 = { members: [m2, { id: 'c', name: 'C', player: true, active: true }, { id: 'e', name: 'E', player: true, active: true }],
+      records: [['c', '2026-11-03', 1, 0, ''], ['c', '2026-10-28', 1, 0, ''], ['e', '2026-11-02', 1, 0, ''], ['e', '2026-11-03', 1, 0, ''], ['e', '2026-11-04', 1, 0, '']], exempts: [] };
+    const sl = L.slipList(st2, L.buildIndex(st2), '2026-11-13', 3);
+    eq(sl.map((x) => x.id), ['b', 'c'], '落ちてきている人：終わった直近2週とも届かなかった人（少ない順。先週届いた人は入らない）');
+    ok(sl[1].last === '2026-11-03' && sl[1].weeks[1].count === 1 && sl[1].weeks[0].count === 1, '最後に実施した日と、2週の回数がわかる');
+  })();
   // ピンチ：先週まで2週連続、今週まだ
   const m2 = { id: 'q', name: '鈴木 次郎', player: true, active: true, sort: 2 };
   const st2 = { members: [m, m2], menus: [], records: st.records.concat(['2026-10-26', '2026-10-28', '2026-10-30', '2026-11-02', '2026-11-03', '2026-11-05', '2026-11-11'].map((d) => ['q', d, 1, 0, ''])) };
@@ -650,6 +664,137 @@ section('通知（Web Push）');
   ok(api({ op: 'pushMove', old: EP, sub: { endpoint: EP2 } }).moved && gas.sheet('通知の宛先').data.some((r) => r.includes(EP2)) && !gas.sheet('通知の宛先').data.some((r) => r.includes(EP)), '前の宛先を知っていれば新しい宛先に移せる（種類や名前はそのまま）');
   ok(api({ op: 'pushRegister', sub: { endpoint: 'https://jmt17.google.com/fcm/send/abc' }, memberId: p.id, kinds: ['goal'] }).ok, 'Google の別のサーバー名の宛先も登録できる');
   gas.setToday('2026-11-13');
+})();
+
+section('v2.9：まとめて記録・節目の通知・新しいメニューの通知');
+api({ op: 'saveMember', token: A, member: { id: id['前田 剛'], perm: 'leader' } });
+const LD9 = staffLogin(id['前田 剛'], 'leader-pin-9');
+api({ op: 'saveMember', token: A, member: { id: id['マネ 花子'], perm: 'manager' } });
+const MG9 = staffLogin(id['マネ 花子'], 'manager-9-pin');
+(function () {
+  const LD = LD9, M1 = MG9;
+  ok(gas.sheet('要望・不具合') && gas.sheet('部員設定').data[0].includes('目標体重(kg)') && gas.sheet('メニューの型').data[0].includes('自主トレのおすすめ'), '新しいシート・列が自動で足される（要望・不具合／目標体重／自主トレのおすすめ）');
+  const P = id['小川 陽向'];
+  const EPM = 'https://fcm.googleapis.com/fcm/send/milestone-device-0001';
+  ok(api({ op: 'pushRegister', sub: { endpoint: EPM }, memberId: P, kinds: ['milestone', 'menu'] }).push.kinds.join() === 'milestone,menu', '「記録の節目」「新しいメニュー」の通知を受け取れる');
+  // まとめて記録の入力チェック
+  gas.setToday('2026-12-20');
+  ok(api({ op: 'saveRecordsWeek', token: LD, days: [{ date: '2026-12-14', items: [{ memberId: P, done: true }] }] }).error === 'forbidden', 'FWリーダーはまとめて記録できない');
+  ok(api({ op: 'saveRecordsWeek', token: M1, days: [{ date: '2026-12-21', items: [{ memberId: P, done: true }] }] }).error === 'future_date', '未来の日はまとめて記録できない');
+  ok(api({ op: 'saveRecordsWeek', token: M1, days: [{ date: '2026-12-01', items: [{ memberId: P, done: true }] }, { date: '2026-12-14', items: [{ memberId: P, done: true }] }] }).error === 'bad_range', '1週間をこえる日はまとめられない');
+  ok(api({ op: 'saveRecordsWeek', token: M1, days: [1, 2, 3, 4, 5, 6, 7, 8].map((i) => ({ date: '2026-12-1' + i, items: [] })) }).error === 'too_many', '8日分以上は断る');
+  // 4週ぶん、毎週3回ずつ記録して、通知がlogic.js の自己ベストの数え方と合うか
+  const P0 = api({ op: 'state' }).members.find((m) => m.id === P);
+  const personalAt = (day) => {
+    const st = api({ op: 'state', from: '2026-01-01', to: day });
+    const idx = L.buildIndex({ records: st.records.filter((x) => x[0] === P), exempts: st.exempts, menus: [] });
+    return { p: L.personal(idx, P0, day, st.weekGoal), total: st.life[P] ? st.life[P][0] : 0 };
+  };
+  let allOk = true, seenPush = 0;
+  const notes = [];
+  for (let k = 0; k < 4; k++) {
+    const ws = L.addDays('2026-12-14', 7 * k), sun = L.addDays(ws, 6);
+    gas.setToday(sun);
+    const before = personalAt(L.addDays(ws, -1));
+    api({ op: 'pushInbox', endpoint: EPM });
+    gas.push.sent.length = 0;
+    const r = api({ op: 'saveRecordsWeek', token: M1, days: [0, 1, 2].map((i) => ({ date: L.addDays(ws, i), items: [{ memberId: P, done: true }] })) });
+    if (!r.ok || r.saved !== 3) { allOk = false; notes.push('save ' + JSON.stringify(r)); continue; }
+    const after = personalAt(sun);
+    const now = after.p.streakNow, best = before.p.streakMax;
+    const box = api({ op: 'pushInbox', endpoint: EPM }).messages;
+    const marks = [10, 30, 50, 100, 200, 300, 500].filter((n) => before.total < n && after.total >= n);
+    let want = null;
+    if (now >= 2 && now >= best) want = (now > best ? '自己ベスト更新：' : '自己ベストに並びました：') + now + '週連続';
+    else if (marks.length) want = '通算' + marks[0] + '回 達成';
+    const got = box.length ? box[0].title : null;
+    if (got !== want) { allOk = false; notes.push(ws + ' want ' + want + ' got ' + got + ' (now ' + now + ' best ' + best + ')'); }
+    if (want) seenPush++;
+    if (want && marks.length && want.indexOf('通算') < 0 && !box[0].body.includes('通算' + marks[0] + '回')) { allOk = false; notes.push('total in body'); }
+  }
+  ok(allOk && seenPush >= 2, '週の目標を達成して連続が自己ベストに並んだ・更新したとき、通算の節目のときに本人へ通知（集計と同じ数え方）' + (notes.length ? ' ' + notes.join(' / ') : ''));
+  gas.push.sent.length = 0;
+  const again = api({ op: 'saveRecordsWeek', token: M1, days: [{ date: '2027-01-07', items: [{ memberId: P, done: true }] }] });
+  ok(again.ok && again.saved === 1 && gas.push.sent.filter((x) => x.url === EPM).length === 0, 'すでに達成した週にもう1回足しても、もう一度は知らせない');
+  const rm = api({ op: 'saveRecordsWeek', token: M1, days: [{ date: '2027-01-07', items: [{ memberId: P, done: false }] }] });
+  ok(rm.ok && rm.removed === 1 && rm.records.every((x) => !(x[0] === P && x[1] === '2027-01-07')), 'まとめて記録でも取り消せる');
+  // 新しいメニュー
+  gas.setToday('2027-01-11');
+  api({ op: 'pushInbox', endpoint: EPM }); gas.push.sent.length = 0;
+  let mr = api({ op: 'saveMenu', token: LD, menu: { date: '2027-01-12', group: 'ALL', title: '下半身の日', content: 'スクワット' } });
+  let box = api({ op: 'pushInbox', endpoint: EPM }).messages;
+  ok(mr.ok && box.length === 1 && box[0].title === '新しいメニュー：1/12（火）' && /下半身の日/.test(box[0].body) && box[0].url === './#menus', '新しいメニューを対象の人に知らせる（日付・名前つき）');
+  gas.push.sent.length = 0;
+  api({ op: 'saveMenu', token: LD, menu: { id: mr.menu.id, date: '2027-01-12', group: 'ALL', title: '下半身の日（改）', content: 'スクワット' } });
+  ok(gas.push.sent.length === 0, 'メニューを直したときは知らせない');
+  api({ op: 'saveMenu', token: LD, menu: { date: '2027-01-08', group: 'ALL', title: '過去の日', content: 'x' } });
+  ok(gas.push.sent.length === 0, '過去の日のメニューは知らせない');
+  const pg = api({ op: 'state' }).members.find((m) => m.id === P).group;
+  api({ op: 'saveMenu', token: LD, menu: { date: '2027-01-13', group: pg === 'FW' ? 'BK' : 'FW', title: 'ちがうグループ', content: 'x' } });
+  ok(gas.push.sent.length === 0, '対象でない人には知らせない');
+  api({ op: 'pushUnregister', sub: { endpoint: EPM } });
+  gas.setToday('2026-11-13');
+})();
+
+section('v2.9：エラーの記録・要望・目標体重・重さの目安・自主トレのおすすめ・スタンプ');
+(function () {
+  const LD = LD9, M1 = MG9;
+  const dev = '0123456789abcdef0123';
+  let r = api({ op: 'clientError', message: 'TypeError: x is undefined', src: 'https://kurfc-rugby.github.io/kintore/app.js?v=2.9.0', line: 120, page: '#rank', version: '2.9.0', device: dev, ua: 'Android・Chrome' });
+  ok(r.ok && r.logged, 'ログインなしで画面のエラーを記録できる');
+  let lg = api({ op: 'logs', token: A, limit: 5 }).logs[0];
+  ok(lg.action === '画面のエラー' && /v2\.9\.0 #rank｜TypeError: x is undefined（app\.js\?v=2\.9\.0:120）/.test(lg.detail), '操作履歴に「画面のエラー」として、版・画面・場所つきで残る');
+  ok(!api({ op: 'clientError', message: 'TypeError: x is undefined', src: 'https://kurfc-rugby.github.io/kintore/app.js?v=2.9.0', device: dev }).logged, '同じエラーは1日1回だけ残す');
+  for (let i = 0; i < 25; i++) api({ op: 'clientError', message: 'err ' + i, device: dev });
+  ok(api({ op: 'logs', token: A, limit: 500 }).logs.filter((x) => x.action === '画面のエラー').length === 20, '1つの端末からは1日20件まで');
+  // 要望
+  ok(api({ op: 'feedback', kind: 'idea', text: 'x', device: 'bad' }).error === 'bad_device', '端末の印が無いと送れない');
+  ok(api({ op: 'feedback', kind: 'idea', text: '', device: dev }).error, '内容が空なら送れない');
+  const AP2 = 'https://web.push.apple.com/admin-feedback-device';
+  api({ op: 'pushRegister', token: A, sub: { endpoint: AP2 }, memberId: '', kinds: ['pinreq'] });
+  gas.push.sent.length = 0;
+  r = api({ op: 'feedback', kind: 'bug', text: 'ランキングで名前が切れる', device: dev, from: id['近藤 蒼'], page: '#rank', version: '2.9.0' });
+  const ib = api({ op: 'pushInbox', endpoint: AP2 }).messages;
+  ok(r.ok && ib.length === 1 && ib[0].title === '不具合が届きました' && /近藤 蒼/.test(ib[0].body), 'ログインなしで要望・不具合を送れて、管理者の端末に通知される');
+  ok(api({ op: 'feedbackList', token: M1 }).error === 'forbidden', '一覧は管理者だけ');
+  let fl = api({ op: 'feedbackList', token: A });
+  ok(fl.open === 1 && fl.feedback[0].kind === 'bug' && fl.feedback[0].from === '近藤 蒼' && fl.feedback[0].page === '#rank', '管理者は送った人・画面・種類つきで一覧を見られる');
+  ok(api({ op: 'state', token: A }).feedbackOpen === 1 && api({ op: 'state' }).feedbackOpen === undefined, '未対応の数は管理者にだけ渡す');
+  r = api({ op: 'feedbackDone', token: A, id: fl.feedback[0].id });
+  ok(r.ok && r.item.done && r.open === 0, '「対応済み」にできる');
+  ok(api({ op: 'feedbackDone', token: A, id: fl.feedback[0].id, done: false }).item.done === false, '「未対応」に戻せる');
+  for (let i = 0; i < 9; i++) api({ op: 'feedback', kind: 'idea', text: 'idea ' + i, device: dev });
+  ok(api({ op: 'feedback', kind: 'idea', text: 'more', device: dev }).error === 'too_many', '1つの端末から1日10件まで');
+  ok(gas.sheet('要望・不具合').data.slice(1).some((x) => x.includes('不具合')), 'シートには種類を日本語で書く');
+  api({ op: 'pushUnregister', sub: { endpoint: AP2 } });
+  // 目標体重
+  const K = id['近藤 蒼'];
+  ok(api({ op: 'saveBodyGoal', memberId: K, weight: 80 }).error === 'auth', 'ログインしていないと目標体重は入れられない');
+  ok(api({ op: 'saveBodyGoal', token: LD, memberId: K, weight: 900 }).error === 'bad_number', 'ありえない体重は断る');
+  r = api({ op: 'saveBodyGoal', token: LD, memberId: K, weight: '８２．５', date: '2027-03-31' });
+  let km = api({ op: 'state' }).members.find((m) => m.id === K);
+  ok(r.ok && km.goalW === 82.5 && km.goalD === '2027-03-31', 'スタッフが目標体重と期日を入れられ、だれでも数値を見られる（全角でもよい）');
+  api({ op: 'saveBodyGoal', token: LD, memberId: K, weight: '' });
+  ok(api({ op: 'state' }).members.find((m) => m.id === K).goalW === undefined, '空にすると目標体重を外せる');
+  // 重さの目安
+  let st = api({ op: 'state' });
+  eq(st.liftRatios.map((x) => x.name), ['ベンチプレス', 'スクワット', 'デッドリフト'], '重さの目安は最初から3種目入っている');
+  ok(api({ op: 'saveSettings', token: LD, liftRatios: [] }).error === 'forbidden', '重さの目安を変えられるのは管理者だけ');
+  ok(api({ op: 'saveSettings', token: A, liftRatios: [{ name: 'ベンチ', ratio: 9 }] }).error === 'bad_number', '倍率は0.1〜5');
+  ok(api({ op: 'saveSettings', token: A, liftRatios: [{ name: 'ベンチ', ratio: 1 }, { name: 'ベンチ', ratio: 1.2 }] }).error === 'dup', '同じ種目は2つ入れられない');
+  r = api({ op: 'saveSettings', token: A, liftRatios: [{ name: 'ベンチプレス', ratio: '1.25' }, { name: 'パワークリーン', ratio: 0.9 }] });
+  ok(r.ok && api({ op: 'state' }).liftRatios.length === 2 && api({ op: 'state' }).liftRatios[0].ratio === 1.25, '管理者は種目と倍率を変えられる');
+  // 自主トレのおすすめ
+  r = api({ op: 'saveTemplate', token: LD, template: { title: '自重サーキット', group: 'ALL', content: '腕立て・スクワット・プランク', selfRec: true } });
+  const r2 = api({ op: 'saveTemplate', token: LD, template: { title: 'ふつうの型', group: 'ALL', content: 'x' } });
+  st = api({ op: 'state' });
+  ok(r.ok && r.template.selfRec && st.selfRecs.length === 1 && st.selfRecs[0].title === '自重サーキット' && !st.templates, '「自主トレのおすすめ」にした型は、ログインしていない部員にも見える（ほかの型は見えない）');
+  api({ op: 'saveTemplate', token: LD, template: Object.assign({}, r.template, { selfRec: false }) });
+  ok(api({ op: 'state' }).selfRecs.length === 0, 'おすすめを外せる');
+  api({ op: 'deleteTemplate', token: LD, id: r.template.id }); api({ op: 'deleteTemplate', token: LD, id: r2.template.id });
+  // 新しいスタンプ
+  const pl = st.members.find((m) => m.player && m.active);
+  ok(['rugby', 'crown', 'star', 'cheer'].every((k) => api({ op: 'stamp', target: pl.id, event: 'g:2026-11-09', kind: k, device: 'abcabcabcabcabca' }).on), '新しいスタンプ（🏉👑⭐📣）を送れる');
 })();
 
 section('シートの行が足りなくなったとき');

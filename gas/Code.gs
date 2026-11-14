@@ -10,8 +10,8 @@
  * 最初にやること：スプレッドシートのメニュー「筋トレ管理」→「管理者を登録」
  * 詳しくは 04_ドキュメント/筋トレ管理アプリ_使い方と引き継ぎ.md
  */
-const APP_VERSION = '2.7.1';
-const SCHEMA_VERSION = '5';
+const APP_VERSION = '2.9.0';
+const SCHEMA_VERSION = '6';
 const TZ = 'Asia/Tokyo';
 const SESSION_DAYS = 90;
 const VIEW_SESSION_DAYS = 180;
@@ -33,7 +33,8 @@ const DEF = {
     ['id', '部員ID'], ['nameMemo', '名前（控え）'], ['mode', '取り組み方'], ['perm', '権限'],
     ['start', '開始日'], ['left', '退部日'],
     ['pinHash', '暗証番号ハッシュ'], ['pinSalt', 'ソルト'], ['mustChange', '要変更'], ['failCount', '失敗回数'],
-    ['lockUntil', 'ロック解除'], ['createdAt', '作成日時'], ['updatedAt', '更新日時'], ['pinReqAt', '暗証番号の再発行依頼']] },
+    ['lockUntil', 'ロック解除'], ['createdAt', '作成日時'], ['updatedAt', '更新日時'], ['pinReqAt', '暗証番号の再発行依頼'],
+    ['targetWeight', '目標体重(kg)'], ['targetDate', '目標体重の期日']] },
   history: { name: '設定変更履歴', cols: [
     ['memberId', '部員ID'], ['effDate', '適用開始日'], ['group', 'グループ'], ['mode', '取り組み方'],
     ['position', 'ポジション'], ['subPositions', 'サブポジション'], ['by', '変更者ID'], ['at', '変更日時']] },
@@ -58,7 +59,7 @@ const DEF = {
     ['detail', '回数・セット数・重量'], ['note', '備考'], ['video', '動画リンク'],
     ['repeat', '繰り返す曜日'], ['repeatFrom', '繰り返しの開始日'], ['repeatTo', '繰り返しの終了日'],
     ['createdBy', '作成者ID'], ['createdAt', '作成日時'], ['updatedBy', '更新者ID'], ['updatedAt', '更新日時'],
-    ['deletedBy', '削除者ID'], ['deletedAt', '削除日時']] },
+    ['deletedBy', '削除者ID'], ['deletedAt', '削除日時'], ['selfRec', '自主トレのおすすめ']] },
   trash: { name: '取り消した記録', cols: [
     ['id', 'ID'], ['memberId', '部員ID'], ['date', '日付'], ['status', '実施状況'], ['target', 'メニュー対象'], ['menuIds', 'メニューID'],
     ['createdBy', '記録者ID'], ['createdAt', '記録日時'], ['removedBy', '取り消した人ID'], ['removedAt', '取り消し日時'],
@@ -71,15 +72,19 @@ const DEF = {
     ['id', 'ID'], ['target', '相手の部員ID'], ['event', 'できごと'], ['kind', 'スタンプ'], ['fromId', '送った部員ID'], ['device', '端末'], ['at', '日時']] },
   push: { name: '通知の宛先', cols: [
     ['id', 'ID'], ['endpoint', '宛先'], ['memberId', '部員ID（本人が選んだ名前）'], ['staffId', 'ログインした人のID'], ['kinds', '受け取る通知'],
-    ['device', '端末'], ['createdAt', '登録日時'], ['updatedAt', '更新日時'], ['okAt', '最後に届いた日時'], ['failCount', '失敗回数']] }
+    ['device', '端末'], ['createdAt', '登録日時'], ['updatedAt', '更新日時'], ['okAt', '最後に届いた日時'], ['failCount', '失敗回数']] },
+  feedback: { name: '要望・不具合', cols: [
+    ['id', 'ID'], ['kind', '種類'], ['text', '内容'], ['fromId', '送った部員ID'], ['page', '画面'], ['version', '版'], ['device', '端末'], ['at', '日時'],
+    ['doneBy', '対応した人ID'], ['doneAt', '対応日時']] }
 };
-const DATE_COLS = { start: 1, left: 1, effDate: 1, date: 1, from: 1, to: 1, repeatFrom: 1, repeatTo: 1 };
+const DATE_COLS = { start: 1, left: 1, effDate: 1, date: 1, from: 1, to: 1, repeatFrom: 1, repeatTo: 1, targetDate: 1 };
 
 const ENC = {
   mode: { leader: 'リーダーメニュー', self: '自主トレ' },
   perm: { admin: '管理者', manager: 'マネージャー', leader: 'FWリーダー', member: '一般部員' },
   status: { done: '実施した', not: '実施していない' },
   mgroup: { FW: 'FW', BK: 'BK', ALL: '全体' },
+  fbkind: { idea: '要望', bug: '不具合', other: 'その他' },
   bool: { '1': 'はい', '0': 'いいえ' }
 };
 const FIELD_ENC = {
@@ -87,7 +92,8 @@ const FIELD_ENC = {
   history: { mode: 'mode' },
   menus: { group: 'mgroup' },
   records: { status: 'status', target: 'bool' },
-  templates: { group: 'mgroup' },
+  templates: { group: 'mgroup', selfRec: 'bool' },
+  feedback: { kind: 'fbkind' },
   trash: { status: 'status', target: 'bool' }
 };
 const STAFF = { admin: 1, manager: 1, leader: 1 };
@@ -125,7 +131,7 @@ function handle_(req) {
     const ctx = { req: req, me: null, view: false };
     resolveSession_(ctx);
     const op = String(req.op || '');
-    const open = { ping: 1, state: 1, login: 1, logout: 1, viewLogin: 1, changePin: 1, memberHistory: 1, stamp: 1, pinRequest: 1, pushRegister: 1, pushUnregister: 1, pushTest: 1, pushInbox: 1, pushMove: 1 };
+    const open = { ping: 1, state: 1, login: 1, logout: 1, viewLogin: 1, changePin: 1, memberHistory: 1, stamp: 1, pinRequest: 1, pushRegister: 1, pushUnregister: 1, pushTest: 1, pushInbox: 1, pushMove: 1, clientError: 1, feedback: 1 };
     if (!open[op] && ctx.me && ctx.me.mustChange) {
       throw err_('must_change_pin', '先に暗証番号を変更してください。');
     }
@@ -137,6 +143,7 @@ function handle_(req) {
       case 'logout': return opLogout_(ctx);
       case 'changePin': return opChangePin_(ctx);
       case 'saveRecords': return opSaveRecords_(ctx);
+      case 'saveRecordsWeek': return opSaveRecordsWeek_(ctx);
       case 'deleteRecord': return opDeleteRecord_(ctx);
       case 'saveMenu': return opSaveMenu_(ctx);
       case 'deleteMenu': return opDeleteMenu_(ctx);
@@ -170,6 +177,11 @@ function handle_(req) {
       case 'pushTest': return opPushTest_(ctx);
       case 'pushInbox': return opPushInbox_(ctx);
       case 'pushMove': return opPushMove_(ctx);
+      case 'clientError': return opClientError_(ctx);
+      case 'feedback': return opFeedback_(ctx);
+      case 'feedbackList': return opFeedbackList_(ctx);
+      case 'feedbackDone': return opFeedbackDone_(ctx);
+      case 'saveBodyGoal': return opSaveBodyGoal_(ctx);
       default: throw err_('unknown_op', '不明な操作です。');
     }
   } catch (x) {
@@ -821,6 +833,8 @@ function memberWire_(m, admin) {
     player: m.player, active: m.active && !m.gone, start: m.start, left: m.left, sort: m.order,
     mode: m.mode, perm: m.perm, finance: m.finance
   };
+  const g = m.set || {};
+  if (g.targetWeight) { o.goalW = Number(g.targetWeight); o.goalD = g.targetDate || ''; }
   if (admin) {
     const s = m.set || {};
     o.pinSet = !!s.pinHash; o.mustChange = s.mustChange === '1';
@@ -863,7 +877,9 @@ function opState_(ctx) {
   base.body = bodyWire_(ctx.me);
   base.stamps = stampsWire_(addDays_(today, -STAMP_DAYS), ctx.req.device);
   if (ctx.me && (ctx.me.perm === 'admin' || ctx.me.perm === 'leader')) base.templates = table_('templates').rows.filter(function (t) { return !t.deletedAt; }).map(templateWire_);
-  if (admin) base.pinRequests = pinRequests_();
+  if (admin) { base.pinRequests = pinRequests_(); base.feedbackOpen = table_('feedback').rows.filter(function (f) { return !f.doneAt; }).length; }
+  base.selfRecs = table_('templates').rows.filter(function (t) { return !t.deletedAt && t.selfRec === '1'; }).map(templateWire_);
+  base.liftRatios = liftRatios_();
   return base;
 }
 
@@ -877,7 +893,54 @@ function opSaveRecords_(ctx) {
   const items = Array.isArray(ctx.req.items) ? ctx.req.items : [];
   if (!items.length) throw err_('empty', '記録する内容がありません。');
   if (items.length > 500) throw err_('too_many', '一度に送る件数が多すぎます。');
-  return withLock_(function () {
+  const notes = [];
+  const res = withLock_(function () {
+    const r = saveDay_(me, date, items);
+    notes.push.apply(notes, milestoneNotes_(r.inserted));
+    delete r.inserted;
+    return r;
+  });
+  notifyMilestones_(notes);
+  return res;
+}
+/** 1週間ぶんをまとめて記録・修正する（マネージャー・管理者）。days … [{ date, items }]（7日まで） */
+function opSaveRecordsWeek_(ctx) {
+  const me = requireRole_(ctx, ['admin', 'manager']);
+  const days = Array.isArray(ctx.req.days) ? ctx.req.days : [];
+  if (!days.length) throw err_('empty', '記録する内容がありません。');
+  if (days.length > 7) throw err_('too_many', 'まとめて記録できるのは7日分までです。');
+  const today = today_();
+  const list = days.map(function (d) {
+    const date = reqDate_(d && d.date);
+    if (date > today) throw err_('future_date', '未来の日付は記録できません。');
+    const items = Array.isArray(d.items) ? d.items : [];
+    if (items.length > 500) throw err_('too_many', '一度に送る件数が多すぎます。');
+    return { date: date, items: items };
+  }).filter(function (d) { return d.items.length; });
+  if (!list.length) throw err_('empty', '記録する内容がありません。');
+  const dates = list.map(function (d) { return d.date; }).sort();
+  if (addDays_(dates[0], 6) < dates[dates.length - 1]) throw err_('bad_range', 'まとめて記録できるのは1週間の中だけです。');
+  const notes = [];
+  const res = withLock_(function () {
+    const out = { ok: true, saved: 0, removed: 0, updated: 0, unchanged: 0, rejected: [], days: [] };
+    const ins = [];
+    list.forEach(function (d) {
+      const r = saveDay_(me, d.date, d.items);
+      ['saved', 'removed', 'updated', 'unchanged'].forEach(function (k) { out[k] += r[k]; });
+      r.rejected.forEach(function (x) { x.date = d.date; out.rejected.push(x); });
+      out.days.push(d.date);
+      ins.push.apply(ins, r.inserted);
+    });
+    notes.push.apply(notes, milestoneNotes_(ins));
+    out.records = recordsWire_(dates[0], dates[dates.length - 1]);
+    return out;
+  });
+  notifyMilestones_(notes);
+  return res;
+}
+/** 1日ぶんの記録（ロックの中で呼ぶ）。inserted … 新しく「実施した」になった行 */
+function saveDay_(me, date, items) {
+  {
     const existing = {};
     table_('records').rows.forEach(function (r) { if (r.date === date) existing[r.memberId] = r; });
     const tgt = targetMap_(date);
@@ -921,8 +984,8 @@ function opSaveRecords_(ctx) {
     removeMany_('records', removes);
     insert_('records', inserts);
     insert_('logs', logs);
-    return { ok: true, date: date, saved: inserts.length, removed: removes.length, updated: updated, unchanged: unchanged, rejected: rejected, records: recordsWire_(date, date) };
-  });
+    return { ok: true, date: date, saved: inserts.length, removed: removes.length, updated: updated, unchanged: unchanged, rejected: rejected, records: recordsWire_(date, date), inserted: inserts };
+  }
 }
 
 function opDeleteRecord_(ctx) {
@@ -987,7 +1050,8 @@ function opSaveMenu_(ctx) {
     video: url_(src.video, '動画リンク')
   };
   if (!data.group) throw err_('bad_group', '対象グループを選んでください。');
-  return withLock_(function () {
+  let fresh = null;
+  const res = withLock_(function () {
     const hist = historyIndex_();
     const now = now_();
     let w;
@@ -1014,9 +1078,12 @@ function opSaveMenu_(ctx) {
       insert_('menus', [w]);
       syncRecordTargets_(w.date);
       log_(me, 'メニューを作成', menuLabel_(w) + '・対象' + (w.targets ? w.targets.split(',').length : 0) + '人');
+      fresh = w;
     }
     return { ok: true, menu: menuWire_(w) };
   });
+  if (fresh) notifyMenu_(fresh);
+  return res;
 }
 
 function opDeleteMenu_(ctx) {
@@ -1419,7 +1486,12 @@ function opSaveSettings_(ctx) {
         log_(me, '閲覧の合言葉を設定', '');
       }
     }
-    return { ok: true, viewLock: !!setting_('viewPassHash'), weekGoal: weekGoal_() };
+    if (ctx.req.liftRatios !== undefined) {
+      const list = cleanLiftRatios_(ctx.req.liftRatios);
+      setSetting_('liftRatios', JSON.stringify(list));
+      log_(me, '重さの目安を変更', list.map(function (x) { return x.name + '×' + x.ratio; }).join('、') || '（なし）');
+    }
+    return { ok: true, viewLock: !!setting_('viewPassHash'), weekGoal: weekGoal_(), liftRatios: liftRatios_() };
   });
 }
 
@@ -1478,7 +1550,8 @@ function pruneStamps_(today) {
 // ---------------------------------------------------------------------------
 function templateWire_(t) {
   return { id: t.id, title: t.title, group: t.group, positions: menuPositions_(t), content: t.content, detail: t.detail, note: t.note, video: t.video,
-    repeat: t.repeat ? t.repeat.split(',').map(Number) : [], repeatFrom: t.repeatFrom, repeatTo: t.repeatTo, createdBy: t.createdBy, updatedAt: t.updatedAt || t.createdAt };
+    repeat: t.repeat ? t.repeat.split(',').map(Number) : [], repeatFrom: t.repeatFrom, repeatTo: t.repeatTo, createdBy: t.createdBy, updatedAt: t.updatedAt || t.createdAt,
+    selfRec: t.selfRec === '1' };
 }
 function repeatDays_(arr) {
   const list = Array.isArray(arr) ? arr : [];
@@ -1527,7 +1600,8 @@ function opSaveTemplate_(ctx) {
     video: url_(src.video, '動画リンク'),
     repeat: days.join(','),
     repeatFrom: src.repeatFrom ? reqDate_(src.repeatFrom, '繰り返しの開始日') : '',
-    repeatTo: src.repeatTo ? reqDate_(src.repeatTo, '繰り返しの終了日') : ''
+    repeatTo: src.repeatTo ? reqDate_(src.repeatTo, '繰り返しの終了日') : '',
+    selfRec: src.selfRec ? '1' : '0'
   };
   if (!data.group) throw err_('bad_group', '対象グループを選んでください。');
   if (data.repeatFrom && data.repeatTo && data.repeatTo < data.repeatFrom) throw err_('bad_range', '繰り返しの終了日は開始日より後にしてください。');
@@ -1755,7 +1829,7 @@ function opDeleteBody_(ctx) {
 // ---------------------------------------------------------------------------
 // 応援スタンプ（ログイン不要。端末ごとに同じ相手・できごと・スタンプは1回。もう一度押すと取り消し）
 // ---------------------------------------------------------------------------
-const STAMP_KINDS = { clap: 1, fire: 1, muscle: 1, party: 1, hundred: 1 };
+const STAMP_KINDS = { clap: 1, fire: 1, muscle: 1, party: 1, hundred: 1, rugby: 1, crown: 1, star: 1, cheer: 1 };
 const STAMP_DAY_MAX = 300;
 function stampsWire_(from, device) {
   const dev = String(device || '');
@@ -2016,7 +2090,7 @@ function ecKeygen_() {
 //   （中身を暗号化しなくてよいので、Apps Script だけで送れる）。届いた中身はキャッシュに6時間だけ置く。
 //   種類：goal＝今週あと○回（土曜18時・日曜9時）／cheer＝応援が届いた（7〜22時に1時間ごとにまとめて）／pinreq＝暗証番号の再発行の依頼（管理者）
 // ---------------------------------------------------------------------------
-const PUSH_KINDS = { goal: 1, cheer: 1, pinreq: 1 };
+const PUSH_KINDS = { goal: 1, cheer: 1, pinreq: 1, menu: 1, milestone: 1 };
 const PUSH_HOSTS = /^(([a-z0-9-]+\.)*(googleapis|google)\.com|updates\.push\.services\.mozilla\.com|([a-z0-9-]+\.)*push\.apple\.com|[a-z0-9.-]+\.notify\.windows\.com)$/;
 const PUSH_MAX = 400;
 const PUSH_SUB = 'https://kurfc-rugby.github.io/kintore/';
@@ -2190,7 +2264,7 @@ function weekStatus_(m, ws) {
   for (let i = 0; i < 7; i++) { const d = addDays_(ws, i); if (ex.some(function (e) { return e.from <= d && e.to >= d; })) exDays++; }
   return { count: c, need: exDays >= 7 ? 0 : Math.ceil(g * (7 - exDays) / 7), goal: g };
 }
-const STAMP_EMOJI = { clap: '👏', fire: '🔥', muscle: '💪', party: '🎉', hundred: '💯' };
+const STAMP_EMOJI = { clap: '👏', fire: '🔥', muscle: '💪', party: '🎉', hundred: '💯', rugby: '🏉', crown: '👑', star: '⭐', cheer: '📣' };
 /** 1時間ごと（時間主導のトリガー）。応援のまとめと、土日の「今週あと○回」 */
 function pushHourly() {
   REQ_ = { tables: {}, ss: null, roster: null };
@@ -2245,6 +2319,210 @@ function setupPush() {
   REQ_ = { tables: {}, ss: null, roster: null };
   try { ensureSchema_(); vapidKeys_(); withLock_(function () { if (!setting_('pushCheerAt')) setSetting_('pushCheerAt', now_()); }); } finally { REQ_ = null; }
   return 'ok';
+}
+
+// ---------------------------------------------------------------------------
+// 記録の節目の通知（v2.9）：週の目標を達成して連続が自己ベストに並んだ・更新した／通算○回
+// ---------------------------------------------------------------------------
+const TOTAL_MARKS_ = [10, 30, 50, 100, 200, 300, 500];
+function weekStartOf_(d) { const w = dow_(d); return addDays_(d, w === 0 ? -6 : 1 - w); }
+/** その人の、ある週までの連続達成。now … その週の時点の連続、bestBefore … その週より前でいちばん長い連続（logic.js の personal と同じ数え方） */
+function goalStreakAt_(memberId, ws0) {
+  const g = weekGoal_();
+  const done = {};
+  let first = '';
+  table_('records').rows.forEach(function (r) {
+    if (r.memberId !== memberId || r.status !== 'done') return;
+    done[r.date] = 1;
+    if (!first || r.date < first) first = r.date;
+  });
+  if (!first) return { now: 0, bestBefore: 0 };
+  const ex = table_('exempts').rows.filter(function (e) { return !e.deletedAt && (e.memberId === memberId || e.memberId === 'ALL'); });
+  let streak = 0, best = 0, now = 0;
+  for (let ws = weekStartOf_(first); ws <= ws0; ws = addDays_(ws, 7)) {
+    let exDays = 0, cnt = 0;
+    for (let i = 0; i < 7; i++) {
+      const d = addDays_(ws, i);
+      if (ex.some(function (e) { return e.from <= d && e.to >= d; })) exDays++;
+      if (done[d]) cnt++;
+    }
+    const need = exDays >= 7 ? 0 : Math.ceil(g * (7 - exDays) / 7);
+    if (need === 0) { if (ws === ws0) now = streak; continue; } // 免除の週はとばす
+    if (cnt >= need) streak++; else if (ws < ws0) streak = 0;
+    if (ws < ws0) { if (streak > best) best = streak; } else now = cnt >= need ? streak : 0;
+  }
+  return { now: now, bestBefore: best };
+}
+/** 新しく「実施した」になった行から、知らせる節目を拾う（ロックの中で呼ぶ。今週と先週の分だけ） */
+function milestoneNotes_(inserted) {
+  const out = [];
+  if (!inserted || !inserted.length) return out;
+  const today = today_(), lastWs = addDays_(weekStartOf_(today), -7);
+  const g = weekGoal_();
+  const byMember = {};
+  inserted.forEach(function (r) { (byMember[r.memberId] = byMember[r.memberId] || []).push(r.date); });
+  Object.keys(byMember).forEach(function (id) {
+    const m = memberById_(id);
+    if (!m || !m.player || !m.active) return;
+    const mine = table_('records').rows.filter(function (r) { return r.memberId === id && r.status === 'done'; }).map(function (r) { return r.date; }).sort();
+    // 通算：今回の記録で節目をまたいだか
+    const total = mine.length, before = total - byMember[id].length;
+    TOTAL_MARKS_.forEach(function (n) { if (before < n && total >= n) out.push({ id: id, kind: 'total', n: n }); });
+    // 週の目標：今回の記録で達成した週（今週・先週）
+    const weeks = {};
+    byMember[id].forEach(function (d) { const ws = weekStartOf_(d); if (ws >= lastWs) weeks[ws] = (weeks[ws] || 0) + 1; });
+    Object.keys(weeks).sort().forEach(function (ws) {
+      const we = addDays_(ws, 6);
+      const cnt = mine.filter(function (d) { return d >= ws && d <= we; }).length;
+      const st = weekStatus_(m, ws);
+      if (st.need === 0 || cnt < st.need || cnt - weeks[ws] >= st.need) return; // 今回で届いたときだけ
+      const sk = goalStreakAt_(id, ws);
+      if (sk.now >= 2 && sk.now >= sk.bestBefore) out.push({ id: id, kind: sk.now > sk.bestBefore ? 'best' : 'tie', n: sk.now, goal: g });
+    });
+  });
+  return out;
+}
+/** 節目を本人の端末に知らせる（失敗しても記録は成功のまま） */
+function notifyMilestones_(notes) {
+  if (!notes || !notes.length) return;
+  try {
+    const by = {};
+    notes.forEach(function (x) { (by[x.id] = by[x.id] || []).push(x); });
+    sendPush_(pushTargets_('milestone').filter(function (r) { return by[r.memberId]; }), function (r) {
+      const list = by[r.memberId];
+      const top = list.filter(function (x) { return x.kind === 'best' || x.kind === 'tie'; })[0] || list[0];
+      const m = memberById_(r.memberId);
+      const extra = list.filter(function (x) { return x !== top; }).map(function (x) { return x.kind === 'total' ? '通算' + x.n + '回' : ''; }).filter(Boolean);
+      let title, body;
+      if (top.kind === 'total') { title = '通算' + top.n + '回 達成'; body = (m ? m.name + ' さん、' : '') + 'これまでの実施が' + top.n + '回になりました。'; }
+      else if (top.kind === 'best') { title = '自己ベスト更新：' + top.n + '週連続'; body = '週' + top.goal + '回を' + top.n + '週続けて達成。いちばん長い連続を更新しました。'; }
+      else { title = '自己ベストに並びました：' + top.n + '週連続'; body = '週' + top.goal + '回を' + top.n + '週続けて達成。来週も届けば自己ベスト更新です。'; }
+      if (extra.length) body += '（' + extra.join('・') + 'も達成）';
+      return { title: title, body: body, url: './#member/' + r.memberId, tag: 'milestone' };
+    });
+  } catch (x) { console.error(x); }
+}
+/** 新しいメニューを対象の人に知らせる（今日以降のものだけ。失敗してもメニューは保存済み） */
+function notifyMenu_(w) {
+  try {
+    if (w.date < today_() || !w.targets) return;
+    const set = {};
+    w.targets.split(',').forEach(function (id) { if (id) set[id] = 1; });
+    const md = (function () { const a = w.date.split('-'); return (+a[1]) + '/' + (+a[2]) + '（' + '日月火水木金土'.charAt(dow_(w.date)) + '）'; })();
+    sendPush_(pushTargets_('menu').filter(function (r) { return set[r.memberId]; }), function () {
+      return { title: '新しいメニュー：' + md, body: w.title + (w.positions ? '（' + w.positions.split(',').join('・') + '）' : w.group === 'ALL' ? '（全体）' : '（' + w.group + '）'), url: './#menus', tag: 'menu' };
+    });
+  } catch (x) { console.error(x); }
+}
+
+// ---------------------------------------------------------------------------
+// 画面のエラーを自動で記録する（v2.9。ログイン不要。1端末1日20件・全体で1日200件まで、同じ内容は1日1回）
+// ---------------------------------------------------------------------------
+function opClientError_(ctx) {
+  const req = ctx.req;
+  const msg = String(req.message || '').replace(/[\x00-\x1f]/g, ' ').trim().slice(0, 300);
+  if (!msg) return { ok: true, logged: false };
+  const device = /^[0-9a-f]{16,40}$/.test(String(req.device || '')) ? String(req.device) : 'unknown';
+  const cache = CacheService.getScriptCache();
+  const day = today_();
+  const kd = 'cerr:d:' + device + ':' + day, ka = 'cerr:all:' + day, km = 'cerr:m:' + sha256Hex_(msg + '|' + String(req.src || '')).slice(0, 24) + ':' + day;
+  const nd = parseInt(cache.get(kd) || '0', 10), na = parseInt(cache.get(ka) || '0', 10);
+  if (nd >= 20 || na >= 200 || cache.get(km)) return { ok: true, logged: false };
+  cache.put(kd, String(nd + 1), 86400); cache.put(ka, String(na + 1), 86400); cache.put(km, '1', 86400);
+  const where = String(req.src || '').replace(/^.*\//, '').slice(0, 40) + (req.line ? ':' + parseInt(req.line, 10) : '');
+  const detail = 'v' + String(req.version || '?').slice(0, 12) + ' ' + String(req.page || '').slice(0, 30) + '｜' + msg + (where ? '（' + where + '）' : '') +
+    '｜' + deviceLabel_(req.ua);
+  return withLock_(function () {
+    insert_('logs', [{ at: now_(), actorId: ctx.me ? ctx.me.id : '', actorName: ctx.me ? ctx.me.name : '（部員の画面）', role: ctx.me ? ENC.perm[ctx.me.perm] || '' : '', action: '画面のエラー', detail: detail.slice(0, 500) }]);
+    return { ok: true, logged: true };
+  });
+}
+
+// ---------------------------------------------------------------------------
+// 要望・不具合を送る（v2.9。だれでも。1端末1日10件まで）。管理者は一覧で見て「対応済み」にする
+// ---------------------------------------------------------------------------
+function feedbackWire_(f) {
+  const m = f.fromId ? memberById_(f.fromId) : null;
+  return { id: f.id, kind: f.kind, text: f.text, from: m ? m.name : '', page: f.page, version: f.version, at: f.at, done: !!f.doneAt, doneAt: f.doneAt };
+}
+function opFeedback_(ctx) {
+  requireView_(ctx);
+  const req = ctx.req;
+  const kind = ['idea', 'bug', 'other'].indexOf(req.kind) >= 0 ? req.kind : 'other';
+  const text = text_(req.text, 1000, '内容', true);
+  const device = String(req.device || '');
+  if (!/^[0-9a-f]{16,40}$/.test(device)) throw err_('bad_device', 'この端末からは送れません。画面を開き直してください。');
+  const fromId = ctx.me ? ctx.me.id : String(req.from || '');
+  if (fromId && !memberById_(fromId)) throw err_('not_found', '送る人が見つかりません。');
+  const cache = CacheService.getScriptCache();
+  const ck = 'fb:' + device + ':' + today_();
+  const n = parseInt(cache.get(ck) || '0', 10);
+  if (n >= 10) throw err_('too_many', '今日はもう送れません。また明日どうぞ。');
+  const row = { id: newId_('f'), kind: kind, text: text, fromId: fromId, page: String(req.page || '').slice(0, 30), version: String(req.version || '').slice(0, 12),
+    device: device, at: now_(), doneBy: '', doneAt: '' };
+  withLock_(function () { insert_('feedback', [row]); });
+  cache.put(ck, String(n + 1), 86400);
+  try {
+    const admins = {};
+    activeAdmins_().forEach(function (a) { admins[a.id] = 1; });
+    const m = fromId ? memberById_(fromId) : null;
+    sendPush_(pushTargets_('pinreq').filter(function (r) { return admins[r.staffId]; }), function () {
+      return { title: ENC.fbkind[kind] + 'が届きました', body: (m ? m.name + ' さん：' : '') + text.slice(0, 80), url: './#feedback', tag: 'feedback' };
+    });
+  } catch (x) { console.error(x); }
+  return { ok: true };
+}
+function opFeedbackList_(ctx) {
+  requireRole_(ctx, ['admin']);
+  const rows = table_('feedback').rows.slice().sort(function (a, b) { return a.at < b.at ? 1 : a.at > b.at ? -1 : 0; });
+  return { ok: true, feedback: rows.slice(0, 300).map(feedbackWire_), open: rows.filter(function (f) { return !f.doneAt; }).length };
+}
+function opFeedbackDone_(ctx) {
+  const me = requireRole_(ctx, ['admin']);
+  const id = String(ctx.req.id || '');
+  return withLock_(function () {
+    const f = table_('feedback').rows.filter(function (x) { return x.id === id; })[0];
+    if (!f) throw err_('not_found', 'その要望は見つかりません。');
+    if (ctx.req.done === false) { f.doneBy = ''; f.doneAt = ''; } else { f.doneBy = me.id; f.doneAt = now_(); }
+    update_('feedback', f);
+    return { ok: true, item: feedbackWire_(f), open: table_('feedback').rows.filter(function (x) { return !x.doneAt; }).length };
+  });
+}
+
+// ---------------------------------------------------------------------------
+// 目標体重（v2.9。スタッフが入れる。数値はだれでも見られる）と、種目ごとの重さの目安（体重×倍率。管理者が決める）
+// ---------------------------------------------------------------------------
+function opSaveBodyGoal_(ctx) {
+  const me = requireRole_(ctx, ['admin', 'manager', 'leader']);
+  const m = memberOrThrow_(String(ctx.req.memberId || ''));
+  const w = bodyNum_(ctx.req.weight, 'weight');
+  const date = w && ctx.req.date ? reqDate_(ctx.req.date, '期日') : '';
+  return withLock_(function () {
+    const s = peopleRow_(m);
+    s.targetWeight = w; s.targetDate = date; s.updatedAt = now_();
+    update_('people', s);
+    log_(me, '目標体重を' + (w ? '設定' : '解除'), m.name + (w ? '：' + w + 'kg' + (date ? '（' + date + 'まで）' : '') : ''));
+    return { ok: true, memberId: m.id, goalW: w ? Number(w) : null, goalD: date };
+  });
+}
+const DEFAULT_LIFT_RATIOS = [{ name: 'ベンチプレス', ratio: 1.0 }, { name: 'スクワット', ratio: 1.5 }, { name: 'デッドリフト', ratio: 1.8 }];
+function cleanLiftRatios_(v) {
+  const list = Array.isArray(v) ? v : [];
+  if (list.length > 12) throw err_('too_many', '種目は12個までです。');
+  const seen = {};
+  return list.map(function (x) {
+    const name = text_(x && x.name, 20, '種目名', true);
+    const r = Number(String(x && x.ratio).replace(/[０-９．]/g, function (c) { return String.fromCharCode(c.charCodeAt(0) - 0xfee0); }));
+    if (!isFinite(r) || r < 0.1 || r > 5) throw err_('bad_number', name + 'の倍率は 0.1〜5 の数で入れてください。');
+    if (seen[name]) throw err_('dup', '同じ種目が2つあります：' + name);
+    seen[name] = 1;
+    return { name: name, ratio: Math.round(r * 100) / 100 };
+  });
+}
+function liftRatios_() {
+  const v = setting_('liftRatios');
+  if (!v) return DEFAULT_LIFT_RATIOS;
+  try { const a = JSON.parse(v); return Array.isArray(a) ? a : DEFAULT_LIFT_RATIOS; } catch (x) { return DEFAULT_LIFT_RATIOS; }
 }
 
 // ---------------------------------------------------------------------------

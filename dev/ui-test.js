@@ -90,7 +90,7 @@ const ok = (c, label) => { if (c) { pass++; console.log('  ✓ ' + label); } els
   await go('#member/' + await page.evaluate(() => (JSON.parse(localStorage.getItem('kintore.self')))));
   await page.waitForSelector('.bests', { timeout: 4000 });
   ok(await count('.bests .best') === 4 && await count('.badges .badge.on') >= 1, '部員の画面に自己ベストと称号が出る');
-  ok(await count('.bnow .bv') >= 1 && await count('.bchart') === 1, '体重・体組成の最新とグラフが出る（みんなが見られる）');
+  ok(await count('.bnow .bv') >= 1 && await count('.bchart:not(.vs)') === 1, '体重・体組成の最新とグラフが出る（みんなが見られる）');
   await go('#members'); await page.click('.gone-box summary:has-text("体重")'); ok(await count('.btable tbody tr') >= 5, '部員の画面に体組成の一覧が出る');
   await go('#settings'); await page.click('[data-act="login"]'); await page.click('[data-act="pinreq-open"]');
   ok(await count('form[data-form="pinreq"] select[name="memberId"]') === 1, 'ログイン画面から「暗証番号を忘れたとき」の依頼を開ける');
@@ -176,6 +176,7 @@ const ok = (c, label) => { if (c) { pass++; console.log('  ✓ ' + label); } els
   await page.click('[data-act="tpl-new"]');
   await page.fill('input[name="title"]', '火曜の体幹'); await page.fill('textarea[name="content"]', 'プランク');
   await page.fill('input[name="video"]', 'https://youtu.be/xyz');
+  await page.evaluate(() => document.querySelector('.radios.wd label:has(input[value="2"]) span').scrollIntoView({ block: 'center' }));
   await page.locator('.radios.wd label:has(input[value="2"]) span').click({ force: true });
   ok(await page.isChecked('.radios.wd input[value="2"]'), '繰り返す曜日を選べる');
   await page.click('form[data-form="template"] button[type="submit"]'); await page.waitForTimeout(1100);
@@ -304,6 +305,117 @@ const ok = (c, label) => { if (c) { pass++; console.log('  ✓ ' + label); } els
     ok((await p2.locator('#push').innerText()).includes('通知をオンにする'), '通知をオフにできる');
     await c2.close();
   }
+  console.log('■ v2.9 の新しい画面（MVP・FW対BK・分布・まとめて記録・要望・体重の目標・おすすめ・スタンプ）');
+  {
+    const c4 = await browser.newContext({ viewport: { width: 375, height: 760 }, isMobile: true, hasTouch: true, reducedMotion: 'reduce' });
+    await c4.route(/fonts\.(googleapis|gstatic)\.com/, (r) => r.abort());
+    const q = await c4.newPage();
+    const qerr = [];
+    q.on('pageerror', (e) => qerr.push(e.message));
+    q.on('dialog', (d) => d.accept());
+    await q.addInitScript(() => { try { localStorage.setItem('kintore.guided', '1'); } catch (e) { /* なし */ } });
+    const qgo = async (h) => { await q.evaluate((x) => { location.hash = x; }, h); await q.waitForTimeout(500); };
+    const qlogin = async (label, pin) => {
+      await qgo('#settings'); await q.click('[data-act="login"]');
+      await q.selectOption('select[name="memberId"]', { label }); await q.fill('input[name="pin"]', pin);
+      await q.click('form[data-form="login"] button[type="submit"]'); await q.waitForTimeout(1000);
+    };
+    await q.goto(BASE); await q.waitForSelector('.board'); await q.waitForTimeout(400);
+    ok(await q.locator('.versus .vs-side').count() === 2 && /FW|BK|互角/.test(await q.locator('.versus .count').innerText()), 'ホームに「FW対BK」（1人あたりの回数で比べる）');
+    const mvp = await q.locator('.mvp').count();
+    ok(mvp === 0 || (await q.locator('.mvp .mvp-list li').count()) >= 1, 'ホームに「先週のMVP」（先週に記録があれば）');
+    ok(await q.locator('.selfcard').count() === 0 || /先週の同じ時点/.test(await q.locator('.selfcard').innerText()), '「わたし」に先週の同じ時点との比べ');
+    await qgo('#rank');
+    ok(await q.locator('.spread li').count() === 4, 'ランキングに「達成率の分布」（0%・1〜49%・50〜99%・100%）');
+    // スタンプの「＋」
+    await qgo('#home');
+    const more = q.locator('.stamps .stamp.more').first();
+    if (await more.count()) {
+      const before = await q.locator('.stamps').first().locator('.stamp:visible').count();
+      await more.click(); await q.waitForTimeout(200);
+      const after = await q.locator('.stamps').first().locator('.stamp:visible').count();
+      ok(after > before && await q.locator('.stamps.open').count() >= 1, 'スタンプは「＋」で🏉👑⭐📣も出る');
+    } else ok(await q.locator('.stamps').count() === 0, 'スタンプは「＋」で🏉👑⭐📣も出る（応援できる人がいない）');
+    // 引っぱって更新・横にはらう（タッチを作って送る）
+    const touch = async (sel, pts) => q.evaluate(({ sel, pts }) => {
+      const el = document.querySelector(sel);
+      const mk = (x, y) => new Touch({ identifier: 1, target: el, clientX: x, clientY: y });
+      el.dispatchEvent(new TouchEvent('touchstart', { touches: [mk(pts[0][0], pts[0][1])], changedTouches: [mk(pts[0][0], pts[0][1])], bubbles: true }));
+      pts.slice(1).forEach((p) => el.dispatchEvent(new TouchEvent('touchmove', { touches: [mk(p[0], p[1])], changedTouches: [mk(p[0], p[1])], bubbles: true })));
+      const l = pts[pts.length - 1];
+      el.dispatchEvent(new TouchEvent('touchend', { touches: [], changedTouches: [mk(l[0], l[1])], bubbles: true }));
+    }, { sel, pts });
+    await qgo('#rank'); await q.evaluate(() => window.scrollTo(0, 0));
+    const lab0 = await q.locator('.plabel span').first().innerText().catch(() => '');
+    await touch('#main', [[80, 300], [120, 302], [200, 304], [260, 305]]); await q.waitForTimeout(700);
+    const lab1 = await q.locator('.plabel span').first().innerText().catch(() => '');
+    ok(lab0 && lab1 && lab0 !== lab1, '右にはらうと前の週に移る');
+    await q.click('[data-act="period"][data-v="1"]'); await q.waitForTimeout(300);
+    await q.evaluate(() => window.scrollTo(0, 0));
+    await touch('#main', [[180, 200], [180, 230], [180, 300], [180, 360], [180, 400]]); await q.waitForTimeout(1500);
+    ok((await q.locator('.toast').allInnerTexts()).some((t) => t.includes('最新の情報に更新しました')), '一番上で下に引っぱると、最新の情報に更新する');
+    // 要望・不具合（ログインなしで送る → 管理者が一覧で見る）
+    await qlogin('管理 太郎（管理者）', 'test-admin-1');
+    await qgo('#feedback');
+    ok(await q.locator('.empty-st').count() === 1, '要望がまだ無いときは、絵と次にやることを出す');
+    await qgo('#settings'); await q.click('[data-act="logout"]'); await q.waitForTimeout(800);
+    await q.click('[data-act="fb-open"]');
+    await q.check('form[data-form="feedback"] input[value="bug"]', { force: true });
+    await q.fill('textarea[name="text"]', '記録の画面で名前が切れる');
+    await q.click('form[data-form="feedback"] button[type="submit"]'); await q.waitForTimeout(900);
+    ok((await q.locator('.toast').allInnerTexts()).some((t) => t.includes('送りました')), 'ログインなしで要望・不具合を送れる');
+    await qlogin('管理 太郎（管理者）', 'test-admin-1');
+    await qgo('#settings');
+    ok(await q.locator('.links .badge-n').count() === 1, '管理者メニューに未対応の数が出る');
+    await qgo('#feedback');
+    ok((await q.locator('.fb-list').first().innerText()).includes('記録の画面で名前が切れる'), '管理者は要望・不具合の一覧で見られる');
+    await q.click('[data-act="fb-done"]'); await q.waitForTimeout(800);
+    ok((await q.locator('.toast').allInnerTexts()).some((t) => t.includes('対応済み')), '「対応済み」にできる');
+    // 重さの目安
+    await qgo('#settings'); await q.click('[data-act="lifts-open"]');
+    await q.locator('input[name="ln"]').nth(3).fill('パワークリーン'); await q.locator('input[name="lr"]').nth(3).fill('0.9');
+    await q.click('form[data-form="lifts"] button[type="submit"]'); await q.waitForTimeout(900);
+    ok((await q.locator('.toast').allInnerTexts()).some((t) => t.includes('重さの目安を保存')), '管理者は重さの目安（種目と倍率）を変えられる');
+    // 体重の目標・重さの目安・体重と回数
+    const bodyMember = await page.evaluate(() => JSON.parse(localStorage.getItem('kintore.self')));
+    await qgo('#member/' + bodyMember); await q.waitForSelector('.bests', { timeout: 5000 }).catch(() => {});
+    await q.click('[data-act="body-goal"]');
+    await q.fill('form[data-form="bodygoal"] input[name="weight"]', '85'); await q.fill('form[data-form="bodygoal"] input[name="date"]', '2027-03-31');
+    await q.click('form[data-form="bodygoal"] button[type="submit"]'); await q.waitForTimeout(900);
+    ok((await q.locator('.bgoal').innerText()).includes('85') && await q.locator('.bchart line.goal').count() === 1, '目標体重を入れると、「あと何kg」とグラフに目標の線が出る');
+    ok(await q.locator('.lifts li').count() === 4 && (await q.locator('.lifts').innerText()).includes('パワークリーン'), '体重から種目ごとの重さの目安が出る');
+    ok(await q.locator('.bchart.vs').count() <= 1, '体重と月の実施回数のグラフ（測定が2か月以上あれば）');
+    ok(await q.locator('.badges .medal').count() >= 1, '称号はメダル（数字入り）で見せる');
+    // 自主トレのおすすめ（型に印 → だれでも見られる）
+    await qgo('#menus'); await q.click('[data-act="menu-tab"][data-v="templates"]'); await q.click('[data-act="tpl-new"]');
+    await q.fill('input[name="title"]', '自重サーキット'); await q.fill('textarea[name="content"]', '腕立て\nスクワット\nプランク');
+    await q.check('input[name="selfRec"]');
+    await q.click('form[data-form="template"] button[type="submit"]'); await q.waitForTimeout(1200);
+    await q.click('[data-act="menu-tab"][data-v="upcoming"]'); await q.waitForTimeout(300);
+    ok((await q.locator('.selfrec').innerText()).includes('自重サーキット'), 'メニュー画面の上に「自主トレのおすすめ」が出る');
+    await q.click('.sr-card'); await q.waitForSelector('.sheet .detail');
+    ok((await q.locator('.sheet-h h2').innerText()) === '自重サーキット', 'おすすめを押すと中身が見られる');
+    await q.keyboard.press('Escape');
+    // 1週間まとめて記録
+    await qgo('#record'); await q.click('[data-act="week-open"]'); await q.waitForSelector('.wk');
+    ok(await q.locator('.wk tbody tr').count() >= 3 && await q.locator('.wk thead th').count() === 9, '「1週間まとめて」で、部員×7日の表が出る');
+    const cell = q.locator('.wk-c:not(.on)').first();
+    const k = await cell.getAttribute('data-k');
+    await cell.click();
+    ok(await q.locator('.wk-c[data-k="' + k + '"].on.changed').count() === 1 && /保存する（1件）/.test(await q.locator('[data-act="week-save"]').innerText()), 'マスを押すと「実施した」になり、保存する件数が出る');
+    await q.click('[data-act="week-save"]'); await q.waitForTimeout(1200);
+    ok((await q.locator('.toast').allInnerTexts()).some((t) => /保存しました（実施 1件/.test(t)), 'まとめて保存できる');
+    await q.click('[data-act="week-open"]'); await q.waitForSelector('.wk');
+    ok(await q.locator('.wk-c[data-k="' + k + '"].on:not(.changed)').count() === 1, '保存した内容が表に入っている');
+    await q.keyboard.press('Escape');
+    // 画面のエラーを自動で記録
+    await q.evaluate(() => setTimeout(() => { throw new Error('UIテスト用のエラー'); }, 0)); await q.waitForTimeout(800);
+    await qgo('#logs'); await q.waitForTimeout(800);
+    ok((await q.locator('.logs').innerText()).includes('画面のエラー') && (await q.locator('.logs').innerText()).includes('UIテスト用のエラー'), '画面のエラーは自動で操作履歴に残る');
+    ok(qerr.filter((m) => !/UIテスト用のエラー/.test(m)).length === 0, 'v2.9 の画面でエラーなし' + (qerr.length ? ': ' + qerr.join(' / ') : ''));
+    await c4.close();
+  }
+
   console.log('■ 動き（画面の切り替え・シート・記録）');
   {
     const c3 = await browser.newContext({ viewport: { width: 375, height: 760 }, isMobile: true, hasTouch: true });
@@ -312,7 +424,13 @@ const ok = (c, label) => { if (c) { pass++; console.log('  ✓ ' + label); } els
     p3.on('pageerror', (e) => errors.push('motion: ' + e.message));
     p3.on('dialog', (d) => d.accept());
     await p3.addInitScript(() => { try { localStorage.setItem('kintore.guided', '1'); } catch (e) { /* なし */ } });
-    await p3.goto(BASE); await p3.waitForSelector('.board'); await p3.waitForTimeout(300);
+    await p3.goto(BASE);
+    const intro0 = await p3.locator('.intro').count();
+    await p3.waitForSelector('.board'); await p3.waitForTimeout(1500);
+    ok(intro0 === 1 && await p3.locator('.intro').count() === 0, '起動すると校章と段柄の演出が出て、1秒ほどで消える');
+    await p3.reload(); await p3.waitForSelector('.board');
+    ok(await p3.locator('.intro').count() === 0, '起動の演出は1回の起動で1度だけ（読み込み直しでは出ない）');
+    await p3.waitForTimeout(300);
     if (await p3.locator('.guide').count()) { await p3.click('.guide [data-act="guide-close"]').catch(() => {}); await p3.waitForTimeout(300); }
     ok(await p3.evaluate(() => typeof document.startViewTransition === 'function'), 'このブラウザは画面の切り替えの動き（View Transitions）に対応');
     const top = await p3.evaluate(() => ({ h: document.querySelector('.top').getBoundingClientRect().height, brand: getComputedStyle(document.querySelector('.brand-t')).display, title: document.querySelector('.top-title').innerText }));
@@ -383,6 +501,28 @@ const ok = (c, label) => { if (c) { pass++; console.log('  ✓ ' + label); } els
       await p3.click('.rec-row[data-id="' + id + '"] .rec-btn'); await p3.waitForTimeout(100);
       ok(await p3.locator('.rec-row[data-id="' + id + '"] .rec-btn[aria-pressed="false"]').count() === 1, 'もう一度押すと取り消せる（動きがあっても状態は正しい）');
     } else ok(false, '記録の画面に押せるボタンがある');
+ // 週の目標を達成した「わたし」でホームを開くと紙吹雪（1週に1回だけ）
+    await p3.evaluate(() => { location.hash = '#settings'; }); await p3.waitForTimeout(500);
+    const opts = await p3.locator('select[data-act-change="pref-self"] option').evaluateAll((os) => os.map((o) => o.value).filter(Boolean));
+    let found = false;
+    for (const v of opts) {
+      await p3.evaluate(() => { location.hash = '#settings'; }); await p3.waitForTimeout(350);
+      await p3.selectOption('select[data-act-change="pref-self"]', v); await p3.waitForTimeout(200);
+      await p3.evaluate(() => { location.hash = '#home'; }); await p3.waitForTimeout(150);
+      if (await p3.locator('.selfcard .self-s.ok').count()) {
+        const c1 = await p3.locator('.confetti').count();
+        await p3.waitForTimeout(700);
+        const c2 = await p3.locator('.confetti').count();
+        ok((c1 + c2) >= 1 && (await p3.locator('.toast').allInnerTexts()).some((t) => t.includes('🎉')), '週の目標を達成した「わたし」でホームを開くと、紙吹雪とお祝い');
+        await p3.waitForTimeout(2300);
+        await p3.evaluate(() => { location.hash = '#rank'; }); await p3.waitForTimeout(500);
+        await p3.evaluate(() => { location.hash = '#home'; }); await p3.waitForTimeout(900);
+        ok(await p3.locator('.confetti').count() === 0, 'お祝いは1週に1回だけ');
+        found = true; break;
+      }
+    }
+    if (!found) ok(true, '週の目標を達成した部員がいないので紙吹雪の確認はとばす');
+    await p3.evaluate(() => { location.hash = '#rank'; }); await p3.waitForTimeout(600);
     await p3.evaluate(() => { location.hash = '#home'; }); await p3.waitForTimeout(150);
     const mid = await p3.evaluate(() => { const el = document.querySelector('.board-v .num[data-count]'); return el ? [el.textContent, el.dataset.count] : null; });
     await p3.waitForTimeout(1100);
