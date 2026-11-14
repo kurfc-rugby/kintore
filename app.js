@@ -3,7 +3,7 @@
   'use strict';
   const L = window.KLogic;
   const API = window.KINTORE_API;
-  const VERSION = '2.10.2';
+  const VERSION = '2.10.3';
   const WD = ['日', '月', '火', '水', '木', '金', '土'];
   const PERM = { admin: '管理者', manager: 'マネージャー', leader: 'FWリーダー', member: '一般部員' };
   const MODE = { leader: 'メニュー参加', self: '自主トレ' };
@@ -2219,7 +2219,8 @@
     const show = (r) => role === 'all' ? r === 'all' : (r === role || r === 'staff' || (role === 'admin' && r !== 'all'));
     let h = '<div class="sub-h"><a class="ibtn" href="#settings" data-act="go-back" aria-label="戻る">' + icon('back') + '</a><h1>使い方ガイド</h1></div>' +
       '<div class="fbar"><div class="seg small" role="group" aria-label="だれ向け">' + HELP_ROLES.map((x) => '<button data-act="help-role" data-v="' + x[0] + '" aria-pressed="' + (role === x[0]) + '">' + x[1] + '</button>').join('') + '</div></div>' +
-      '<section class="howvid"><video controls playsinline preload="none" poster="media/howto.jpg?v=2" src="media/howto.mp4?v=2" aria-label="40秒でわかる使い方の動画"></video><p class="howvid-t"><b>40秒でわかる使い方</b><small>ホーム・ランキング・自分の名前・応援・メニュー・要望の送り方（音はありません）</small></p></section>' +
+      '<button class="howvid" data-act="video-open" aria-label="40秒でわかる使い方の動画を全画面で再生"><span class="hv-thumb"><img src="media/howto.jpg?v=2" alt="" width="132" height="235"><span class="hv-play" aria-hidden="true">' + icon('play') + '</span></span>' +
+      '<span class="howvid-t"><b>40秒でわかる使い方</b><small>ホーム・ランキング・自分の名前・応援・メニュー・要望の送り方（音はありません）</small><span class="hv-go">' + icon('play') + '全画面で見る</span></span></button>' +
       (role === 'all' ? '<p class="note is-top">知りたいところを押すと開きます。マネージャー・FWリーダー・管理者の使い方は、上で切り替えてください。</p>' : '<p class="note is-top">ログインしてできることです。みんな向けの使い方は「みんな」にあります。</p>') +
       '<div class="help">';
     helpSections().filter((x) => show(x[1])).forEach((x, i) => {
@@ -2228,6 +2229,32 @@
     h += '</div><div class="toolbar center"><button class="btn" data-act="guide">30秒の紹介をもう一度見る</button></div>';
     return h;
   }
+
+  /** 使い方の動画を全画面で再生する（黒い画面いっぱい。×・画面の外・戻るボタン・Esc で閉じる） */
+  function openVideo() {
+    closeVideo();
+    const el = document.createElement('div');
+    el.className = 'vplayer'; el.setAttribute('role', 'dialog'); el.setAttribute('aria-modal', 'true'); el.setAttribute('aria-label', '40秒でわかる使い方');
+    el.innerHTML = '<video src="media/howto.mp4?v=2" poster="media/howto.jpg?v=2" controls autoplay playsinline muted></video>' +
+      '<button class="vp-x" data-act="video-close" aria-label="閉じる">×</button>';
+    el.addEventListener('click', (ev) => { if (ev.target === el) closeVideo(); });
+    document.body.appendChild(el);
+    document.body.classList.add('sheet-open');
+    const v = el.querySelector('video');
+    v.addEventListener('ended', () => { setTimeout(closeVideo, 600); });
+    try { history.pushState({ video: 1 }, ''); } catch (e) { /* なし */ }
+    const p = v.play(); if (p && p.catch) p.catch(() => {});
+  }
+  function closeVideo(fromPop) {
+    const el = $('.vplayer');
+    if (!el) return;
+    const v = el.querySelector('video'); if (v) v.pause();
+    el.classList.add('out');
+    setTimeout(() => el.remove(), reduceMotion() ? 0 : 200);
+    if (!$('#sheet-root').innerHTML) document.body.classList.remove('sheet-open');
+    if (!fromPop && history.state && history.state.video) history.back();
+  }
+  window.addEventListener('popstate', () => { if ($('.vplayer')) closeVideo(true); });
 
   // ---------- はじめて開いた人への使い方ガイド（30秒） ----------
   // 30秒の紹介（初めて開いたとき）。それぞれの画面で、その場で設定もできる
@@ -2870,6 +2897,8 @@
       });
     },
     'fb-open': () => openFeedback(),
+    'video-open': () => openVideo(),
+    'video-close': () => closeVideo(),
     'fb-done': async (el) => {
       try {
         const r = await api('feedbackDone', { id: el.dataset.id, done: el.dataset.v === '1' });
@@ -3269,6 +3298,7 @@
     }
   });
   document.addEventListener('keydown', (ev) => {
+    if (ev.key === 'Escape' && $('.vplayer')) { closeVideo(); return; }
     if (ev.key === 'Escape' && $('#guide-root').innerHTML) { closeGuide(); return; }
     if (ev.key === 'Escape' && !sheetLocked && $('#sheet-root').innerHTML) closeSheet();
   });

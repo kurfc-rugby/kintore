@@ -116,6 +116,14 @@ const ok = (c, label) => { if (c) { pass++; console.log('  ✓ ' + label); } els
   console.log('■ 使い方ガイド');
   await page.click('.top-help'); await page.waitForTimeout(400);
   ok(page.url().endsWith('#help') && await count('.hsec') >= 10, '上の「？」から使い方ガイドを開ける（みんな向けの項目が並ぶ）');
+  await page.click('.howvid'); await page.waitForTimeout(800);
+  const vp = await page.evaluate(() => { const v = document.querySelector('.vplayer video'); const r = v && v.getBoundingClientRect(); return v ? { w: Math.round(r.width), h: Math.round(r.height), playing: !v.paused, vw: innerWidth, vh: innerHeight } : null; });
+  ok(vp && vp.w === vp.vw && vp.h >= vp.vh - 2 && vp.playing, '使い方の動画を押すと、画面いっぱいで再生が始まる');
+  await page.click('.vp-x'); await page.waitForTimeout(500);
+  ok(await count('.vplayer') === 0 && page.url().endsWith('#help'), '×で閉じると、使い方ガイドに戻る');
+  await page.click('.howvid'); await page.waitForTimeout(500);
+  await page.goBack(); await page.waitForTimeout(500);
+  ok(await count('.vplayer') === 0 && page.url().endsWith('#help'), 'スマホの「戻る」でも動画だけ閉じる');
   await page.click('#h-install summary');
   ok((await text('#h-install')).includes('ホーム画面に追加') && await count('#h-install .steps li') >= 8, 'ホーム画面に追加の手順（iPhone・Android）が開く');
   await page.click('[data-act="help-role"][data-v="manager"]');
