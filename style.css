@@ -691,11 +691,11 @@ html[data-theme="dark"] .board-streaks { opacity: .8; }
 .btable .bd { font-size: 11px; color: var(--sub); }
 .form .three { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
 .form .three label { margin-bottom: 8px; }
-.bulk.bodyb .bulk-h, .bulk.bodyb .bulk-r { grid-template-columns: minmax(0, 1fr) 64px 64px 64px; }
+.bulk.bodyb .bulk-h, .bulk.bodyb .bulk-r { grid-template-columns: minmax(0, 1fr) 96px; }
 .form .bulk.bodyb input[type="text"] { margin: 0; min-height: 40px; padding: 6px; font-size: 15px; text-align: right; width: 100%; border: 1.5px solid var(--field); border-radius: 6px; background: var(--paper); }
 
 /* ---------- メニュー：動画・ライブラリ・コピー・これまで ---------- */
-.vtag { display: inline-flex; color: var(--enji); }
+.vtag { display: inline-flex; align-items: center; gap: 2px; color: var(--enji); font-size: 11px; font-weight: 700; white-space: nowrap; }
 .vtag .ic { width: 16px; height: 16px; }
 .menu-foot small { margin-left: 8px; font-weight: 600; color: var(--sub); }
 .vbtn { margin-top: 8px; }
@@ -998,15 +998,10 @@ html[data-vt="prev"]::view-transition-new(root) { animation: vt-from-left-s .32s
 .main.enter .vs-bar i { animation: meter-grow .9s var(--ease-out) .25s backwards; transform-origin: left center; }
 
 .slip-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 6px; }
-.slip-list a { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 10px; padding: 7px 10px; border: 1px solid var(--line); border-left: 4px solid var(--muted); transition: background-color .25s ease; }
+.slip-list a { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 10px; padding: 7px 10px; border: 1px solid var(--line); border-left: 4px solid var(--muted); transition: background-color .25s ease; }
 .slip-list a:active { background-color: var(--soft); transition-duration: .04s; }
 .slip-n { min-width: 0; font-weight: 700; font-size: 14px; line-height: 1.3; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .slip-n small { display: block; font-size: 11px; font-weight: 600; color: var(--sub); }
-.slip-w { display: flex; gap: 4px; }
-.slip-w i { font-style: normal; font-size: 11px; color: var(--sub); padding: 1px 5px; border-radius: 4px; background: var(--not-tint); }
-.slip-w .num { font-size: 15px; color: var(--not); }
-.slip-now { font-size: 11px; color: var(--sub); text-align: right; line-height: 1.1; }
-.slip-now .num { display: block; font-size: 18px; color: var(--ink); }
 
 .spread li { display: grid; grid-template-columns: 5.2em minmax(0, 1fr) 3.4em; align-items: center; gap: 8px; padding: 4px 0; }
 .sp-k { font-family: var(--num); font-weight: 700; font-size: 14px; color: var(--sub); }
@@ -1290,3 +1285,14 @@ html[data-size="l"] .pbar .pnav, html[data-size="xl"] .pbar .pnav { flex: 1 1 10
 html[data-size="l"] .help-seg, html[data-size="xl"] .help-seg { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5px; width: 100%; background: var(--ink); }
 html[data-size="l"] .help-seg button, html[data-size="xl"] .help-seg button { border: 0; background: var(--paper); }
 html[data-size="l"] .help-seg button[aria-pressed="true"], html[data-size="xl"] .help-seg button[aria-pressed="true"] { background: var(--ink); }
+
+/* v2.11 ホームの大きな数字は「実施回数」と「週◯回の達成率」の2つ */
+.board-side { grid-template-columns: 1fr; }
+.slip-list a > .ic { width: 16px; height: 16px; color: var(--sub); flex: none; }
+.slip-n small { white-space: normal; }
+.menu-far { margin-top: 14px; }
+.menu-far > summary { margin-bottom: 4px; }
+.hist-box > summary { font-size: 14px; }
+.hist-box .hist { margin-top: 8px; }
+.rec-fbar { flex-wrap: nowrap; }
+.rec-fbar .rec-more { margin-left: auto; }

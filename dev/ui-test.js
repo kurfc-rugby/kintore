@@ -45,24 +45,22 @@ const ok = (c, label) => { if (c) { pass++; console.log('  ✓ ' + label); } els
   ok(await count('.nav a[href="#record"]') === 0, '「記録」のタブが出ない');
   ok(await count('.podium .jersey') >= 1, 'ランキング上位がジャージ（背番号＝順位）で出る');
   ok(await count('.pitch') === 0 && await count('.versus') === 0 && await count('.to-stats') === 1, 'ホームは「いま」だけ（分析はランキングの「分析」へ。ホームにはその入口）');
-  ok(await count('.voice') <= 1 && await count('.mvp') === 0, '「連続がピンチ」などは「声をかけたい人」にまとまり、MVPはランキングの中の1行');
+  ok(await count('.voice') <= 1 && await count('.mvp') === 0 && await count('.mvp-line') === 0, '「連続がピンチ」などは「声をかけたい人」にまとまる（MVPの行は出さない）');
+  ok(await count('main .block .rlist') === 0 && await count('.board-cell') === 1, 'ホームのランキングは表彰台だけ。大きな数字は「実施回数」と「週3回の達成率」の2つ');
+  ok(await count('main .note') === 0, 'ホームに説明文を出さない（使い方ガイドへ）');
   await page.click('.to-stats'); await page.waitForTimeout(600);
   ok(page.url().endsWith('#rank') && await count('[data-act="rank-tab"][data-v="stats"][aria-pressed="true"]') === 1, '「くわしい分析」から、ランキングの「分析」を開く');
   ok(await count('.pitch .pnode') === 10 && await count('.versus') === 1 && await count('.spread') === 1, '分析に、FW対BK・フォーメーション図（10ポジション）・達成率の分布');
-  await page.click('.pnode[data-v="LO"]'); await page.waitForTimeout(500);
-  ok(page.url().endsWith('#rank') && (await text('.poschips [aria-pressed="true"]')) === 'LO' && await count('[data-act="rank-tab"][data-v="list"][aria-pressed="true"]') === 1, 'フォーメーションのジャージを押すと、そのポジションの順位に切り替わる');
+  ok(await count('.pnode[data-act]') === 0 && await count('.poschips') === 0, 'フォーメーション図は見るだけ。ポジションの絞り込みは無い（全体／FW／BKだけ）');
+  await page.click('[data-act="rank-tab"][data-v="list"]'); await page.waitForTimeout(400);
   await page.click('.rsort[data-v="rate"]'); await page.waitForTimeout(400);
   ok(await count('.rsort.on[data-v="rate"]') === 1, '表の見出し（実施率）を押すと、その順に並べ替わる');
   await page.click('.rsort[data-v="count"]'); await page.waitForTimeout(400);
-  const loNames = await page.locator('.rlist .rname b').allInnerTexts();
-  ok(loNames.length === 2 && loNames.includes('岡本 蓮') && loNames.includes('藤井 翔'), 'LOで絞ると、メインかサブがLOの人だけ（岡本・藤井）');
-  await page.click('[data-act="f-pos"][data-v="FL"]'); await page.waitForTimeout(200);
-  ok((await page.locator('.rlist .rname b').allInnerTexts()).includes('岡本 蓮'), 'FLで絞ると、サブがFLの岡本も入る');
   await page.click('[data-act="f-group"][data-v="BK"]');
-  ok(await count('.rrank') === 9 && await count('.poschips .pchip') === 5, 'BKで絞ると9人・ポジションの選択肢はBKの5つ');
+  ok(await count('.rrank') === 9, 'BKで絞ると9人');
   await page.click('[data-act="f-group"][data-v="ALL"]');
   ok(await count('.rrank') === 20, '全体で20人');
-  ok(await page.evaluate(() => Array.from(document.querySelectorAll('.rrank')).filter((li) => li.textContent.includes('自主トレ')).every((li) => li.querySelector('.rrate .dash'))), '自主トレの人の実施率は「－」');
+  ok(await page.evaluate(() => document.querySelectorAll('.rrank .rrate .dash').length >= 1 && !document.querySelector('.rrank .gt') && !/年・/.test(document.querySelector('.rlist').textContent)), '各行は名前・ポジション・回数・実施率だけ（自主トレの人の実施率は「－」）');
   await go('#cal');
   ok(await count('.cell.s-not') > 0 && await count('.cell.s-done') > 0, 'カレンダーに ○ と ×（記録の無い過ぎた対象日）が出る');
   ok(await count('.cell.s-pending') === 0, '「未記録」のマスはもう無い');
@@ -106,9 +104,9 @@ const ok = (c, label) => { if (c) { pass++; console.log('  ✓ ' + label); } els
   ok(await count('.sheet .badge-detail .stamps') === 1, '称号のメダルを押すと、取った日と応援スタンプが出る');
   await page.keyboard.press('Escape');
   await page.click('[data-act="member-tab"][data-v="body"]'); await page.waitForTimeout(400);
-  ok(await count('.bnow .bv') >= 1 && await count('.bchart:not(.vs)') === 1, '「体」に体重・体組成の最新とグラフ（みんなが見られる）');
+  ok(await count('.bnow .bv') >= 1 && await count('.bchart:not(.vs)') === 1, '「体」に体重の最新とグラフ（みんなが見られる）');
   await page.click('[data-act="member-tab"][data-v="rec"]'); await page.waitForTimeout(300);
-  await go('#members'); await page.click('.gone-box summary:has-text("体重")'); ok(await count('.btable tbody tr') >= 5, '部員の画面に体組成の一覧が出る');
+  await go('#members'); await page.click('.gone-box summary:has-text("体重")'); ok(await count('.btable tbody tr') >= 5, '部員の画面に体重の一覧が出る');
   await go('#settings'); await page.click('[data-act="login"]'); await page.click('[data-act="pinreq-open"]');
   ok(await count('form[data-form="pinreq"] select[name="memberId"]') === 1, 'ログイン画面から「暗証番号を忘れたとき」の依頼を開ける');
   await page.click('[data-act="sheet-close"]').catch(() => {}); await page.keyboard.press('Escape');
@@ -144,11 +142,13 @@ const ok = (c, label) => { if (c) { pass++; console.log('  ✓ ' + label); } els
   ok(await count('.rec-row.changed.on') === 1, 'ワンタップで「実施した」になる');
   await page.locator('.rec-row.changed .rec-btn').first().click();
   ok(await count('.rec-row.changed') === 0, 'もう一度押すと戻る');
-  await page.click('[data-act="r-pos"][data-v="PR"]');
-  ok(await count('.rec-row') === 2, 'ポジション（PR）で絞れる');
-  await page.click('[data-act="rec-all"]'); await page.waitForTimeout(200);
+  await page.click('[data-act="r-group"][data-v="FW"]');
+  ok(await count('.rec-row') < 20 && await count('[data-act="rec-all"]') === 0 && await count('[data-act="r-pos"]') === 0, 'FWで絞れる（ポジションの絞り込みと「全員を実施した」は無い）');
   await page.click('[data-act="r-group"][data-v="ALL"]');
-  ok(await count('.rec-row.changed') >= 1 && await count('.rec-row.on') <= 20, '表示中の人だけをまとめて「実施した」にできる');
+  await page.click('[data-act="rec-more"]'); await page.waitForTimeout(300);
+  ok(await count('#sheet-root [data-act="week-open"]') === 1 && await count('#sheet-root [data-act="trash-open"]') === 1, '「その他」に「1週間まとめて入力」と「取り消した記録」');
+  await page.keyboard.press('Escape'); await page.waitForTimeout(300);
+  await page.locator('.rec-row:not(.on):not(.locked) .rec-btn').first().click();
   await page.click('[data-act="rec-confirm"]');
   ok((await text('.confirm')).includes('「実施した」にする'), '保存前に内容を確認できる');
   await page.click('[data-act="rec-save"]'); await page.waitForTimeout(900);
@@ -166,7 +166,7 @@ const ok = (c, label) => { if (c) { pass++; console.log('  ✓ ' + label); } els
   const own = page.locator('.rec-row.on:not(.locked) .rec-btn').first();
   const ownName = await own.locator('xpath=ancestor::li').locator('.rec-n b').innerText();
   await own.click(); await page.click('[data-act="rec-confirm"]'); await page.click('[data-act="rec-save"]'); await page.waitForTimeout(900);
-  await page.click('[data-act="trash-open"]'); await page.waitForSelector('[data-act="trash-restore"]');
+  await page.click('[data-act="rec-more"]'); await page.click('#sheet-root [data-act="trash-open"]'); await page.waitForSelector('[data-act="trash-restore"]');
   ok((await text('.sheet-b')).includes(ownName.replace(/免除$/, '')), '取り消した記録の一覧に出る');
   await page.locator('[data-act="trash-restore"]').first().click(); await page.waitForTimeout(1200);
   ok(await count('.toast') >= 1 && (await page.locator('.toast').allInnerTexts()).some((t) => t.includes('戻しました')), '取り消した記録を戻せる');
@@ -347,7 +347,6 @@ const ok = (c, label) => { if (c) { pass++; console.log('  ✓ ' + label); } els
       await q.click('form[data-form="login"] button[type="submit"]'); await q.waitForTimeout(1000);
     };
     await q.goto(BASE); await q.waitForSelector('.board'); await q.waitForTimeout(400);
-    ok(await q.locator('.mvp-line').count() <= 1, 'ランキングの中に「先週のMVP」（先週に記録があれば）');
     ok(await q.locator('.selfcard').count() === 0 || /先週の同じ時点/.test(await q.locator('.selfcard').innerText()), '「わたし」に先週の同じ時点との比べ');
     await qgo('#rank'); await q.click('[data-act="rank-tab"][data-v="stats"]'); await q.waitForTimeout(400);
     ok(await q.locator('.versus .vs-side').count() === 2 && /FW|BK|互角/.test(await q.locator('.versus .count').innerText()), '分析に「FW対BK」（1人あたりの回数で比べる）');
@@ -425,7 +424,7 @@ const ok = (c, label) => { if (c) { pass++; console.log('  ✓ ' + label); } els
     ok((await q.locator('.sheet-h h2').innerText()) === '自重サーキット', 'おすすめを押すと中身が見られる');
     await q.keyboard.press('Escape');
     // 1週間まとめて記録
-    await qgo('#record'); await q.click('[data-act="week-open"]'); await q.waitForSelector('.wk');
+    await qgo('#record'); await q.click('[data-act="rec-more"]'); await q.click('#sheet-root [data-act="week-open"]'); await q.waitForSelector('.wk');
     ok(await q.locator('.wk tbody tr').count() >= 3 && await q.locator('.wk thead th').count() === 9, '「1週間まとめて」で、部員×7日の表が出る');
     const cell = q.locator('.wk-c:not(.on)').first();
     const k = await cell.getAttribute('data-k');
@@ -433,7 +432,7 @@ const ok = (c, label) => { if (c) { pass++; console.log('  ✓ ' + label); } els
     ok(await q.locator('.wk-c[data-k="' + k + '"].on.changed').count() === 1 && /保存する（1件）/.test(await q.locator('[data-act="week-save"]').innerText()), 'マスを押すと「実施した」になり、保存する件数が出る');
     await q.click('[data-act="week-save"]'); await q.waitForTimeout(1200);
     ok((await q.locator('.toast').allInnerTexts()).some((t) => /保存しました（実施 1件/.test(t)), 'まとめて保存できる');
-    await q.click('[data-act="week-open"]'); await q.waitForSelector('.wk');
+    await q.click('[data-act="rec-more"]'); await q.click('#sheet-root [data-act="week-open"]'); await q.waitForSelector('.wk');
     ok(await q.locator('.wk-c[data-k="' + k + '"].on:not(.changed)').count() === 1, '保存した内容が表に入っている');
     await q.keyboard.press('Escape');
     // 画面のエラーを自動で記録

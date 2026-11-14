@@ -48,7 +48,7 @@ const FONT_CSS = [['Noto Sans JP', 500, 'noto-sans-jp-latin-500-normal'], ['Noto
   await shot('01-home-week'); await overflow('home');
   await page.click('[data-act="kind"][data-v="month"]'); await shot('02-home-month'); await overflow('home-month');
   await go('#rank'); await shot('03-rank'); await overflow('rank');
-  await page.click('[data-act="f-pos"][data-v="FL"]'); await shot('04-rank-fl');
+  await page.click('[data-act="f-group"][data-v="FW"]'); await shot('04-rank-fw');
   await page.click('[data-act="f-group"][data-v="ALL"]');
   await go('#cal'); await shot('05-cal-month'); await overflow('cal');
   await page.click('[data-act="kind"][data-v="week"]'); await shot('06-cal-week'); await overflow('cal-week');
@@ -76,7 +76,7 @@ const FONT_CSS = [['Noto Sans JP', 500, 'noto-sans-jp-latin-500-normal'], ['Noto
   await page.click('[data-act="rec-save"]'); await page.waitForTimeout(900);
   await page.click('[data-act="rec-sort"][data-v="recent"]'); await shot('16-record-recent', false);
   await page.locator('.rec-row.on:not(.locked) .rec-btn').first().click(); await page.click('[data-act="rec-confirm"]'); await page.click('[data-act="rec-save"]'); await page.waitForTimeout(900);
-  await page.click('[data-act="trash-open"]'); await page.waitForSelector('[data-act="trash-restore"]'); await shot('17-trash', false); await page.keyboard.press('Escape');
+  await page.click('[data-act="rec-more"]'); await page.click('#sheet-root [data-act="trash-open"]'); await page.waitForSelector('[data-act="trash-restore"]'); await shot('17-trash', false); await page.keyboard.press('Escape');
   await go('#members'); await page.click('[data-act="body-bulk"]'); await shot('17b-body-bulk', false); await page.keyboard.press('Escape');
   await go('#settings'); await page.click('[data-act="logout"]'); await page.waitForTimeout(700);
   await login('前田 剛（FWリーダー）', 'test-lead-1');
