@@ -219,10 +219,10 @@ const ok = (c, label) => { if (c) { pass++; console.log('  ✓ ' + label); } els
   await page.click('.sheet [data-act="ex-edit"]'); await page.waitForSelector('[data-act="ex-del"]');
   await page.click('[data-act="ex-del"]'); await page.waitForTimeout(900);
   ok(await count('.exlib li') === 3, '消せる');
-  // SAVASの動画からまとめて登録
+  // ザバスの動画からまとめて登録
   await page.click('[data-act="sv-open"]'); await page.waitForSelector('.svlist');
   const svRec = await count('.svlist input:checked');
-  ok(svRec >= 3 && await count('.svlist li.done') === 0 && /選んだ \d+ 件を登録/.test(await text('[data-act="sv-save"]')), 'SAVASの動画：部のメニュー・ライブラリに出てくる種目が「おすすめ」で選んである（登録ずみは選べない）');
+  ok(svRec >= 3 && await count('.svlist li.done') === 0 && /選んだ \d+ 件を登録/.test(await text('[data-act="sv-save"]')), 'ザバスの動画：部のメニュー・ライブラリに出てくる種目が「おすすめ」で選んである（登録ずみは選べない）');
   await page.click('[data-act="sv-part"][data-v=""]'); await page.fill('.sv-q', 'ベンチプレス'); await page.waitForTimeout(300);
   ok(await count('.svlist li.done') === 1 && await page.locator('.svlist li.done input').isDisabled(), '登録ずみの種目（ベンチプレス）は「登録ずみ」で選べない');
   ok(/instagram\.com\/reel\//.test(await page.getAttribute('.svlist .sv-v', 'href')), '▶で元の動画（Instagram）を開ける');

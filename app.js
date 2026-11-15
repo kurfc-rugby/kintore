@@ -3,7 +3,7 @@
   'use strict';
   const L = window.KLogic;
   const API = window.KINTORE_API;
-  const VERSION = '2.14.0';
+  const VERSION = '2.14.1';
   const WD = ['日', '月', '火', '水', '木', '金', '土'];
   const PERM = { admin: '管理者', manager: 'マネージャー', leader: 'FWリーダー', member: '一般部員' };
   const MODE = { leader: 'メニュー参加', self: '自主トレ' };
@@ -1534,13 +1534,13 @@
   }
   function vExercises() {
     const ex = exList(), staff = can('menu');
-    let h = staff ? '<div class="toolbar"><button class="btn primary" data-act="ex-new">' + icon('plus') + '種目の動画を登録</button><button class="btn" data-act="sv-open">' + icon('play') + 'SAVASの動画から選ぶ</button></div>' : '';
+    let h = staff ? '<div class="toolbar"><button class="btn primary" data-act="ex-new">' + icon('plus') + '種目の動画を登録</button><button class="btn" data-act="sv-open">' + icon('play') + 'ザバスの動画から選ぶ</button></div>' : '';
     if (staff) {
       const miss = exMissing();
       if (miss.length) h += '<details class="block exmiss"><summary class="block-h"><h2>動画がまだない種目</h2><span class="count">' + miss.length + '</span></summary><div class="chips wrap">' +
         miss.map((n) => '<button class="chip-btn" data-act="ex-new" data-v="' + esc(n) + '">' + icon('plus') + esc(n) + '</button>').join('') + '</div></details>';
     }
-    if (!ex.length) return h + emptyState('play', 'まだ種目の動画がありません', staff ? '種目ごとにフォームの見本の動画を1回登録すると、その種目が入っているメニューすべてに「フォーム」ボタンが出ます。「SAVASの動画から選ぶ」でまとめて登録できます。' : 'FWリーダーが登録すると、ここと各メニューに出ます。');
+    if (!ex.length) return h + emptyState('play', 'まだ種目の動画がありません', staff ? '種目ごとにフォームの見本の動画を1回登録すると、その種目が入っているメニューすべてに「フォーム」ボタンが出ます。「ザバスの動画から選ぶ」でまとめて登録できます。' : 'FWリーダーが登録すると、ここと各メニューに出ます。');
     // 部位別：使われている部位だけチップに出す
     const count = {}; ex.forEach((x) => x.parts.forEach((p) => { count[p] = (count[p] || 0) + 1; }));
     const parts = EX_PARTS.filter((p) => count[p]);
@@ -1553,10 +1553,10 @@
     const groups = EX_PARTS.map((p) => [p, ex.filter((x) => x.parts[0] === p)]).concat([['そのほか', ex.filter((x) => !x.parts.length)]]).filter((g) => g[1].length);
     return h + groups.map((g) => (groups.length > 1 ? '<h2 class="dayhead">' + g[0] + '</h2>' : '') + '<ul class="exlib">' + g[1].map(exRow).join('') + '</ul>').join('');
   }
-  // ---------- SAVAS「筋トレ辞典」の動画からまとめて登録 ----------
+  // ---------- ザバス「筋トレ辞典」の動画からまとめて登録 ----------
   let SV = null;
   async function openSavas() {
-    openSheet('SAVASの動画から選ぶ', '<p class="empty small">読み込み中…</p>', { wide: true });
+    openSheet('ザバスの動画から選ぶ', '<p class="empty small">読み込み中…</p>', { wide: true });
     let d;
     try { d = await fetch('media/savas.json?v=' + VERSION, { cache: 'no-cache' }).then((r) => { if (!r.ok) throw new Error(); return r.json(); }); }
     catch (e) { sheetError(''); $('#sheet-root .sheet-b').innerHTML = '<p class="form-err">一覧を読み込めませんでした。通信を確かめて、もう一度開いてください。</p>'; return; }
@@ -2256,7 +2256,7 @@
         '<ul class="dots"><li>メニューを開くと、動画のある種目の行に <b>' + icon('play') + 'フォーム</b> ボタンがあります。押すと動画（YouTube など）が開きます</li>' +
         '<li>「メニュー」→ <b>「種目の動画」</b>で、<b>部位別</b>（胸・肩・背中・腕・腹・脚・尻・首・全身）に探せます。種目を押すと、動画・<b>フォームのポイント</b>・その種目が入っている今後のメニューが見られます</li></ul>' +
         '<h4>登録する（FWリーダー・管理者）</h4>' +
-        steps(['「メニュー」→ <b>「種目の動画」</b>→ <b>「SAVASの動画から選ぶ」</b>で、明治 ザバス「筋トレ辞典」の動画（約340種目）からまとめて登録できます。部のメニューに出てくる種目は最初から選んであります', '1つずつ入れるときは <b>「種目の動画を登録」</b>（「動画がまだない種目」を押すと名前が入ります）', '種目名・動画のURL・<b>部位</b>・<b>ポイント</b>（1行に1つ）を入れて保存。「SQ」などの <b>別の書き方</b> も入れておくと、その書き方のメニューにも出ます']) +
+        steps(['「メニュー」→ <b>「種目の動画」</b>→ <b>「ザバスの動画から選ぶ」</b>で、明治 ザバス「筋トレ辞典」の動画（約340種目）からまとめて登録できます。部のメニューに出てくる種目は最初から選んであります', '1つずつ入れるときは <b>「種目の動画を登録」</b>（「動画がまだない種目」を押すと名前が入ります）', '種目名・動画のURL・<b>部位</b>・<b>ポイント</b>（1行に1つ）を入れて保存。「SQ」などの <b>別の書き方</b> も入れておくと、その書き方のメニューにも出ます']) +
         tip('1回登録すれば、その種目が入っているメニュー（これまで・これからの全部、型も）に出ます。メニューの「トレーニング内容」で、行の頭が種目名になっていれば合います（「スクワット 5×5」もOK）。')],
       ['tpl', 'leader', '型と繰り返し', '毎週のメニューを自動で作る',
         steps(['「メニュー」→ <b>「型」</b>→ <b>「型を作る」</b>（今あるメニューの「型にする」からも）', '<b>繰り返す曜日</b>を選ぶ → 4週間先まで自動で作られ、毎日のびます', '型を直すと、手で直していない今日以降の分もそろいます']) +

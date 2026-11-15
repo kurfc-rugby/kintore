@@ -1341,7 +1341,7 @@ html[data-size="l"] .help-seg button[aria-pressed="true"], html[data-size="xl"] 
 .exmiss > summary h2::before { content: '▸ '; color: var(--enji); }
 .exmiss[open] > summary h2::before { content: '▾ '; }
 .exmiss[open] .chips { margin-top: 10px; }
-/* v2.14 SAVASの動画から選ぶ */
+/* v2.14 ザバスの動画から選ぶ */
 .sv-q { width: 100%; margin: 4px 0 10px; }
 .sv-parts { margin-bottom: 8px; }
 .svlist { list-style: none; margin: 0; padding: 0; }
