@@ -1363,3 +1363,6 @@ html[data-size="l"] .help-seg button[aria-pressed="true"], html[data-size="xl"] 
 .fplayer.yt .fp-box { flex: 0 0 auto; aspect-ratio: 16 / 9; max-width: 720px; }
 .fplayer.yt .fp-box iframe { background: #000; }
 .fp-out { color: #fff; opacity: .85; font-size: 13px; text-decoration: underline; padding: 8px; }
+/* v2.15.1 Instagram は動画の部分だけを切り抜いて見せる */
+.fp-box.igcrop { flex: 0 0 auto; position: relative; overflow: hidden; border-radius: 12px; background: #000; max-width: none; max-height: none; }
+.fp-box.igcrop iframe { position: absolute; border-radius: 0; background: transparent; }

@@ -3,7 +3,7 @@
   'use strict';
   const L = window.KLogic;
   const API = window.KINTORE_API;
-  const VERSION = '2.15.0';
+  const VERSION = '2.15.1';
   const WD = ['日', '月', '火', '水', '木', '金', '土'];
   const PERM = { admin: '管理者', manager: 'マネージャー', leader: 'FWリーダー', member: '一般部員' };
   const MODE = { leader: 'メニュー参加', self: '自主トレ' };
@@ -2340,12 +2340,30 @@
       '<div class="fp-box"><iframe src="' + esc(e.src) + '" title="' + esc(name || 'フォーム') + 'の動画" allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowfullscreen loading="eager" referrerpolicy="strict-origin-when-cross-origin"></iframe></div>' +
       '<a class="fp-out" href="' + esc(url) + '" target="_blank" rel="noopener noreferrer">' + (e.kind === 'ig' ? 'Instagram' : 'YouTube') + 'で開く</a>' +
       '<button class="vp-x" data-act="video-close" aria-label="閉じる">×</button>';
-    el.addEventListener('click', (ev2) => { if (ev2.target === el) closeVideo(); });
+    el.addEventListener('click', (ev2) => { if (ev2.target === el || ev2.target.classList.contains('fp-box')) closeVideo(); });
     document.body.appendChild(el);
+    if (e.kind === 'ig') fitInsta(el);
     document.body.classList.add('sheet-open');
     try { history.pushState({ video: 1 }, ''); } catch (x) { /* なし */ }
     return true;
   }
+  /** Instagram の埋め込みから「動画だけ」を切り抜いて見せる。
+   *  埋め込みの中身：上に約54pxの名前の帯、その下に幅W×高さ1.25Wの枠があり、9:16の動画が真ん中に入っている（下は「いいね」など）。
+   *  外からは中身をさわれないので、iframe をずらして、動画の部分だけが見える窓をつくる */
+  const IG_HEAD = 54, IG_MIN = 326, IG_MAX = 540;
+  function fitInsta(el) {
+    const box = $('.fp-box', el), fr = $('iframe', el);
+    if (!box || !fr) return;
+    const availH = Math.max(240, window.innerHeight - 150), availW = Math.max(200, window.innerWidth - 24);
+    // 動画の大きさ：高さ = 1.25W、幅 = 1.25W × 9/16。画面に収まる中でいちばん大きく
+    let W = Math.min(IG_MAX, availH / 1.25, availW / (1.25 * 9 / 16));
+    W = Math.max(IG_MIN, Math.floor(W));
+    const vw = Math.floor(W * 1.25 * 9 / 16) - 4, vh = Math.floor(W * 1.25) - 4;
+    box.classList.add('igcrop');
+    box.style.width = vw + 'px'; box.style.height = vh + 'px';
+    Object.assign(fr.style, { width: W + 'px', height: (IG_HEAD + Math.ceil(W * 1.25) + 320) + 'px', left: -Math.round((W - vw) / 2) + 'px', top: -(IG_HEAD + 2) + 'px' });
+  }
+  window.addEventListener('resize', () => { const el = $('.fplayer.ig'); if (el) fitInsta(el); });
 
   // ---------- はじめて開いた人への使い方ガイド（30秒） ----------
   // 30秒の紹介（初めて開いたとき）。それぞれの画面で、その場で設定もできる
