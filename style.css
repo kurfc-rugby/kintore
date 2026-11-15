@@ -1341,3 +1341,17 @@ html[data-size="l"] .help-seg button[aria-pressed="true"], html[data-size="xl"] 
 .exmiss > summary h2::before { content: '▸ '; color: var(--enji); }
 .exmiss[open] > summary h2::before { content: '▾ '; }
 .exmiss[open] .chips { margin-top: 10px; }
+/* v2.14 SAVASの動画から選ぶ */
+.sv-q { width: 100%; margin: 4px 0 10px; }
+.sv-parts { margin-bottom: 8px; }
+.svlist { list-style: none; margin: 0; padding: 0; }
+.svlist li { display: flex; align-items: center; gap: 8px; border-bottom: 1px solid var(--line); }
+.svlist label { flex: 1; display: flex; align-items: center; gap: 12px; min-height: 52px; margin: 0; padding: 6px 0; cursor: pointer; min-width: 0; }
+.svlist input[type="checkbox"] { width: 22px; height: 22px; flex: none; accent-color: var(--enji); margin: 0; }
+.sv-n { min-width: 0; }
+.sv-n b { display: block; font-size: 15px; font-weight: 700; }
+.sv-n .exparts { margin-top: 3px; }
+.svlist li.done .sv-n b { color: var(--sub); }
+.exparts i.sv-done { background: var(--line); color: var(--sub); }
+.sv-v { flex: none; width: 40px; height: 40px; border-radius: 50%; display: grid; place-items: center; color: var(--enji); border: 1.5px solid var(--line); }
+.sv-v .ic { width: 16px; height: 16px; }

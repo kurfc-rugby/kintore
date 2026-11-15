@@ -219,10 +219,20 @@ const ok = (c, label) => { if (c) { pass++; console.log('  ✓ ' + label); } els
   await page.click('.sheet [data-act="ex-edit"]'); await page.waitForSelector('[data-act="ex-del"]');
   await page.click('[data-act="ex-del"]'); await page.waitForTimeout(900);
   ok(await count('.exlib li') === 3, '消せる');
+  // SAVASの動画からまとめて登録
+  await page.click('[data-act="sv-open"]'); await page.waitForSelector('.svlist');
+  const svRec = await count('.svlist input:checked');
+  ok(svRec >= 3 && await count('.svlist li.done') === 0 && /選んだ \d+ 件を登録/.test(await text('[data-act="sv-save"]')), 'SAVASの動画：部のメニュー・ライブラリに出てくる種目が「おすすめ」で選んである（登録ずみは選べない）');
+  await page.click('[data-act="sv-part"][data-v=""]'); await page.fill('.sv-q', 'ベンチプレス'); await page.waitForTimeout(300);
+  ok(await count('.svlist li.done') === 1 && await page.locator('.svlist li.done input').isDisabled(), '登録ずみの種目（ベンチプレス）は「登録ずみ」で選べない');
+  ok(/instagram\.com\/reel\//.test(await page.getAttribute('.svlist .sv-v', 'href')), '▶で元の動画（Instagram）を開ける');
+  await page.fill('.sv-q', ''); await page.click('[data-act="sv-part"][data-v="rec"]'); await page.waitForTimeout(200);
+  await page.click('[data-act="sv-save"]'); await page.waitForTimeout(1500);
+  ok((await page.locator('.toast').allInnerTexts()).some((t) => new RegExp(svRec + '件を登録しました').test(t)) && await count('.exlib li') === 3 + svRec, '選んだ種目をまとめて登録できる');
   await page.click('[data-act="menu-tab"][data-v="templates"]'); await page.waitForTimeout(300);
   await page.click('[data-act="tpl-new"]');
-  await page.fill('input[name="title"]', '火曜の体幹'); await page.fill('textarea[name="content"]', 'SQ 5×5\nプランク');
-  ok(await count('input[name="video"]') === 0 && /動画あり：スクワット/.test(await text('#ex-hint')) && /動画なし：プランク/.test(await text('#ex-hint')), '内容を書くと、動画のある種目・ない種目が下に出る（メニューごとの動画の欄は無い）');
+  await page.fill('input[name="title"]', '火曜の体幹'); await page.fill('textarea[name="content"]', 'SQ 5×5\nタイヤ押し');
+  ok(await count('input[name="video"]') === 0 && /動画あり：スクワット/.test(await text('#ex-hint')) && /動画なし：タイヤ押し/.test(await text('#ex-hint')), '内容を書くと、動画のある種目・ない種目が下に出る（メニューごとの動画の欄は無い）');
   await page.evaluate(() => document.querySelector('.radios.wd label:has(input[value="2"]) span').scrollIntoView({ block: 'center' }));
   await page.locator('.radios.wd label:has(input[value="2"]) span').click({ force: true });
   if (!await page.isChecked('.radios.wd input[value="2"]')) await page.check('.radios.wd input[value="2"]', { force: true });

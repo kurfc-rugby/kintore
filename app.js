@@ -3,7 +3,7 @@
   'use strict';
   const L = window.KLogic;
   const API = window.KINTORE_API;
-  const VERSION = '2.13.0';
+  const VERSION = '2.14.0';
   const WD = ['日', '月', '火', '水', '木', '金', '土'];
   const PERM = { admin: '管理者', manager: 'マネージャー', leader: 'FWリーダー', member: '一般部員' };
   const MODE = { leader: 'メニュー参加', self: '自主トレ' };
@@ -1534,13 +1534,13 @@
   }
   function vExercises() {
     const ex = exList(), staff = can('menu');
-    let h = staff ? '<div class="toolbar"><button class="btn primary" data-act="ex-new">' + icon('plus') + '種目の動画を登録</button></div>' : '';
+    let h = staff ? '<div class="toolbar"><button class="btn primary" data-act="ex-new">' + icon('plus') + '種目の動画を登録</button><button class="btn" data-act="sv-open">' + icon('play') + 'SAVASの動画から選ぶ</button></div>' : '';
     if (staff) {
       const miss = exMissing();
       if (miss.length) h += '<details class="block exmiss"><summary class="block-h"><h2>動画がまだない種目</h2><span class="count">' + miss.length + '</span></summary><div class="chips wrap">' +
         miss.map((n) => '<button class="chip-btn" data-act="ex-new" data-v="' + esc(n) + '">' + icon('plus') + esc(n) + '</button>').join('') + '</div></details>';
     }
-    if (!ex.length) return h + emptyState('play', 'まだ種目の動画がありません', staff ? '種目ごとにフォームの見本の動画を1回登録すると、その種目が入っているメニューすべてに「フォーム」ボタンが出ます。' : 'FWリーダーが登録すると、ここと各メニューに出ます。');
+    if (!ex.length) return h + emptyState('play', 'まだ種目の動画がありません', staff ? '種目ごとにフォームの見本の動画を1回登録すると、その種目が入っているメニューすべてに「フォーム」ボタンが出ます。「SAVASの動画から選ぶ」でまとめて登録できます。' : 'FWリーダーが登録すると、ここと各メニューに出ます。');
     // 部位別：使われている部位だけチップに出す
     const count = {}; ex.forEach((x) => x.parts.forEach((p) => { count[p] = (count[p] || 0) + 1; }));
     const parts = EX_PARTS.filter((p) => count[p]);
@@ -1552,6 +1552,53 @@
     // すべて：いちばん初めの部位ごとに見出し（部位なしは最後）
     const groups = EX_PARTS.map((p) => [p, ex.filter((x) => x.parts[0] === p)]).concat([['そのほか', ex.filter((x) => !x.parts.length)]]).filter((g) => g[1].length);
     return h + groups.map((g) => (groups.length > 1 ? '<h2 class="dayhead">' + g[0] + '</h2>' : '') + '<ul class="exlib">' + g[1].map(exRow).join('') + '</ul>').join('');
+  }
+  // ---------- SAVAS「筋トレ辞典」の動画からまとめて登録 ----------
+  let SV = null;
+  async function openSavas() {
+    openSheet('SAVASの動画から選ぶ', '<p class="empty small">読み込み中…</p>', { wide: true });
+    let d;
+    try { d = await fetch('media/savas.json?v=' + VERSION, { cache: 'no-cache' }).then((r) => { if (!r.ok) throw new Error(); return r.json(); }); }
+    catch (e) { sheetError(''); $('#sheet-root .sheet-b').innerHTML = '<p class="form-err">一覧を読み込めませんでした。通信を確かめて、もう一度開いてください。</p>'; return; }
+    const items = d.items.map((o, i) => ({ i: i, name: o.n, video: d.video + o.v + '/', parts: o.p || [], aliases: o.a || [] }));
+    const lib = items.map((o) => ({ id: o.i, name: o.name, aliases: o.aliases }));
+    const has = exList();
+    items.forEach((o) => { o.done = has.some((x) => [x.name].concat(x.aliases).some((n) => L.exKey(n) === L.exKey(o.name))); });
+    // おすすめ：部のメニュー・型・自主トレ・種目のライブラリに出てくる種目（いちばん長い名前で合うもの）
+    const rec = new Set();
+    const toks = [];
+    S.data.menus.filter((w) => w.date >= L.addDays(S.data.today, -28)).concat(S.data.templates || [], S.data.selfRecs || []).forEach((w) => L.exLines(w.content).forEach((l) => toks.push.apply(toks, l.parts)));
+    LIB.forEach((c) => c[1].forEach((x) => toks.push(x[0])));
+    toks.forEach((t) => { const m = L.exMatch(lib, t); if (m && !items[m.id].done) rec.add(m.id); });
+    SV = { src: d, items: items, rec: rec, sel: new Set(rec), part: rec.size ? 'rec' : '', q: '' };
+    $('#sheet-root .sheet-b').innerHTML =
+      '<p class="hint">明治 ザバス<a href="' + esc(d.url) + '" target="_blank" rel="noopener noreferrer">「筋トレ辞典」</a>の動画（Instagram）です。選んだ種目を「種目の動画」にまとめて登録します。<b>おすすめ</b>は部のメニューや種目のライブラリに出てくる種目で、最初から選んであります。</p>' +
+      '<input type="search" class="search sv-q" data-act-input="sv-q" placeholder="種目名でさがす（例：スクワット）" aria-label="種目名でさがす">' +
+      '<div class="seg small exparts-bar sv-parts" role="group" aria-label="部位"></div>' +
+      '<div id="sv-list"></div>' +
+      '<p class="form-err" role="alert" hidden></p>' +
+      '<div class="actions sticky"><button type="button" class="btn" data-act="sv-all">表示中をすべて選ぶ</button><button type="button" class="btn primary" data-act="sv-save"></button></div>';
+    svRender();
+  }
+  function svShown() {
+    const q = L.exKey(SV.q);
+    return SV.items.filter((o) => (SV.part === 'rec' ? SV.rec.has(o.i) : !SV.part || o.parts.indexOf(SV.part) >= 0) &&
+      (!q || [o.name].concat(o.aliases).some((n) => L.exKey(n).indexOf(q) >= 0)));
+  }
+  function svRender() {
+    if (!SV || !$('#sv-list')) return;
+    const bar = $('#sheet-root .sv-parts');
+    bar.innerHTML = (SV.rec.size ? [['rec', 'おすすめ', SV.rec.size]] : []).concat([['', 'すべて', SV.items.length]], EX_PARTS.map((p) => [p, p, SV.items.filter((o) => o.parts.indexOf(p) >= 0).length]).filter((x) => x[2]))
+      .map((x) => '<button type="button" data-act="sv-part" data-v="' + x[0] + '" aria-pressed="' + (SV.part === x[0]) + '">' + x[1] + '<small>' + x[2] + '</small></button>').join('');
+    const list = svShown();
+    $('#sv-list').innerHTML = list.length ? '<ul class="svlist">' + list.slice(0, 400).map((o) => '<li class="' + (o.done ? 'done' : '') + '"><label><input type="checkbox" name="sv" value="' + o.i + '"' + (o.done ? ' disabled' : SV.sel.has(o.i) ? ' checked' : '') + '>' +
+      '<span class="sv-n"><b>' + esc(o.name) + '</b><span class="exparts">' + o.parts.map((p) => '<i>' + p + '</i>').join('') + (o.done ? '<i class="sv-done">登録ずみ</i>' : '') + '</span></span></label>' +
+      '<a class="sv-v" href="' + esc(o.video) + '" target="_blank" rel="noopener noreferrer" aria-label="' + esc(o.name) + 'の動画を見る">' + icon('play') + '</a></li>').join('') + '</ul>' : '<p class="empty small">見つかりません。</p>';
+    svCount();
+  }
+  function svCount() {
+    const n = SV.sel.size, b = $('#sheet-root [data-act="sv-save"]');
+    if (b) { b.textContent = n ? '選んだ ' + n + ' 件を登録' : '種目を選んでください'; b.disabled = !n; }
   }
   /** 種目のページ：動画・ポイント・この種目が入っている、これからのメニュー */
   function openExercise(id) {
@@ -2209,7 +2256,7 @@
         '<ul class="dots"><li>メニューを開くと、動画のある種目の行に <b>' + icon('play') + 'フォーム</b> ボタンがあります。押すと動画（YouTube など）が開きます</li>' +
         '<li>「メニュー」→ <b>「種目の動画」</b>で、<b>部位別</b>（胸・肩・背中・腕・腹・脚・尻・首・全身）に探せます。種目を押すと、動画・<b>フォームのポイント</b>・その種目が入っている今後のメニューが見られます</li></ul>' +
         '<h4>登録する（FWリーダー・管理者）</h4>' +
-        steps(['「メニュー」→ <b>「種目の動画」</b>→ <b>「種目の動画を登録」</b>（「動画がまだない種目」を押すと名前が入ります）', '種目名・動画のURL・<b>部位</b>・<b>ポイント</b>（1行に1つ）を入れて保存。「SQ」などの <b>別の書き方</b> も入れておくと、その書き方のメニューにも出ます']) +
+        steps(['「メニュー」→ <b>「種目の動画」</b>→ <b>「SAVASの動画から選ぶ」</b>で、明治 ザバス「筋トレ辞典」の動画（約340種目）からまとめて登録できます。部のメニューに出てくる種目は最初から選んであります', '1つずつ入れるときは <b>「種目の動画を登録」</b>（「動画がまだない種目」を押すと名前が入ります）', '種目名・動画のURL・<b>部位</b>・<b>ポイント</b>（1行に1つ）を入れて保存。「SQ」などの <b>別の書き方</b> も入れておくと、その書き方のメニューにも出ます']) +
         tip('1回登録すれば、その種目が入っているメニュー（これまで・これからの全部、型も）に出ます。メニューの「トレーニング内容」で、行の頭が種目名になっていれば合います（「スクワット 5×5」もOK）。')],
       ['tpl', 'leader', '型と繰り返し', '毎週のメニューを自動で作る',
         steps(['「メニュー」→ <b>「型」</b>→ <b>「型を作る」</b>（今あるメニューの「型にする」からも）', '<b>繰り返す曜日</b>を選ぶ → 4週間先まで自動で作られ、毎日のびます', '型を直すと、手で直していない今日以降の分もそろいます']) +
@@ -2931,6 +2978,20 @@
     'ex-new': (el) => openExerciseForm('', el.dataset.v || ''),
     'ex-edit': (el) => openExerciseForm(el.dataset.id),
     'ex-open': (el) => openExercise(el.dataset.id),
+    'sv-open': () => openSavas(),
+    'sv-part': (el) => { SV.part = el.dataset.v; svRender(); const l = $('#sv-list'); if (l) l.scrollIntoView({ block: 'nearest' }); },
+    'sv-all': () => { const list = svShown().filter((o) => !o.done); const allOn = list.every((o) => SV.sel.has(o.i)); list.forEach((o) => { if (allOn) SV.sel.delete(o.i); else SV.sel.add(o.i); }); svRender(); },
+    'sv-save': async (el) => {
+      const items = SV.items.filter((o) => SV.sel.has(o.i) && !o.done).map((o) => ({ name: o.name, video: o.video, parts: o.parts, aliases: o.aliases }));
+      if (!items.length) return;
+      await busy(el, async () => {
+        try {
+          const r = await api('importExercises', { items: items });
+          S.data.exercises = r.exercises; SV = null; closeSheet(); render();
+          toast(r.added + '件を登録しました' + (r.skipped ? '（' + r.skipped + '件は登録ずみ）' : ''));
+        } catch (e) { sheetError(e.message); }
+      });
+    },
     'ex-part': (el) => { if (S.exPart === el.dataset.v) return; S.exPart = el.dataset.v; render(); },
     'ex-del': async (el) => {
       const x = exList().find((e) => e.id === el.dataset.id);
@@ -3282,6 +3343,7 @@
   });
   document.addEventListener('change', (ev) => {
     const t = ev.target;
+    if (t.name === 'sv' && SV) { const i = +t.value; if (t.checked) SV.sel.add(i); else SV.sel.delete(i); svCount(); return; }
     if (t.dataset && t.dataset.actChange === 'rec-date') {
       const v = t.value;
       if (!L.isDate(v) || v > S.data.today || !recLeaveOk()) { t.value = S.rec.date; return; }
@@ -3318,6 +3380,7 @@
   document.addEventListener('input', (ev) => {
     const t = ev.target;
     if (t.name === 'content' && t.form && (t.form.dataset.form === 'menu' || t.form.dataset.form === 'template')) updateExHint();
+    if (t.dataset && t.dataset.actInput === 'sv-q' && SV) { SV.q = t.value; svRender(); }
     if (t.dataset && t.dataset.actInput === 'arch-q') {
       clearTimeout(archTimer);
       archTimer = setTimeout(() => { if (!S.archive || S.route.name !== 'archive') return; S.archive.q = t.value; render(); const el = $('.search'); if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); } }, 250);

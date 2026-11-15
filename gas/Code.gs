@@ -10,7 +10,7 @@
  * 最初にやること：スプレッドシートのメニュー「筋トレ管理」→「管理者を登録」
  * 詳しくは 04_ドキュメント/筋トレ管理アプリ_使い方と引き継ぎ.md
  */
-const APP_VERSION = '2.13.0';
+const APP_VERSION = '2.14.0';
 const SCHEMA_VERSION = '8';
 const TZ = 'Asia/Tokyo';
 const SESSION_DAYS = 90;
@@ -191,6 +191,7 @@ function handle_(req) {
       case 'saveBodyGoal': return opSaveBodyGoal_(ctx);
       case 'saveExercise': return opSaveExercise_(ctx);
       case 'deleteExercise': return opDeleteExercise_(ctx);
+      case 'importExercises': return opImportExercises_(ctx);
       default: throw err_('unknown_op', '不明な操作です。');
     }
   } catch (x) {
@@ -2646,5 +2647,31 @@ function opDeleteExercise_(ctx) {
     update_('exercises', x);
     log_(me, '種目の動画を削除', x.name);
     return { ok: true, exercises: exercisesWire_() };
+  });
+}
+/** まとめて登録（SAVAS「筋トレ辞典」の動画などから選んだもの）。登録ずみの名前・別の書き方と重なるものは飛ばす */
+function opImportExercises_(ctx) {
+  const me = requireRole_(ctx, ['admin', 'leader']);
+  const list = Array.isArray(ctx.req.items) ? ctx.req.items : [];
+  if (!list.length) throw err_('empty', '登録する種目を選んでください。');
+  if (list.length > 400) throw err_('too_many', '一度に登録できるのは400件までです。');
+  return withLock_(function () {
+    const now = now_(), used = {}, rows = [];
+    table_('exercises').rows.filter(function (x) { return !x.deletedAt; }).forEach(function (x) {
+      used[exKey_(x.name)] = 1; (x.aliases ? x.aliases.split('、') : []).forEach(function (a) { used[exKey_(a)] = 1; });
+    });
+    let skipped = 0;
+    list.forEach(function (src) {
+      let name, video;
+      try { name = text_(src && src.name, 40, '種目名', true).replace(/\s+/g, ' '); video = url_(src.video, '動画リンク'); } catch (e) { skipped++; return; }
+      if (!video || used[exKey_(name)]) { skipped++; return; }
+      const aliases = (Array.isArray(src.aliases) ? src.aliases : []).map(function (a) { return String(a).replace(/\s+/g, ' ').trim().slice(0, 40); })
+        .filter(function (a) { return a && !used[exKey_(a)] && exKey_(a) !== exKey_(name); }).slice(0, 10);
+      const parts = EX_PARTS.filter(function (p) { return Array.isArray(src.parts) && src.parts.indexOf(p) >= 0; });
+      used[exKey_(name)] = 1; aliases.forEach(function (a) { used[exKey_(a)] = 1; });
+      rows.push({ id: newId_('x'), name: name, aliases: aliases.join('、'), video: video, parts: parts.join(','), points: '', createdBy: me.id, createdAt: now, updatedBy: '', updatedAt: '', deletedBy: '', deletedAt: '' });
+    });
+    if (rows.length) { insert_('exercises', rows); log_(me, '種目の動画をまとめて登録', rows.length + '件' + (skipped ? '（' + skipped + '件は登録ずみなどで飛ばした）' : '')); }
+    return { ok: true, added: rows.length, skipped: skipped, exercises: exercisesWire_() };
   });
 }

@@ -853,6 +853,16 @@ section('種目の動画');
   ok(pt.ok && dl.parts.join() === '背中,脚,尻' && dl.points.includes('\n'), '部位（決まった中から・重複なし・決まった順）とポイントを登録できる');
   ok(api({ op: 'saveExercise', token: LD9, exercise: { id: dl.id, name: 'デッドリフト', video: 'https://youtu.be/d', points: 'あ'.repeat(401) } }).error === 'too_long', 'ポイントは400文字まで');
   api({ op: 'deleteExercise', token: LD9, id: dl.id });
+  const im = api({ op: 'importExercises', token: LD9, items: [
+    { name: 'スクワット', video: 'https://www.instagram.com/reel/a/', parts: ['脚'] },
+    { name: 'ベンチプレス', video: 'https://www.instagram.com/reel/b/', parts: ['胸'], aliases: ['ベンチ'] },
+    { name: 'ベンチ', video: 'https://www.instagram.com/reel/c/' },
+    { name: 'プッシュアップ', video: 'https://www.instagram.com/reel/d/', parts: ['胸'], aliases: ['腕立て伏せ'] },
+    { name: 'あやしい', video: 'javascript:x' }] });
+  ok(im.ok && im.added === 2 && im.skipped === 3, 'まとめて登録：登録ずみ（スクワット）・別の書き方と重なるもの（ベンチ）・リンクが正しくないものは飛ばす');
+  ok(L.exMatch(im.exercises, '腕立て伏せ 20回').name === 'プッシュアップ', 'まとめて登録した別の書き方でもメニューに合う');
+  ok(api({ op: 'importExercises', token: MG9, items: [{ name: 'x', video: 'https://a.b/' }] }).error === 'forbidden', 'まとめて登録はFWリーダーと管理者だけ');
+  im.exercises.filter((x) => x.name !== 'スクワット').forEach((x) => api({ op: 'deleteExercise', token: LD9, id: x.id }));
   const del = api({ op: 'deleteExercise', token: LD9, id: ad.exercises[0].id });
   ok(del.ok && del.exercises.length === 0 && api({ op: 'state' }).exercises.length === 0, '消せる（スプレッドシートには削除日時つきで残る）');
 }
