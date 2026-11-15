@@ -3,7 +3,7 @@
   'use strict';
   const L = window.KLogic;
   const API = window.KINTORE_API;
-  const VERSION = '2.15.1';
+  const VERSION = '2.15.2';
   const WD = ['日', '月', '火', '水', '木', '金', '土'];
   const PERM = { admin: '管理者', manager: 'マネージャー', leader: 'FWリーダー', member: '一般部員' };
   const MODE = { leader: 'メニュー参加', self: '自主トレ' };
@@ -2351,17 +2351,28 @@
    *  埋め込みの中身：上に約54pxの名前の帯、その下に幅W×高さ1.25Wの枠があり、9:16の動画が真ん中に入っている（下は「いいね」など）。
    *  外からは中身をさわれないので、iframe をずらして、動画の部分だけが見える窓をつくる */
   const IG_HEAD = 54, IG_MIN = 326, IG_MAX = 540;
+  let sbW = -1;
+  /** 画面の横に場所をとるスクロールバーの幅（スマホは0。パソコンは15pxほど。埋め込みの中にも出るので、そのぶん枠が細くなる） */
+  function scrollbarW() {
+    if (sbW >= 0) return sbW;
+    const d = document.createElement('div');
+    d.style.cssText = 'position:absolute;top:-999px;width:100px;height:100px;overflow:scroll';
+    document.body.appendChild(d); sbW = d.offsetWidth - d.clientWidth; d.remove();
+    return sbW;
+  }
   function fitInsta(el) {
     const box = $('.fp-box', el), fr = $('iframe', el);
     if (!box || !fr) return;
+    const sb = scrollbarW();
     const availH = Math.max(240, window.innerHeight - 150), availW = Math.max(200, window.innerWidth - 24);
-    // 動画の大きさ：高さ = 1.25W、幅 = 1.25W × 9/16。画面に収まる中でいちばん大きく
-    let W = Math.min(IG_MAX, availH / 1.25, availW / (1.25 * 9 / 16));
-    W = Math.max(IG_MIN, Math.floor(W));
-    const vw = Math.floor(W * 1.25 * 9 / 16) - 4, vh = Math.floor(W * 1.25) - 4;
+    // 中身の幅 Wc（= W − スクロールバー）に対して、枠の高さ = 1.25Wc、動画の幅 = 高さ × 9/16。画面に収まる中でいちばん大きく
+    let Wc = Math.min(IG_MAX - sb, availH / 1.25, availW / (1.25 * 9 / 16));
+    Wc = Math.max(IG_MIN - sb, Math.floor(Wc));
+    const mh = Wc * 1.25, mw = mh * 9 / 16;
+    const vw = Math.floor(mw) - 4, vh = Math.floor(mh) - 4;
     box.classList.add('igcrop');
     box.style.width = vw + 'px'; box.style.height = vh + 'px';
-    Object.assign(fr.style, { width: W + 'px', height: (IG_HEAD + Math.ceil(W * 1.25) + 320) + 'px', left: -Math.round((W - vw) / 2) + 'px', top: -(IG_HEAD + 2) + 'px' });
+    Object.assign(fr.style, { width: (Wc + sb) + 'px', height: (IG_HEAD + Math.ceil(mh) + 320) + 'px', left: -Math.round((Wc - mw) / 2 + 2) + 'px', top: -(IG_HEAD + 2) + 'px' });
   }
   window.addEventListener('resize', () => { const el = $('.fplayer.ig'); if (el) fitInsta(el); });
 

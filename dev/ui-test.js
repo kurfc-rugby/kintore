@@ -228,6 +228,7 @@ const ok = (c, label) => { if (c) { pass++; console.log('  ✓ ' + label); } els
   ok(/instagram\.com\/reel\//.test(await page.getAttribute('.svlist .sv-v', 'href')), '▶で元の動画（Instagram）を見られる');
   await page.click('.svlist .sv-v'); await page.waitForSelector('.fplayer iframe');
   ok(/instagram\.com\/reel\/[A-Za-z0-9_-]+\/embed\/$/.test(await page.getAttribute('.fplayer iframe', 'src')), 'Instagramの動画もアプリの中で流れる（埋め込み）');
+  ok(await page.evaluate(() => { const b = document.querySelector('.fplayer .fp-box'), f = b.querySelector('iframe'); const br = b.getBoundingClientRect(); return b.classList.contains('igcrop') && getComputedStyle(b).overflow === 'hidden' && parseFloat(f.style.top) <= -54 && parseFloat(f.style.left) < 0 && Math.abs(br.height / br.width - 16 / 9) < 0.05 && br.bottom <= innerHeight; }), 'Instagramは名前の帯や「いいね」を隠して、縦長の動画の部分だけを画面に収めて見せる');
   await page.goBack(); await page.waitForTimeout(500);
   ok(await count('.fplayer') === 0 && await count('.svlist') === 1, 'スマホの「戻る」で動画だけ閉じて、選ぶ画面に戻る');
   await page.fill('.sv-q', ''); await page.click('[data-act="sv-part"][data-v="rec"]'); await page.waitForTimeout(200);
