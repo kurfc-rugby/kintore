@@ -3,7 +3,7 @@
   'use strict';
   const L = window.KLogic;
   const API = window.KINTORE_API;
-  const VERSION = '2.18.0';
+  const VERSION = '2.19.0';
   const WD = ['日', '月', '火', '水', '木', '金', '土'];
   const PERM = { admin: '管理者', manager: 'マネージャー', leader: 'FWリーダー', member: '一般部員' };
   const MODE = { leader: 'メニュー参加', self: '自主トレ' };
@@ -458,7 +458,7 @@
     const hide = () => { if (!ind) return; ind.classList.remove('loading', 'ready'); ind.classList.add('back'); ind.style.transform = ''; ind.style.opacity = ''; setTimeout(() => { if (ind) ind.classList.remove('back'); }, 300); };
     const blocked = (t) => !!t.closest('input, textarea, select, .matrix-wrap, .wk-wrap, .poschips, .seg, .stamps, .podium, .guide, #sheet-root, .sheet-ghost');
     document.addEventListener('touchstart', (ev) => {
-      if (ev.touches.length !== 1 || !S.data || S.data.locked || busyPull || $('#sheet-root').innerHTML || $('#guide-root').innerHTML) { st = null; return; }
+      if (ev.touches.length !== 1 || !S.data || S.data.locked || busyPull || $('#sheet-root').innerHTML || $('#guide-root').innerHTML || TOUR) { st = null; return; }
       const t = ev.touches[0];
       st = { x: t.clientX, y: t.clientY, t: performance.now(), top: window.scrollY <= 0, mode: '', d: 0, swipeOk: !blocked(ev.target), pullOk: !ev.target.closest('input, textarea, select, .wk-wrap, .guide') };
     }, { passive: true });
@@ -2108,7 +2108,7 @@
     // 5. サポート
     h += '<section class="block" id="feedback"><div class="block-h"><h2>サポート</h2></div><ul class="links">' +
       '<li><a href="#help">' + icon('help') + '使い方ガイド<small>40秒の動画と、立場ごとの使い方</small></a></li>' +
-      '<li><button data-act="guide">30秒の紹介をもう一度<small>はじめて開いたときの案内</small></button></li>' +
+      '<li><button data-act="guide">使い方の案内をもう一度<small>はじめて開いたときの紹介と、実際の画面を見ながらの案内（1分）</small></button></li>' +
       '<li><button data-act="fb-open">' + icon('send') + '要望・不具合を送る<small>「こうしてほしい」「ここがおかしい」を管理者に。ログインはいりません</small></button></li></ul></section>';
     h +=
       '<p class="ver">KURFC 筋トレ管理 v' + VERSION + (S.data.version ? '（サーバー v' + esc(S.data.version) + '）' : '') + '</p>';
@@ -2322,6 +2322,15 @@
         '<li><b>閲覧の合言葉</b>：設定すると、知っている人だけ見られる</li><li><b>操作履歴</b>：だれが・いつ・何を変えたか</li></ul>']
     ];
   }
+  /** 使い方ガイドの上：その立場の「画面で案内」 */
+  function tourCard(role) {
+    const key = role === 'all' ? 'all' : role, t = TOURS[key];
+    if (!t) return '';
+    const ok = !t.perm || can(t.perm);
+    const what = { all: 'ホーム・ランキング・メニューとフォーム動画・応援・要望の送り方', manager: '記録のつけ方・1週間まとめて・免除・LINEで知らせる', leader: 'メニューの作り方・型・種目の動画の登録', admin: '部員・役職の付け替え・要望・部のルール・操作履歴' }[key];
+    return '<div class="tourcard"><span class="tourcard-i" aria-hidden="true">' + icon('play') + '</span><span class="tourcard-t"><b>画面で案内を見る（1分）</b><small>' + what + '</small></span>' +
+      (ok ? '<button class="btn small primary" data-act="tour-start" data-v="' + key + '">はじめる</button>' : '<span class="tourcard-n">' + t.name + 'でログインすると見られます</span>') + '</div>';
+  }
   function vHelp() {
     if (!S.helpRole) { const m = me(); S.helpRole = m ? (m.perm === 'admin' ? 'admin' : m.perm) : 'all'; }
     const role = S.helpRole, open = S.route.arg || '';
@@ -2331,11 +2340,12 @@
       '<button class="howvid" data-act="video-open" aria-label="40秒でわかる使い方の動画を全画面で再生"><span class="hv-thumb"><img src="media/howto.jpg?v=2" alt="" width="132" height="235"><span class="hv-play" aria-hidden="true">' + icon('play') + '</span></span>' +
       '<span class="howvid-t"><b>40秒でわかる使い方</b><small>ホーム・ランキング・自分の名前・応援・メニュー・要望の送り方（音はありません）</small><span class="hv-go">' + icon('play') + '全画面で見る</span></span></button>' +
       (role === 'all' ? '<p class="note is-top">知りたいところを押すと開きます。マネージャー・FWリーダー・管理者の使い方は、上で切り替えてください。</p>' : '<p class="note is-top">ログインしてできることです。みんな向けの使い方は「みんな」にあります。</p>') +
+      tourCard(role) +
       '<div class="help">';
     helpSections().filter((x) => show(x[1])).forEach((x, i) => {
       h += '<details class="hsec" id="h-' + x[0] + '"' + (open === x[0] ? ' open' : '') + '><summary><span class="hnum">' + (i + 1) + '</span><span class="ht"><b>' + x[2] + '</b><small>' + x[3] + '</small></span></summary><div class="hb">' + x[4] + '</div></details>';
     });
-    h += '</div><div class="toolbar center"><button class="btn" data-act="guide">30秒の紹介をもう一度見る</button></div>';
+    h += '</div><div class="toolbar center"><button class="btn" data-act="guide">はじめの紹介をもう一度見る</button></div>';
     return h;
   }
 
@@ -2425,9 +2435,8 @@
   // ---------- はじめて開いた人への使い方ガイド（30秒） ----------
   // 30秒の紹介（初めて開いたとき）。それぞれの画面で、その場で設定もできる
   const GUIDE = [
-    { t: 'KURFC 筋トレへようこそ', i: 'home', p: () => '部員みんなの筋トレの記録を見るアプリです。<b>見るだけならログインは不要</b>。かんたんに使い方を紹介します（1分）。' },
-    { t: '週{g}回がマスト', i: 'check', p: () => 'マネージャーが「実施した」を付けると、ホームに回数が出ます。<b>月曜〜日曜に週{g}回以上</b>で達成。「まだの人」「連続がピンチの人」もホームでわかります。名前を押すと、その人の<b>自己ベスト・称号・体重の変化</b>が見られます。' },
-    { t: '自分の名前を選ぶ', i: 'users', p: () => '選ぶと、ホームに<b>「わたし」</b>（今週あと何回・届いた応援）が出て、通知も受け取れます。応援スタンプを送るときの名前にもなります。', x: 'self' },
+    { t: 'KURFC 筋トレへようこそ', i: 'home', p: () => '部員みんなの筋トレの記録を見るアプリです。<b>見るだけならログインは不要</b>。<b>月曜〜日曜に週{g}回以上</b>がマストです。<br>このあと、<b>実際の画面を見ながら</b>使い方を案内します（1分）。' },
+    { t: '自分の名前を選ぶ', i: 'users', p: () => '選ぶと、ホームに<b>「わたし」</b>（今週あと何回・届いた応援）が出て、通知も受け取れます。応援スタンプを送るときの名前にもなります。', x: 'self', tour: 'all' },
     { t: 'ホーム画面に追加', i: 'plus', p: () => isStandalone() ? 'いまホーム画面のアプリから開いています。このままで大丈夫です。' : 'アイコンを置くと、アプリのように<b>1タップ</b>で開けます。', x: 'install' },
     { t: '通知を受け取る', i: 'bell', p: () => (isIOS() && !isStandalone()) ? 'iPhone は、<b>ホーム画面に追加したアプリ</b>から設定すると、「今週あと○回」「応援が届いた」が通知で届きます。' : '「今週あと○回」（土曜18時・日曜9時）と「応援が届いた」を、スマホに通知できます。', x: 'push' },
     { t: '見やすく・くわしく', i: 'gear', p: () => '文字の大きさと明るさは、いつでも「設定」で変えられます。わからないときは、上の ' + kbd('?') + ' の<b>「使い方ガイド」</b>を見てください。マネージャー・FWリーダーの使い方もあります。', x: 'view' }
@@ -2464,12 +2473,163 @@
       '<div class="guide-i" aria-hidden="true">' + icon(g.i) + '</div><h2>' + esc(sub(g.t)) + '</h2><p>' + sub(g.p()) + '</p>' + guideExtra(g.x) +
       '<div class="guide-dots" aria-hidden="true">' + GUIDE.map((x, i) => '<i class="' + (i === guideStep ? 'on' : '') + '"></i>').join('') + '</div>' +
       '<div class="actions">' + (guideStep ? '<button class="btn" data-act="guide-prev">戻る</button>' : '<button class="btn" data-act="guide-close">スキップ</button>') +
-      '<button class="btn primary" data-act="' + (last ? 'guide-close' : 'guide-next') + '" autofocus>' + (last ? 'はじめる' : '次へ') + '</button></div>' +
+      '<button class="btn primary" data-act="' + (last ? 'guide-close' : 'guide-next') + '" autofocus>' + (last ? 'はじめる' : g.tour ? '画面で案内を見る' : '次へ') + '</button></div>' +
       '<p class="guide-n">' + (guideStep + 1) + ' / ' + GUIDE.length + (guideStep ? '・<button class="linkbtn inline" data-act="guide-close">閉じる</button>' : '') + '</p></section>';
     document.body.classList.add('sheet-open');
     const b = $('#guide-root [autofocus]'); if (b) b.focus();
   }
   function closeGuide() { $('#guide-root').innerHTML = ''; store.set('guided', 1); if (!$('#sheet-root').innerHTML) document.body.classList.remove('sheet-open'); if (S.data && !S.data.locked) render(); }
+
+  // ---------- 実際の画面を指して案内する（ツアー） ----------
+  // 1ステップ = { r: 画面, prep: 画面を開く前の準備, sel: 光らせる所（CSSセレクタ・配列・関数）, t: 見出し, p: 説明 }
+  // 光らせる所がない（データがない・権限がない）ステップは飛ばす
+  const firstPlayer = () => { const m = S.data && sortMembers(S.data.members.filter((x) => x.active && x.player))[0]; return m ? m.id : ''; };
+  const segOf = (sel) => () => { const b = $(sel); return b ? b.closest('.seg') || b : null; };
+  const TOURS = {
+    all: { name: 'みんな', steps: [
+      { r: 'home', sel: '.pbar', t: '週と月を切り替える', p: '<b>週間</b>・<b>月間</b>を切り替えられます。矢印で前の週・前の月も見られます。' },
+      { r: 'home', sel: '.board', t: '部全体の数字', p: '部全体の実施回数と、<b>週{g}回（マスト）</b>を達成した人の割合です。前の週と比べた増減も出ます。' },
+      { r: 'home', sel: '.selfcard', t: 'わたし', p: '自分の今週の回数と、<b>あと何回で達成</b>かが出ます。押すと自分のページ（自己ベスト・称号・体重の変化）。' },
+      { r: 'home', sel: '.todaycard', t: '今日のメニュー', p: 'FWリーダーが出した今日のメニューです。押すと内容と、種目ごとの<b>フォームの動画</b>が見られます。' },
+      { r: 'home', sel: '.block.goal', t: 'まだの人', p: '今週まだ週{g}回に届いていない人です。名前を押すと、その人のページが開きます。' },
+      { r: 'home', sel: '.block.voice', t: '声をかけたい人', p: '連続達成がピンチの人や、最近ペースが落ちている人です。声をかけるきっかけにしてください。' },
+      { r: 'home', sel: ['.view-home .podium', '.view-home .rlist'], t: 'ランキング', p: 'この期間の実施回数の上位です。「すべて見る」で全員の順位が見られます。' },
+      { r: 'home', sel: '.block.feed', t: 'おめでとう・応援スタンプ', p: '週{g}回の達成や通算回数の節目が出ます。<b>スタンプを押すと応援が届きます</b>（自分の名前を選んでおくと、だれからか伝わります）。' },
+      { r: 'rank', prep: () => { S.rankTab = 'list'; }, sel: segOf('[data-act="rank-tab"]'), t: 'ランキングと分析', p: '<b>順位</b>のほかに、<b>分析</b>で FW対BK・ポジション別・達成率の分布が見られます。' },
+      { r: 'cal', sel: ['.matrix', '.view-cal .empty'], t: 'カレンダー', p: '日ごとに、だれが筋トレをしたかが一覧で見られます。' },
+      { r: 'menus', prep: () => { S.menuTab = 'upcoming'; }, sel: ['.menus .exbtn', '.menus', '.view-menus .empty'], t: 'メニューとフォーム動画', p: 'これからのメニューです。種目の横の<b>「フォーム」</b>を押すと、アプリの中で正しいフォームの動画が流れます。' },
+      { r: 'menus', prep: () => { S.menuTab = 'exercises'; S.exPart = ''; }, sel: '.exparts-bar', t: '種目の動画', p: '「種目の動画」では、登録された種目を<b>部位</b>（胸・背中・脚など）で探せます。' },
+      { r: 'menus', prep: () => { S.menuTab = 'exercises'; }, sel: () => { const b = $('.exlib [data-act="ex-open"]'); return b ? b.closest('li') || b : null; }, t: 'やり方とポイント', p: '種目を押すと、<b>フォームの動画</b>と<b>やり方・ポイント</b>が見られます。▶ ならすぐ再生します。' },
+      { r: 'home', sel: '.top-help', t: '使い方ガイド', p: 'わからないときはここ。<b>40秒の動画</b>と、立場ごとの使い方があります。この案内ももう一度見られます。' },
+      { r: 'settings', sel: '[data-act="fb-open"]', t: '要望・不具合を送る', p: '「こうしてほしい」「ここがおかしい」は、ここから管理者に送れます。<b>ログインはいりません</b>。' }
+    ] },
+    manager: { name: 'マネージャー', perm: 'record', steps: [
+      { r: 'home', sel: '.nav a.rec', t: '記録をつける', p: '記録はここから。マネージャーと管理者にだけ出ます。' },
+      { r: 'record', sel: '.rec-date', t: '記録する日', p: 'ふだんは<b>今日</b>。矢印や日付を押すと、前の日の分もつけられます。' },
+      { r: 'record', sel: '.rec-menus', t: 'その日のメニュー', p: 'その日のFWリーダーメニューです。対象の人が上にまとまって出ます。' },
+      { r: 'record', sel: '.rec-list .rec-btn', t: '「実施した」を押すだけ', p: 'やった人の<b>「実施した」</b>を押します。もう一度押すと取り消せます。押していない対象者は「実施していない」になります。' },
+      { r: 'record', sel: '.rec-bar', t: '保存する', p: '押し終わったら<b>「保存する」</b>。保存するまでは反映されません。' },
+      { r: 'record', sel: '.rec-more', t: 'その他', p: '<b>1週間まとめて記録・修正</b>（表）と、<b>取り消した記録</b>はここです。' },
+      { r: 'record', sel: segOf('[data-act="rec-sort"]'), t: '並び順', p: '名前順・ポジション順などに並べ替えられます。FW・BKの絞り込みも上にあります。' },
+      { r: 'home', sel: '.share-row', t: 'LINEで知らせる', p: '「まだの人」の一覧を、<b>LINE用の文章</b>にしてコピー・送信できます。' },
+      { r: 'member', arg: firstPlayer, sel: '[data-act="ex-new"][data-id]', t: '免除', p: 'けが・試験などで今週休む人は、その人のページで<b>「免除を追加」</b>。週{g}回の対象から外れます。' }
+    ] },
+    leader: { name: 'FWリーダー', perm: 'menu', steps: [
+      { r: 'menus', prep: () => { S.menuTab = 'upcoming'; }, sel: '[data-act="menu-new"]', t: 'メニューを作る', p: '日付・対象（FW・BK・個人）・内容を入れて保存すると、対象の人に<b>通知</b>が届きます。' },
+      { r: 'menus', prep: () => { S.menuTab = 'upcoming'; }, sel: '.menus [data-act="menu-open"]', t: 'メニューを直す', p: 'メニューを押すと、編集・コピー・削除ができます。' },
+      { r: 'menus', sel: '[data-act="menu-tab"][data-v="templates"]', t: '型', p: 'よく使うメニューは<b>「型」</b>にしておくと、曜日ごとにすぐ作れます。' },
+      { r: 'menus', prep: () => { S.menuTab = 'exercises'; }, sel: () => { const b = $('.view-menus [data-act="ex-new"]'); return b ? b.closest('.toolbar') || b : null; }, t: '種目の動画を登録', p: '種目ごとにフォームの動画を1本登録すると、メニューの種目の横に<b>「フォーム」</b>が出ます。' },
+      { r: 'menus', prep: () => { S.menuTab = 'exercises'; }, sel: '[data-act="sv-open"][data-v="savas"]', t: 'SAVASの動画から選ぶ', p: '自重・ダンベルなど<b>365本</b>から、まとめて選んで登録できます。やり方・ポイントも一緒に入ります。' },
+      { r: 'menus', prep: () => { S.menuTab = 'exercises'; }, sel: '[data-act="sv-open"][data-v="lifefit"]', t: 'マシンの動画から選ぶ', p: 'ジムのマシン<b>37台</b>の使い方の動画から選べます。' },
+      { r: 'menus', prep: () => { S.menuTab = 'exercises'; }, sel: '.exmiss', t: '動画がない種目', p: 'メニューに出てくるのに動画がない種目が、候補として出ます。押すとそのまま登録できます。' },
+      { r: 'home', sel: '.share-row', t: 'LINEで知らせる', p: '「まだの人」の一覧を、<b>LINE用の文章</b>にしてコピー・送信できます。' }
+    ] },
+    admin: { name: '管理者', perm: 'admin', steps: [
+      { r: 'settings', sel: '.links a[href="#members"]', t: '部員', p: '部員の追加・編集・権限。ポジションや取り組み方は<b>「まとめて編集」</b>が便利です。' },
+      { r: 'members', sel: '[data-act="bulk-open"]', t: 'まとめて編集', p: '学年・ポジション・取り組み方を、表でまとめて直せます。' },
+      { r: 'settings', sel: '[data-act="perms-open"]', t: '役職の付け替え', p: '新年度のFWリーダー・マネージャーの交代はここ。新しい人の<b>暗証番号</b>もまとめて発行します。' },
+      { r: 'settings', sel: '[data-act="trash-open"]', t: '取り消した記録', p: 'まちがえて取り消した「実施した」を戻せます。' },
+      { r: 'settings', sel: '.links a[href="#feedback"]', t: '届いた要望・不具合', p: '部員から届いた要望です。対応したら<b>「対応済み」</b>に。' },
+      { r: 'settings', sel: '[data-act="goal-open"]', t: '部のルール', p: '<b>週の目標回数</b>、試験や合宿の<b>オフ期間</b>、重さの目安、閲覧の合言葉はこの下で設定します。' },
+      { r: 'settings', sel: '.links a[href="#logs"]', t: '操作履歴', p: 'だれが・いつ・何を変えたかが残ります。画面のエラーも自動で記録されます。' }
+    ] }
+  };
+  const TOUR_FOR = { manager: 'manager', leader: 'leader', admin: 'admin' };
+  let TOUR = null;
+  function tourSteps(key) { return (TOURS[key] && TOURS[key].steps) || []; }
+  function tourFind(st) {
+    const list = typeof st.sel === 'function' ? [st.sel()] : [].concat(st.sel).map((q) => $(q));
+    return list.find((el) => el && el.getClientRects().length) || null;
+  }
+  function startTour(key, opt) {
+    if (!TOURS[key]) return;
+    closeSheet(); closeVideo();
+    $('#guide-root').innerHTML = ''; document.body.classList.remove('sheet-open');
+    TOUR = { key: key, i: -1, dir: 1, then: opt && opt.then, from: opt && opt.home ? '#home' : location.hash || '#home', el: null,
+      saved: { menuTab: S.menuTab, rankTab: S.rankTab, exPart: S.exPart } };
+    document.body.classList.add('touring');
+    $('#tour-root').innerHTML = '<div class="tour-bg" data-act="tour-noop"></div><div class="tour-hole" aria-hidden="true"></div><section class="tour-tip" role="dialog" aria-modal="true" aria-live="polite"></section>';
+    window.addEventListener('resize', tourPlace); window.addEventListener('scroll', tourPlace, { passive: true });
+    tourGo(0, 1);
+  }
+  async function tourGo(i, dir) {
+    if (!TOUR) return;
+    const steps = tourSteps(TOUR.key);
+    if (i < 0) i = 0;
+    if (i >= steps.length) { endTour(true); return; }
+    const st = steps[i], my = TOUR;
+    TOUR.i = i; TOUR.dir = dir;
+    $('#tour-root').classList.add('moving');
+    if (st.prep) st.prep();
+    if (st.arg && !st.arg()) { tourGo(i + dir, dir); return; }
+    const hash = '#' + st.r + (st.arg ? '/' + st.arg() : '');
+    if (location.hash !== hash && !(hash === '#home' && (location.hash === '' || location.hash === '#'))) location.hash = hash;
+    else render();
+    // 画面が描かれるのを待って探す（ないときは飛ばす）
+    let el = null;
+    for (let k = 0; k < 25 && !el; k++) { await new Promise((r) => setTimeout(r, 80)); if (TOUR !== my) return; el = S.route.name === st.r ? tourFind(st) : null; }
+    if (!el) { if (i + dir < 0) { tourGo(i + 1, 1); return; } tourGo(i + dir, dir); return; }
+    TOUR.el = el;
+    const fixed = (() => { for (let n = el; n && n !== document.body; n = n.parentElement) { const p = getComputedStyle(n).position; if (p === 'fixed' || p === 'sticky') return true; } return false; })();
+    if (!fixed) el.scrollIntoView({ block: 'center', behavior: reduceMotion() ? 'auto' : 'smooth' });
+    const total = steps.length, sub = (t) => t.replace(/\{g\}/g, goal());
+    $('.tour-tip').innerHTML = '<p class="tour-k">' + esc(TOURS[TOUR.key].name) + 'の使い方<span>' + (i + 1) + ' / ' + total + '</span></p>' +
+      '<h2>' + esc(sub(st.t)) + '</h2><p>' + sub(st.p) + '</p>' +
+      '<div class="tour-acts"><button class="linkbtn" data-act="tour-close">閉じる</button><span></span>' +
+      (i > 0 ? '<button class="btn small" data-act="tour-prev">戻る</button>' : '') +
+      '<button class="btn small primary" data-act="tour-next" autofocus>' + (i === total - 1 ? '終わる' : '次へ') + '</button></div>';
+    setTimeout(() => { if (TOUR === my) { tourPlace(); $('#tour-root').classList.remove('moving'); const b = $('.tour-tip [autofocus]'); if (b) b.focus({ preventScroll: true }); } }, fixed ? 30 : 380);
+  }
+  /** 光らせる枠と吹き出しの位置（文字の大きさで body に zoom がかかっていても合うように、実際の倍率を測る） */
+  function tourPlace() {
+    if (!TOUR || !TOUR.el) return;
+    const root = $('#tour-root'), hole = $('.tour-hole'), tip = $('.tour-tip');
+    if (!root || !hole || !tip) return;
+    if (!TOUR.el.isConnected) { const st = tourSteps(TOUR.key)[TOUR.i]; TOUR.el = st && tourFind(st); if (!TOUR.el) return; }
+    hole.style.left = '100px'; hole.style.top = '0px'; hole.style.width = '10px'; hole.style.height = '10px';
+    const k = (hole.getBoundingClientRect().left / 100) || 1;
+    const vw = window.innerWidth, vh = window.innerHeight, pad = 6;
+    const r = TOUR.el.getBoundingClientRect();
+    const top = Math.max(4, r.top - pad), bot = Math.min(vh - 4, r.bottom + pad);
+    const left = Math.max(4, r.left - pad), right = Math.min(vw - 4, r.right + pad);
+    hole.style.left = left / k + 'px'; hole.style.top = top / k + 'px';
+    hole.style.width = Math.max(0, right - left) / k + 'px'; hole.style.height = Math.max(0, bot - top) / k + 'px';
+    const tw = Math.min(380 * k, vw - 24), th = tip.getBoundingClientRect().height;
+    let tx = Math.min(Math.max(12, (left + right) / 2 - tw / 2), vw - tw - 12);
+    const nav = $('.nav'), navR = nav ? nav.getBoundingClientRect() : null;
+    const floor = navR && navR.top > vh / 2 ? navR.top : vh;
+    let ty;
+    if (bot + 10 + th <= floor - 8) ty = bot + 10;
+    else if (top - 10 - th >= 8) ty = top - 10 - th;
+    else ty = Math.max(8, floor - th - 8);
+    tip.style.width = tw / k + 'px'; tip.style.left = tx / k + 'px'; tip.style.top = ty / k + 'px';
+  }
+  function endTour(done) {
+    if (!TOUR) return;
+    const t = TOUR; TOUR = null;
+    Object.assign(S, t.saved); // 案内で切り替えたタブは元に戻す
+    $('#tour-root').innerHTML = ''; $('#tour-root').classList.remove('moving');
+    document.body.classList.remove('touring');
+    window.removeEventListener('resize', tourPlace); window.removeEventListener('scroll', tourPlace);
+    store.set('tour:' + t.key, 1);
+    if (location.hash !== t.from) location.hash = t.from; else render();
+    if (t.then) setTimeout(t.then, 350);
+    else if (done) toast('案内は「使い方ガイド」からいつでも見られます');
+  }
+  /** はじめてその役割でログインしたとき：画面で案内するかを聞く（1回だけ） */
+  function maybeRoleTour() {
+    const m = me(), key = m && TOUR_FOR[m.perm];
+    if (!key || store.get('tour:' + key, 0) || store.get('tourAsk:' + key, 0) || TOUR || $('#guide-root').innerHTML || $('#sheet-root').innerHTML || !store.get('guided', 0)) return;
+    store.set('tourAsk:' + key, 1);
+    const what = { manager: '記録のつけ方', leader: 'メニューの作り方と種目の動画', admin: '部員・役職・部のルールの設定' }[key];
+    $('#guide-root').innerHTML = '<div class="guide-bg"></div><section class="guide" role="dialog" aria-modal="true" aria-label="' + esc(TOURS[key].name) + 'の使い方">' +
+      '<div class="guide-i" aria-hidden="true">' + icon(key === 'manager' ? 'check' : key === 'leader' ? 'menu' : 'gear') + '</div><h2>' + esc(TOURS[key].name) + 'の使い方</h2>' +
+      '<p>' + esc(m.name) + ' さん、ログインありがとうございます。<b>' + what + '</b>を、実際の画面で案内します（1分）。</p>' +
+      '<div class="actions"><button class="btn" data-act="tour-later">あとで</button><button class="btn primary" data-act="tour-start" data-v="' + key + '" autofocus>画面で案内を見る</button></div>' +
+      '<p class="guide-n">あとからでも「使い方ガイド」で見られます</p></section>';
+    document.body.classList.add('sheet-open');
+    const b = $('#guide-root [autofocus]'); if (b) b.focus();
+  }
 
   function vLogs() {
     if (!can('admin')) return '<p class="empty">操作履歴を見られるのは管理者だけです。</p>';
@@ -2766,6 +2926,7 @@
       setTimeout(() => { if (S.route.name === 'home') { confetti(); toast(c.text + ' 🎉'); } }, 500);
     }
     S.celebrate = null;
+    if (TOUR) requestAnimationFrame(tourPlace);
     if ((r.name === 'help' || r.name === 'settings') && r.arg) {
       const el = document.getElementById(r.name === 'help' ? 'h-' + r.arg : r.arg);
       if (el) setTimeout(() => el.scrollIntoView({ block: 'start', behavior: reduceMotion() ? 'auto' : 'smooth' }), 60);
@@ -2968,12 +3129,24 @@
     },
     'sw-update': (el) => { el.disabled = true; if (PWA.waiting) PWA.waiting.postMessage('skipWaiting'); else location.reload(); },
     'pwa-install': async () => { const p = PWA.prompt; if (!p) return; PWA.prompt = null; p.prompt(); try { await p.userChoice; } catch (e) { /* noop */ } render(); },
-    'guide-next': () => openGuide(guideStep + 1),
+    'guide-next': () => {
+      const g = GUIDE[guideStep], back = guideStep + 1;
+      if (!g.tour) { openGuide(back); return; }
+      // 名前を選んだら、実際の画面で案内 → 終わったら残りの紹介（ホーム画面に追加・通知・見やすく）
+      $('#guide-root').innerHTML = '';
+      startTour(g.tour, { then: () => openGuide(back), home: true });
+    },
     'guide-prev': () => openGuide(guideStep - 1),
     'guide-push': () => { closeGuide(); location.hash = '#settings/push'; },
     'guide-help': (el) => { closeGuide(); location.hash = '#help' + (el.dataset.v ? '/' + el.dataset.v : ''); },
     'help-role': (el) => { S.helpRole = el.dataset.v; render(); },
     'guide-close': () => closeGuide(),
+    'tour-next': () => { if (TOUR) tourGo(TOUR.i + 1, 1); },
+    'tour-prev': () => { if (TOUR) tourGo(TOUR.i - 1, -1); },
+    'tour-close': () => endTour(false),
+    'tour-noop': () => {},
+    'tour-start': (el) => { const k = el.dataset.v; closeGuide(); setTimeout(() => startTour(k), 60); },
+    'tour-later': () => { closeGuide(); toast('「使い方ガイド」からいつでも見られます'); },
     'sessions-open': () => openSessions(),
     'sess-out': async (el) => {
       if (el.dataset.armed !== '1') { el.dataset.armed = '1'; const t0 = el.textContent; el.textContent = 'もう一度押すとログアウト'; setTimeout(() => { if (el.isConnected) { el.dataset.armed = ''; el.textContent = t0; } }, 4000); return; }
@@ -3198,7 +3371,7 @@
           S.token = r.token; store.set('token', r.token);
           pendingOldPin = r.me.mustChange ? pin : '';
           closeSheet(); await loadState(); render();
-          if (!r.me.mustChange) toast(r.me.name + ' さんでログインしました');
+          if (!r.me.mustChange) { toast(r.me.name + ' さんでログインしました'); setTimeout(maybeRoleTour, 900); }
         } catch (e) { sheetError(e.message); }
       });
     },
@@ -3207,7 +3380,7 @@
       await busy(btn, async () => {
         try {
           await api('changePin', { oldPin: f.oldPin.value, newPin: f.newPin.value });
-          pendingOldPin = ''; closeSheet(); await loadState(); render(); toast('暗証番号を変更しました');
+          pendingOldPin = ''; closeSheet(); await loadState(); render(); toast('暗証番号を変更しました'); setTimeout(maybeRoleTour, 900);
         } catch (e) { sheetError(e.message); }
       });
     },
@@ -3496,6 +3669,11 @@
   });
   document.addEventListener('keydown', (ev) => {
     if (ev.key === 'Escape' && $('.vplayer')) { closeVideo(); return; }
+    if (TOUR) {
+      if (ev.key === 'Escape') { endTour(false); return; }
+      if (ev.key === 'ArrowRight') { tourGo(TOUR.i + 1, 1); return; }
+      if (ev.key === 'ArrowLeft' && TOUR.i > 0) { tourGo(TOUR.i - 1, -1); return; }
+    }
     if (ev.key === 'Escape' && $('#guide-root').innerHTML) { closeGuide(); return; }
     if (ev.key === 'Escape' && !sheetLocked && $('#sheet-root').innerHTML) closeSheet();
   });
@@ -3541,5 +3719,6 @@
     }
     render();
     if (S.data && !S.data.locked && !store.get('guided', 0)) openGuide(0);
+    else if (S.data && !S.data.locked) setTimeout(maybeRoleTour, 1200);
   })();
 })();

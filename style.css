@@ -1377,3 +1377,25 @@ html[data-size="l"] .help-seg button[aria-pressed="true"], html[data-size="xl"] 
 .nogear { font-size: 11px; color: var(--sub); }
 .exlines .gear { margin-left: 2px; }
 .radios.small span { min-height: 38px; padding: 0 12px; font-size: 13px; }
+
+/* ---------- v2.19 実際の画面を指して案内（ツアー） ---------- */
+.tour-bg { position: fixed; inset: 0; z-index: 85; background: transparent; }
+.tour-hole { position: fixed; z-index: 86; border-radius: 12px; box-shadow: 0 0 0 3px var(--paper), 0 0 0 6px var(--enji-bg), 0 0 0 200vmax rgba(0, 0, 0, .62); pointer-events: none; transition: left .3s ease, top .3s ease, width .3s ease, height .3s ease; }
+.tour-tip { position: fixed; z-index: 87; background: var(--paper); color: var(--ink); border-radius: 12px; padding: 12px 14px 10px; border-top: 5px solid var(--enji-bg); box-shadow: 0 10px 30px rgba(0, 0, 0, .35); transition: left .3s ease, top .3s ease, opacity .2s; }
+#tour-root.moving .tour-tip { opacity: 0; }
+.tour-k { display: flex; justify-content: space-between; font-size: 11.5px; font-weight: 700; color: var(--sub); margin-bottom: 2px; }
+.tour-k span { font-variant-numeric: tabular-nums; }
+.tour-tip h2 { font-size: 17px; font-weight: 800; margin-bottom: 4px; }
+.tour-tip p { font-size: 13.5px; line-height: 1.65; }
+.tour-tip p b { color: var(--enji); }
+.tour-acts { display: flex; align-items: center; gap: 8px; margin-top: 10px; }
+.tour-acts > span { flex: 1; }
+.tour-acts .btn { min-height: 40px; min-width: 76px; }
+body.touring { overflow-anchor: none; }
+@media (prefers-reduced-motion: reduce) { .tour-hole, .tour-tip { transition: none; } }
+.tourcard { display: flex; align-items: center; gap: 12px; margin: 0 0 14px; padding: 12px 14px; border: 1.5px solid var(--enji-bg); border-radius: 12px; background: var(--paper); }
+.tourcard-i { flex: none; width: 40px; height: 40px; border-radius: 50%; background: var(--enji-bg); color: #fff; display: flex; align-items: center; justify-content: center; }
+.tourcard-t { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.tourcard-t b { font-size: 14.5px; }
+.tourcard-t small { font-size: 11.5px; color: var(--sub); line-height: 1.5; }
+.tourcard-n { font-size: 11.5px; color: var(--sub); max-width: 9em; text-align: right; }

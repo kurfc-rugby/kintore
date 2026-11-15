@@ -20,21 +20,38 @@ const ok = (c, label) => { if (c) { pass++; console.log('  ✓ ' + label); } els
     await page.selectOption('select[name="memberId"]', { label });
     await page.fill('input[name="pin"]', pin);
     await page.click('form[data-form="login"] button[type="submit"]'); await page.waitForTimeout(900);
+    // はじめてその役割でログインすると「画面で案内を見る？」が1回だけ出る（ここでは「あとで」）
+    await page.waitForSelector('#guide-root [data-act="tour-later"]', { timeout: 1500 }).catch(() => {});
+    const asked = await page.$('#guide-root [data-act="tour-later"]');
+    if (asked) { await page.click('#guide-root [data-act="tour-later"]'); await page.waitForTimeout(300); }
+    return !!asked;
   }
   async function logout() { await go('#settings'); await page.click('[data-act="logout"]'); await page.waitForTimeout(800); }
 
   console.log('■ 初めて開いた人');
   await page.goto(BASE); await page.waitForSelector('.guide');
   ok((await text('.guide h2')).includes('ようこそ'), '初めて開くと使い方ガイドが出る');
-  await page.click('[data-act="guide-next"]'); await page.click('[data-act="guide-next"]');
-  ok(await count('.guide select[data-act-change="pref-self"]') === 1, '紹介の中で自分の名前を選べる');
   await page.click('[data-act="guide-next"]');
-  ok((await text('.guide')).includes('ホーム画面に追加') && await count('.guide .steps li, .guide [data-act="pwa-install"]') >= 1, 'ホーム画面に追加の手順が出る');
+  ok(await count('.guide select[data-act-change="pref-self"]') === 1 && (await text('.guide [data-act="guide-next"]')).includes('画面で案内'), '紹介の中で自分の名前を選べる（次は「画面で案内を見る」）');
+  await page.click('[data-act="guide-next"]'); await page.waitForSelector('.tour-tip h2'); await page.waitForTimeout(700);
+  ok(await count('.guide') === 0 && (await text('.tour-tip h2')).includes('週と月') && await page.evaluate(() => { const h = document.querySelector('.tour-hole').getBoundingClientRect(), p = document.querySelector('.pbar').getBoundingClientRect(); return Math.abs(h.top - (p.top - 6)) < 3 && Math.abs(h.width - (p.width + 12)) < 3; }), '名前を選んだあと、実際の画面で案内が始まる（光らせる枠が場所に合う）');
+  await page.click('[data-act="tour-next"]'); await page.waitForTimeout(900);
+  ok((await text('.tour-tip h2')).includes('部全体') && (await text('.tour-k')).includes('2 /'), '「次へ」で次の場所の案内');
+  await page.click('[data-act="tour-prev"]'); await page.waitForTimeout(900);
+  ok((await text('.tour-tip h2')).includes('週と月'), '「戻る」で前の案内に戻れる');
+  const tourTitles = [];
+  for (let i = 0; i < 20 && await count('.tour-tip h2'); i++) { tourTitles.push(await text('.tour-tip h2')); await page.click('[data-act="tour-next"]'); await page.waitForTimeout(950); }
+  ok(['ランキングと分析', 'カレンダー', 'メニューとフォーム動画', '種目の動画', 'やり方とポイント', '使い方ガイド', '要望・不具合を送る'].every((t) => tourTitles.includes(t)) && tourTitles.length >= 12, 'ランキング・カレンダー・フォーム動画・種目の動画・要望の送り方まで、画面を移りながら案内する（' + tourTitles.length + 'か所）');
+  await page.waitForSelector('.guide h2');
+  ok((await text('.guide')).includes('ホーム画面に追加') && await count('.guide .steps li, .guide [data-act="pwa-install"]') >= 1 && (await page.evaluate(() => location.hash)) === '#home', '案内が終わると、ホーム画面に追加の説明に戻る');
   await page.click('[data-act="guide-prev"]'); ok((await text('.guide h2')).includes('自分の名前'), '「戻る」で前の説明に戻れる');
-  await page.click('[data-act="guide-next"]'); await page.click('[data-act="guide-next"]');
+  await page.click('[data-act="guide-next"]'); await page.waitForSelector('.tour-tip h2'); await page.waitForTimeout(500);
+  await page.keyboard.press('Escape'); await page.waitForSelector('.guide h2');
+  ok(await count('.tour-tip') === 0 && (await text('.guide h2')).includes('ホーム画面に追加'), 'Esc で案内を閉じても、紹介の続きに戻る');
+  await page.click('[data-act="guide-next"]');
   ok((await text('.guide h2')).includes('通知'), '通知の説明がある');
   await page.click('[data-act="guide-next"]');
-  ok((await text('.guide-n')).startsWith('6 / 6') && await count('.guide-prefs .seg') === 2, '6つの説明があり、最後で文字の大きさ・明るさを選べる');
+  ok((await text('.guide-n')).startsWith('5 / 5') && await count('.guide-prefs .seg') === 2, '5つの説明があり、最後で文字の大きさ・明るさを選べる');
   await page.click('.guide .actions [data-act="guide-close"]');
   ok(await count('.guide') === 0, 'ガイドを閉じられる');
   await page.reload(); await page.waitForSelector('.board'); await page.waitForTimeout(300);
@@ -128,13 +145,18 @@ const ok = (c, label) => { if (c) { pass++; console.log('  ✓ ' + label); } els
   ok((await text('.help')).includes('実施記録をつける') && !(await text('.help')).includes('メニューを作る'), 'マネージャー向けに切り替えられる');
   await page.click('[data-act="help-role"][data-v="leader"]');
   ok((await text('.help')).includes('型と繰り返し'), 'FWリーダー向けに切り替えられる');
+  ok(await count('.tourcard [data-act="tour-start"]') === 0 && (await text('.tourcard')).includes('ログインすると'), 'ログインしていないと、FWリーダーの画面案内は「ログインすると見られます」');
   await page.click('[data-act="help-role"][data-v="all"]');
+  await page.click('.tourcard [data-act="tour-start"]'); await page.waitForSelector('.tour-tip h2'); await page.waitForTimeout(600);
+  ok((await text('.tour-k')).includes('みんなの使い方') && page.url().endsWith('#home'), '使い方ガイドから、みんな向けの画面案内を始められる');
+  await page.click('[data-act="tour-close"]'); await page.waitForTimeout(700);
+  ok(await count('.tour-tip') === 0 && page.url().endsWith('#help'), '「閉じる」で案内が終わり、使い方ガイドに戻る');
   await go('#help/push'); await page.waitForTimeout(300);
   ok(await page.locator('#h-push').getAttribute('open') !== null, '項目を指定して開ける（#help/push）');
   await go('#home');
 
   console.log('■ マネージャー（「実施した」を押すだけ）');
-  await login('マネ 花子（マネージャー）', 'test-mgr-01');
+  ok(await login('マネ 花子（マネージャー）', 'test-mgr-01'), 'マネージャーで初めてログインすると「画面で案内を見る？」が出る');
   await go('#record');
   ok(await count('.rec-row') === 20 && await count('.rec-btn') + await count('.rec-lock') === 20, '選手20人が並び、ボタンは「実施した」の1つだけ');
   const offBefore = await count('.rec-row:not(.on)');
@@ -179,7 +201,14 @@ const ok = (c, label) => { if (c) { pass++; console.log('  ✓ ' + label); } els
   await logout();
 
   console.log('■ FWリーダー');
-  await login('前田 剛（FWリーダー）', 'test-lead-1');
+  ok(await login('前田 剛（FWリーダー）', 'test-lead-1'), 'FWリーダーで初めてログインしても「画面で案内を見る？」が出る');
+  await go('#help'); await page.click('[data-act="help-role"][data-v="leader"]'); await page.waitForTimeout(300);
+  await page.click('.tourcard [data-act="tour-start"]');
+  const leadTitles = [];
+  for (let i = 0; i < 12; i++) { await page.waitForSelector('.tour-tip h2', { timeout: 3000 }).catch(() => {}); await page.waitForTimeout(700); if (!(await count('.tour-tip h2'))) break; leadTitles.push(await text('.tour-tip h2')); await page.click('[data-act="tour-next"]'); }
+  ok(['メニューを作る', '型', '種目の動画を登録', 'SAVASの動画から選ぶ', 'マシンの動画から選ぶ'].every((t) => leadTitles.includes(t)), 'FWリーダーの画面案内：メニューの作り方・型・種目の動画の登録（' + leadTitles.length + 'か所）');
+  await page.waitForTimeout(600);
+  ok(await count('.tour-tip') === 0 && page.url().endsWith('#help'), '終わると元の画面に戻る');
   ok(await count('.nav a[href="#record"]') === 0, '「記録」のタブが出ない');
   await go('#menus'); await page.click('[data-act="menu-new"]');
   ok((await text('#tgt-hint')).includes('FW'), '対象人数の目安が出る');
@@ -348,7 +377,7 @@ const ok = (c, label) => { if (c) { pass++; console.log('  ✓ ' + label); } els
   {
     const c2 = await browser.newContext({ viewport: { width: 375, height: 760 }, isMobile: true, hasTouch: true, reducedMotion: 'reduce' });
     await c2.route(/fonts\.(googleapis|gstatic)\.com/, (r) => r.abort());
-    await c2.addInitScript(() => { localStorage.setItem('kintore.swdev', '1'); localStorage.setItem('kintore.guided', '1'); });
+    await c2.addInitScript(() => { localStorage.setItem('kintore.swdev', '1'); localStorage.setItem('kintore.guided', '1'); ['manager', 'leader', 'admin'].forEach((k) => localStorage.setItem('kintore.tourAsk:' + k, '1')); });
     const p2 = await c2.newPage();
     p2.on('pageerror', (e) => errors.push('pwa: ' + e.message));
     await p2.goto(BASE); await p2.waitForSelector('.board');
@@ -411,7 +440,7 @@ const ok = (c, label) => { if (c) { pass++; console.log('  ✓ ' + label); } els
     const qerr = [];
     q.on('pageerror', (e) => qerr.push(e.message));
     q.on('dialog', (d) => d.accept());
-    await q.addInitScript(() => { try { localStorage.setItem('kintore.guided', '1'); } catch (e) { /* なし */ } });
+    await q.addInitScript(() => { try { localStorage.setItem('kintore.guided', '1'); ['manager', 'leader', 'admin'].forEach((k) => localStorage.setItem('kintore.tourAsk:' + k, '1')); } catch (e) { /* なし */ } });
     const qgo = async (h) => { await q.evaluate((x) => { location.hash = x; }, h); await q.waitForTimeout(500); };
     const qlogin = async (label, pin) => {
       await qgo('#settings'); await q.click('[data-act="login"]');
@@ -522,7 +551,7 @@ const ok = (c, label) => { if (c) { pass++; console.log('  ✓ ' + label); } els
     const p3 = await c3.newPage();
     p3.on('pageerror', (e) => errors.push('motion: ' + e.message));
     p3.on('dialog', (d) => d.accept());
-    await p3.addInitScript(() => { try { localStorage.setItem('kintore.guided', '1'); } catch (e) { /* なし */ } });
+    await p3.addInitScript(() => { try { localStorage.setItem('kintore.guided', '1'); ['manager', 'leader', 'admin'].forEach((k) => localStorage.setItem('kintore.tourAsk:' + k, '1')); } catch (e) { /* なし */ } });
     await p3.goto(BASE);
     const intro0 = await p3.locator('.intro').count();
     await p3.waitForSelector('.board'); await p3.waitForTimeout(1500);
@@ -544,8 +573,11 @@ const ok = (c, label) => { if (c) { pass++; console.log('  ✓ ' + label); } els
     }));
     ok(seen.got.indexOf('tab') >= 0 && !seen.after && seen.rank, 'タブを移ると切り替えの動きが付き、終われば元に戻る');
     ok(await p3.evaluate(() => [...document.querySelectorAll('.seg button')].every((b) => !b.style.viewTransitionName)), 'タブを移ったあと、区切りボタンには滑るための名前が残らない（画面と一緒に動く）');
+    // 週の初め（月曜）は同率1位が多すぎて表彰台を出さないことがあるので、そのときは月間で確かめる
+    if (!(await p3.locator('.podium .pod').count())) { await p3.click('[data-act="kind"][data-v="month"]').catch(() => {}); await p3.evaluate(() => { location.hash = '#home'; }); await p3.waitForTimeout(500); await p3.evaluate(() => { location.hash = '#rank'; }); await p3.waitForTimeout(300); }
     const pod = await p3.evaluate(() => { const el = document.querySelector('.main.enter .podium .pod'); return el ? getComputedStyle(el).animationName : ''; });
     ok(pod === 'pod-rise', 'ランキングを開くと表彰台がせり上がる');
+    if (await p3.locator('[data-act="kind"][data-v="week"][aria-pressed="false"]').count()) { await p3.click('[data-act="kind"][data-v="week"]'); await p3.waitForTimeout(400); }
     const kinds = await p3.locator('[data-act="kind"]').count();
     if (kinds) {
       const v0 = await p3.locator('[data-act="kind"][aria-pressed="true"]').getAttribute('data-v');
