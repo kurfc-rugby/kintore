@@ -1322,3 +1322,22 @@ html[data-size="l"] .help-seg button[aria-pressed="true"], html[data-size="xl"] 
 .ex-no { color: var(--sub); }
 .lib-v { display: inline-flex; margin-left: 3px; color: var(--enji); vertical-align: -2px; }
 .lib-v .ic { width: 12px; height: 12px; }
+/* v2.13 種目の動画を部位別に */
+.exlib-v { border: 0; background: none; font: inherit; color: inherit; text-align: left; width: 100%; padding: 0; cursor: pointer; }
+.exlib-v > .ic { width: 16px; height: 16px; color: var(--sub); flex: none; }
+.exlib-t { flex: 1; min-width: 0; }
+.exlib-t small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.exparts { display: inline-flex; flex-wrap: wrap; gap: 4px; }
+.exlib-t .exparts { display: flex; margin-top: 3px; }
+.exparts i { font-style: normal; font-size: 11px; font-weight: 700; line-height: 1; padding: 3px 6px; border-radius: 4px; background: var(--enji-tint, #f6e9ea); color: var(--enji); }
+.exparts-bar { flex-wrap: wrap; }
+.exparts-bar small { font-size: 10px; margin-left: 3px; opacity: .7; }
+.exgo { width: 100%; justify-content: center; min-height: 52px; font-size: 16px; margin: 6px 0 4px; }
+.exmenus { list-style: none; margin: 0; padding: 0; }
+.exmenus button { display: flex; gap: 10px; align-items: baseline; width: 100%; min-height: 44px; padding: 8px 0; border: 0; border-bottom: 1px solid var(--line); background: none; font: inherit; color: inherit; text-align: left; cursor: pointer; font-size: 13px; color: var(--sub); }
+.exmenus b { color: var(--ink); font-size: 15px; }
+.exmiss > summary { cursor: pointer; list-style: none; }
+.exmiss > summary::-webkit-details-marker { display: none; }
+.exmiss > summary h2::before { content: '▸ '; color: var(--enji); }
+.exmiss[open] > summary h2::before { content: '▾ '; }
+.exmiss[open] .chips { margin-top: 10px; }

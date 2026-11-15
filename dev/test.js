@@ -848,6 +848,11 @@ section('種目の動画');
   ok(st.exercises.length === 1 && st.exercises[0].video === 'https://youtu.be/sq', 'みんな（ログインなし）が種目の動画を見られる');
   const up = api({ op: 'saveExercise', token: LD9, exercise: { id: ad.exercises[0].id, name: 'スクワット', aliases: '', video: 'https://youtu.be/sq2' } });
   ok(up.ok && up.exercises[0].video === 'https://youtu.be/sq2' && up.exercises[0].aliases.length === 0, '登録した種目を直せる');
+  const pt = api({ op: 'saveExercise', token: LD9, exercise: { name: 'デッドリフト', video: 'https://youtu.be/d', parts: ['背中', '尻', '脚', 'お腹', '背中'], points: '背中を丸めない\nバーを体の近くに' } });
+  const dl = pt.exercises.find((x) => x.name === 'デッドリフト');
+  ok(pt.ok && dl.parts.join() === '背中,脚,尻' && dl.points.includes('\n'), '部位（決まった中から・重複なし・決まった順）とポイントを登録できる');
+  ok(api({ op: 'saveExercise', token: LD9, exercise: { id: dl.id, name: 'デッドリフト', video: 'https://youtu.be/d', points: 'あ'.repeat(401) } }).error === 'too_long', 'ポイントは400文字まで');
+  api({ op: 'deleteExercise', token: LD9, id: dl.id });
   const del = api({ op: 'deleteExercise', token: LD9, id: ad.exercises[0].id });
   ok(del.ok && del.exercises.length === 0 && api({ op: 'state' }).exercises.length === 0, '消せる（スプレッドシートには削除日時つきで残る）');
 }

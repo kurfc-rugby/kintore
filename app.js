@@ -3,7 +3,7 @@
   'use strict';
   const L = window.KLogic;
   const API = window.KINTORE_API;
-  const VERSION = '2.12.0';
+  const VERSION = '2.13.0';
   const WD = ['日', '月', '火', '水', '木', '金', '土'];
   const PERM = { admin: '管理者', manager: 'マネージャー', leader: 'FWリーダー', member: '一般部員' };
   const MODE = { leader: 'メニュー参加', self: '自主トレ' };
@@ -244,7 +244,7 @@
     token: store.get('token', ''), viewToken: store.get('viewToken', ''),
     kind: store.get('kind', 'week'), anchor: null,
     group: 'ALL', position: '', sort: 'count',
-    menuTab: 'upcoming', menuGroup: 'ALL',
+    menuTab: 'upcoming', menuGroup: 'ALL', exPart: '',
     rec: { date: null, edits: {}, group: 'ALL', position: '' },
     memberMonth: null, logs: null, route: { name: 'home', arg: '' }, counted: false,
     hist: {}, archive: null, recSort: store.get('recSort', 'pos')
@@ -1511,26 +1511,72 @@
     });
     return out.slice(0, 30);
   }
+  // 部位（筋トレ辞典の部位別にならう。ラグビー部なので「首」も）
+  const EX_PARTS = ['胸', '肩', '背中', '腕', '腹', '脚', '尻', '首', '全身'];
+  /** 種目のライブラリの分け方から、部位の見当をつける（登録画面の最初の値） */
+  function guessParts(name) {
+    for (const c of LIB) {
+      if (!c[1].some((x) => L.exKey(x[0]) === L.exKey(name))) continue;
+      if (c[0] === '下半身') return ['脚', '尻'];
+      if (c[0] === '胸・押す') return ['胸'];
+      if (c[0] === '背中・引く') return ['背中'];
+      if (c[0] === '肩・腕') return /カール|トライセプス|ディップ/.test(name) ? ['腕'] : ['肩'];
+      if (c[0] === '体幹・首') return /首/.test(name) ? ['首'] : ['腹'];
+      if (c[0] === 'パワー') return ['全身'];
+    }
+    return /首/.test(name) ? ['首'] : [];
+  }
+  function exRow(x) {
+    const pts = (x.points || '').split('\n')[0];
+    return '<li><button class="exlib-v" data-act="ex-open" data-id="' + x.id + '"><span class="exlib-play">' + icon('play') + '</span><span class="exlib-t"><b>' + esc(x.name) + '</b>' +
+      (x.parts.length ? '<span class="exparts">' + x.parts.map((p) => '<i>' + p + '</i>').join('') + '</span>' : '') +
+      (pts ? '<small>' + esc(pts) + '</small>' : '') + '</span>' + icon('next') + '</button></li>';
+  }
   function vExercises() {
     const ex = exList(), staff = can('menu');
     let h = staff ? '<div class="toolbar"><button class="btn primary" data-act="ex-new">' + icon('plus') + '種目の動画を登録</button></div>' : '';
     if (staff) {
       const miss = exMissing();
-      if (miss.length) h += '<section class="block exmiss"><div class="block-h"><h2>動画がまだない種目</h2><span class="count">' + miss.length + '</span></div><div class="chips wrap">' +
-        miss.map((n) => '<button class="chip-btn" data-act="ex-new" data-v="' + esc(n) + '">' + icon('plus') + esc(n) + '</button>').join('') + '</div></section>';
+      if (miss.length) h += '<details class="block exmiss"><summary class="block-h"><h2>動画がまだない種目</h2><span class="count">' + miss.length + '</span></summary><div class="chips wrap">' +
+        miss.map((n) => '<button class="chip-btn" data-act="ex-new" data-v="' + esc(n) + '">' + icon('plus') + esc(n) + '</button>').join('') + '</div></details>';
     }
     if (!ex.length) return h + emptyState('play', 'まだ種目の動画がありません', staff ? '種目ごとにフォームの見本の動画を1回登録すると、その種目が入っているメニューすべてに「フォーム」ボタンが出ます。' : 'FWリーダーが登録すると、ここと各メニューに出ます。');
-    return h + '<ul class="exlib">' + ex.map((x) => '<li><a class="exlib-v" href="' + esc(x.video) + '" target="_blank" rel="noopener noreferrer"><span class="exlib-play">' + icon('play') + '</span><span><b>' + esc(x.name) + '</b>' +
-      (x.aliases.length ? '<small>' + x.aliases.map(esc).join('・') + '</small>' : '') + '</span></a>' +
-      (staff ? '<button class="btn small" data-act="ex-edit" data-id="' + x.id + '" aria-label="' + esc(x.name) + 'を編集">編集</button>' : '') + '</li>').join('') + '</ul>';
+    // 部位別：使われている部位だけチップに出す
+    const count = {}; ex.forEach((x) => x.parts.forEach((p) => { count[p] = (count[p] || 0) + 1; }));
+    const parts = EX_PARTS.filter((p) => count[p]);
+    if (S.exPart && !count[S.exPart]) S.exPart = '';
+    if (parts.length) h += '<div class="fbar"><div class="seg small exparts-bar" role="group" aria-label="部位別">' +
+      '<button data-act="ex-part" data-v="" aria-pressed="' + !S.exPart + '">すべて</button>' +
+      parts.map((p) => '<button data-act="ex-part" data-v="' + p + '" aria-pressed="' + (S.exPart === p) + '">' + p + '<small>' + count[p] + '</small></button>').join('') + '</div></div>';
+    if (S.exPart) return h + '<ul class="exlib">' + ex.filter((x) => x.parts.indexOf(S.exPart) >= 0).map(exRow).join('') + '</ul>';
+    // すべて：いちばん初めの部位ごとに見出し（部位なしは最後）
+    const groups = EX_PARTS.map((p) => [p, ex.filter((x) => x.parts[0] === p)]).concat([['そのほか', ex.filter((x) => !x.parts.length)]]).filter((g) => g[1].length);
+    return h + groups.map((g) => (groups.length > 1 ? '<h2 class="dayhead">' + g[0] + '</h2>' : '') + '<ul class="exlib">' + g[1].map(exRow).join('') + '</ul>').join('');
+  }
+  /** 種目のページ：動画・ポイント・この種目が入っている、これからのメニュー */
+  function openExercise(id) {
+    const x = exList().find((e) => e.id === id);
+    if (!x) return;
+    const d = S.data;
+    const menus = d.menus.filter((w) => w.date >= d.today && L.exInText([x], w.content).length).sort((a, b) => (a.date < b.date ? -1 : 1)).slice(0, 5);
+    openSheet(x.name,
+      '<div class="detail">' + (x.parts.length ? '<p class="detail-meta exparts">' + x.parts.map((p) => '<i>' + p + '</i>').join('') + '</p>' : '') +
+      '<a class="btn primary exgo" href="' + esc(x.video) + '" target="_blank" rel="noopener noreferrer">' + icon('play') + 'フォームの動画を見る</a>' +
+      (x.points ? '<h3>ポイント</h3><ul class="dots expoints">' + x.points.split('\n').filter((t) => t.trim()).map((t) => '<li>' + esc(t.trim()) + '</li>').join('') + '</ul>' : '') +
+      (x.aliases.length ? '<h3>別の書き方</h3><p>' + x.aliases.map(esc).join('、') + '</p>' : '') +
+      (menus.length ? '<h3>この種目が入っているメニュー</h3><ul class="exmenus">' + menus.map((w) => '<li><button data-act="menu-open" data-id="' + w.id + '">' + mdw(w.date) + '<b>' + esc(w.title) + '</b></button></li>').join('') + '</ul>' : '') +
+      (can('menu') ? '<div class="actions"><button class="btn" data-act="ex-edit" data-id="' + x.id + '">編集</button></div>' : '') + '</div>');
   }
   function openExerciseForm(id, name) {
     const x = id ? exList().find((e) => e.id === id) : null;
-    const v = x || { name: name || '', aliases: [], video: '' };
+    const v = x || { name: name || '', aliases: [], video: '', parts: guessParts(name || ''), points: '' };
     openSheet(x ? '種目の動画を編集' : '種目の動画を登録',
       '<form data-form="exercise" class="form" novalidate>' + (x ? '<input type="hidden" name="id" value="' + x.id + '">' : '') +
       '<label>種目名<input type="text" name="name" maxlength="40" value="' + esc(v.name) + '" placeholder="例：スクワット" required' + (v.name ? '' : ' autofocus') + '></label>' +
       '<label>フォームの見本の動画<input type="url" name="video" maxlength="500" value="' + esc(v.video) + '" placeholder="https://youtu.be/..." inputmode="url" autocomplete="off" required' + (v.name && !v.video ? ' autofocus' : '') + '></label>' +
+      '<fieldset><legend>部位<span class="opt">複数可</span></legend><div class="radios">' +
+      EX_PARTS.map((p) => '<label><input type="checkbox" name="parts" value="' + p + '"' + (v.parts.indexOf(p) >= 0 ? ' checked' : '') + '><span>' + p + '</span></label>').join('') + '</div></fieldset>' +
+      '<label>ポイント<span class="opt">任意・1行に1つ</span><textarea name="points" rows="3" maxlength="400" placeholder="例：&#10;膝とつま先の向きをそろえる&#10;背中を丸めない">' + esc(v.points) + '</textarea></label>' +
       '<label>別の書き方<span class="opt">任意・「、」で区切る</span><input type="text" name="aliases" maxlength="300" value="' + esc(v.aliases.join('、')) + '" placeholder="例：SQ、バックスクワット" autocomplete="off"></label>' +
       '<p class="hint">メニューの「トレーニング内容」で、行の頭がこの名前（か別の書き方）になっている種目に「フォーム」ボタンが出ます。「スクワット 5×5」も合います。「ブルガリアンスクワット」は別の種目として登録してください。</p>' +
       '<p class="form-err" role="alert" hidden></p>' +
@@ -2159,11 +2205,11 @@
       ['menu', 'leader', 'メニューを作る', '対象・種目ライブラリ・動画',
         steps(['「メニュー」→ <b>「メニューを作成」</b>', '実施予定日と <b>対象</b>（FW／BK／全体、またはポジション）を選ぶ。対象人数の目安が出ます', 'メニュー名と内容を書く。<b>「種目のライブラリから足す」</b>で押すだけで種目と回数の目安が入ります', '<b>「メニューを登録」</b>。内容に入れた種目に「種目の動画」があれば、自動で「フォーム」ボタンが付きます（内容の下に「動画あり／なし」が出ます）']) +
         tip('対象は「メニュー参加」の人だけ。自主トレの人は入りません。')],
-      ['exvideo', 'all', '種目のフォーム動画', '見る・登録する（FWリーダー）',
+      ['exvideo', 'all', '種目のフォーム動画', '部位別に探す・ポイント・登録（FWリーダー）',
         '<ul class="dots"><li>メニューを開くと、動画のある種目の行に <b>' + icon('play') + 'フォーム</b> ボタンがあります。押すと動画（YouTube など）が開きます</li>' +
-        '<li>「メニュー」→ <b>「種目の動画」</b>で、登録されている動画を一覧で見られます</li></ul>' +
+        '<li>「メニュー」→ <b>「種目の動画」</b>で、<b>部位別</b>（胸・肩・背中・腕・腹・脚・尻・首・全身）に探せます。種目を押すと、動画・<b>フォームのポイント</b>・その種目が入っている今後のメニューが見られます</li></ul>' +
         '<h4>登録する（FWリーダー・管理者）</h4>' +
-        steps(['「メニュー」→ <b>「種目の動画」</b>→ <b>「種目の動画を登録」</b>（「動画がまだない種目」を押すと名前が入ります）', '種目名と動画のURLを入れて保存。「SQ」などの <b>別の書き方</b> も入れておくと、その書き方のメニューにも出ます']) +
+        steps(['「メニュー」→ <b>「種目の動画」</b>→ <b>「種目の動画を登録」</b>（「動画がまだない種目」を押すと名前が入ります）', '種目名・動画のURL・<b>部位</b>・<b>ポイント</b>（1行に1つ）を入れて保存。「SQ」などの <b>別の書き方</b> も入れておくと、その書き方のメニューにも出ます']) +
         tip('1回登録すれば、その種目が入っているメニュー（これまで・これからの全部、型も）に出ます。メニューの「トレーニング内容」で、行の頭が種目名になっていれば合います（「スクワット 5×5」もOK）。')],
       ['tpl', 'leader', '型と繰り返し', '毎週のメニューを自動で作る',
         steps(['「メニュー」→ <b>「型」</b>→ <b>「型を作る」</b>（今あるメニューの「型にする」からも）', '<b>繰り返す曜日</b>を選ぶ → 4週間先まで自動で作られ、毎日のびます', '型を直すと、手で直していない今日以降の分もそろいます']) +
@@ -2884,6 +2930,8 @@
     'tpl-use': (el) => { const t = (S.data.templates || []).find((x) => x.id === el.dataset.id); if (t) openMenuForm('', { group: t.group, positions: t.positions, title: t.title, content: t.content, detail: t.detail, note: t.note, video: t.video }); },
     'ex-new': (el) => openExerciseForm('', el.dataset.v || ''),
     'ex-edit': (el) => openExerciseForm(el.dataset.id),
+    'ex-open': (el) => openExercise(el.dataset.id),
+    'ex-part': (el) => { if (S.exPart === el.dataset.v) return; S.exPart = el.dataset.v; render(); },
     'ex-del': async (el) => {
       const x = exList().find((e) => e.id === el.dataset.id);
       if (!x || !confirm('「' + x.name + '」の動画を削除しますか？\nメニューの「フォーム」ボタンも出なくなります。')) return;
@@ -3113,7 +3161,8 @@
       if (!f.video.value.trim()) return sheetError('動画のリンクを入れてください。');
       await busy(btn, async () => {
         try {
-          const r = await api('saveExercise', { exercise: { id: f.id ? f.id.value : '', name: f.name.value, aliases: f.aliases.value, video: f.video.value.trim() } });
+          const parts = $$('input[name="parts"]:checked', f).map((c) => c.value);
+          const r = await api('saveExercise', { exercise: { id: f.id ? f.id.value : '', name: f.name.value, aliases: f.aliases.value, video: f.video.value.trim(), parts: parts, points: f.points.value } });
           S.data.exercises = r.exercises; closeSheet(); render(); toast('「' + f.name.value.trim() + '」の動画を保存しました');
         } catch (e) { sheetError(e.message); }
       });

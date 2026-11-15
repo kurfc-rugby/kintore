@@ -200,15 +200,23 @@ const ok = (c, label) => { if (c) { pass++; console.log('  ✓ ' + label); } els
   ok(await count('.menu-card') >= 2 && (await text('.main')).includes('毎週月・木'), '型・繰り返しの一覧が出る');
   // 種目の動画
   await page.click('[data-act="menu-tab"][data-v="exercises"]'); await page.waitForTimeout(400);
-  ok(await count('.exlib li') === 3 && await count('.exlib a[target="_blank"]') === 3, '「種目の動画」に登録した種目が並び、押すと動画が開く');
+  ok(await count('.exlib li') === 3 && await count('[data-act="ex-part"]') === 6 && await count('h2.dayhead') === 3, '「種目の動画」は部位別：使われている部位のチップ（すべて＋5）と、部位ごとの見出し');
+  await page.click('[data-act="ex-part"][data-v="尻"]'); await page.waitForTimeout(300);
+  ok(await count('.exlib li') === 2, '部位（尻）で絞ると、その部位の種目だけ（スクワット・デッドリフト）');
+  await page.click('[data-act="ex-part"][data-v=""]'); await page.waitForTimeout(300);
+  await page.locator('[data-act="ex-open"]', { hasText: 'スクワット' }).click(); await page.waitForSelector('.sheet .exgo');
+  ok(/squat-example/.test(await page.getAttribute('.sheet .exgo', 'href')) && await count('.sheet .expoints li') === 3 && await count('.sheet .exmenus li') >= 1, '種目を押すと、動画・ポイント・この種目が入っているメニュー');
+  await page.keyboard.press('Escape'); await page.waitForTimeout(300);
+  await page.click('.exmiss > summary'); await page.waitForTimeout(200);
   ok(await count('.exmiss .chip-btn') >= 3 && await page.evaluate(() => { const t = [...document.querySelectorAll('.exmiss .chip-btn')].map((x) => x.textContent.trim()); return !t.includes('スクワット') && t.includes('ブルガリアンスクワット'); }), 'メニューに出てくるのに動画がない種目が候補に出る（スクワットは出ない）');
   await page.locator('.exmiss .chip-btn', { hasText: 'ブルガリアンスクワット' }).click(); await page.waitForSelector('form[data-form="exercise"]');
-  ok(await page.inputValue('form[data-form="exercise"] input[name="name"]') === 'ブルガリアンスクワット', '候補を押すと種目名が入った登録画面が開く');
+  ok(await page.inputValue('form[data-form="exercise"] input[name="name"]') === 'ブルガリアンスクワット' && await page.isChecked('form[data-form="exercise"] input[name="parts"][value="脚"]'), '候補を押すと種目名が入った登録画面が開く（部位も見当で選んである）');
   await page.click('form[data-form="exercise"] button[type="submit"]'); await page.waitForTimeout(300);
   ok((await text('#sheet-root .form-err')).includes('動画'), '動画のリンクが空だと保存できない');
   await page.fill('form[data-form="exercise"] input[name="video"]', 'https://youtu.be/bulgarian'); await page.click('form[data-form="exercise"] button[type="submit"]'); await page.waitForTimeout(900);
   ok(await count('.exlib li') === 4 && !(await text('.exmiss')).includes('ブルガリアンスクワット'), '登録すると一覧に入り、候補から消える');
-  await page.locator('.exlib li', { hasText: 'ブルガリアンスクワット' }).locator('[data-act="ex-edit"]').click(); await page.waitForSelector('[data-act="ex-del"]');
+  await page.locator('[data-act="ex-open"]', { hasText: 'ブルガリアンスクワット' }).click(); await page.waitForSelector('.sheet [data-act="ex-edit"]');
+  await page.click('.sheet [data-act="ex-edit"]'); await page.waitForSelector('[data-act="ex-del"]');
   await page.click('[data-act="ex-del"]'); await page.waitForTimeout(900);
   ok(await count('.exlib li') === 3, '消せる');
   await page.click('[data-act="menu-tab"][data-v="templates"]'); await page.waitForTimeout(300);
