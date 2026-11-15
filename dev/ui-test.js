@@ -221,7 +221,7 @@ const ok = (c, label) => { if (c) { pass++; console.log('  ✓ ' + label); } els
   await page.click('[data-act="ex-del"]'); await page.waitForTimeout(900);
   ok(await count('.exlib li') === 3, '消せる');
   // SAVASの動画からまとめて登録
-  await page.click('[data-act="sv-open"]'); await page.waitForSelector('.svlist');
+  await page.click('[data-act="sv-open"][data-v="savas"]'); await page.waitForSelector('.svlist');
   const svRec = await count('.svlist input:checked');
   ok(svRec >= 3 && await count('.svlist li.done') === 0 && /選んだ \d+ 件を登録/.test(await text('[data-act="sv-save"]')), 'SAVASの動画：部のメニュー・ライブラリに出てくる種目が「おすすめ」で選んである（登録ずみは選べない）');
   ok((await text('[data-act="sv-part"][data-v=""] small')) === '365', 'SAVASの動画は365本（同じ名前の別の動画は②③付き）');
@@ -239,6 +239,23 @@ const ok = (c, label) => { if (c) { pass++; console.log('  ✓ ' + label); } els
   await page.fill('.sv-q', ''); await page.click('[data-act="sv-part"][data-v="rec"]'); await page.waitForTimeout(200);
   await page.click('[data-act="sv-save"]'); await page.waitForTimeout(1500);
   ok((await page.locator('.toast').allInnerTexts()).some((t) => new RegExp(svRec + '件を登録しました').test(t)) && await count('.exlib li') === 3 + svRec, '選んだ種目をまとめて登録できる');
+  // マシンの動画（LIFE FIT）からまとめて登録
+  await page.click('[data-act="sv-open"][data-v="lifefit"]'); await page.waitForSelector('.svlist');
+  ok((await text('.sheet-h')).includes('マシンの動画から選ぶ') && (await text('[data-act="sv-part"][data-v=""] small')) === '37', 'マシンの動画は37台（LIFE FIT「マシンの使い方」）');
+  ok(/youtube\.com\/watch\?v=[\w-]{11}$/.test(await page.getAttribute('.svlist .sv-v', 'href')) && /マシン/.test(await text('.svlist .gear')), 'マシンの動画はYouTubeで、目印は「マシン」');
+  await page.click('[data-act="sv-part"][data-v=""]'); await page.fill('.sv-q', 'ハックスクワット'); await page.waitForTimeout(300);
+  await page.click('.svlist .sv-v'); await page.waitForSelector('.fplayer iframe');
+  ok(/youtube-nocookie\.com\/embed\/uyiXo_NzDgE/.test(await page.getAttribute('.fplayer iframe', 'src')), 'マシンの動画もアプリの中で流れる');
+  await page.goBack(); await page.waitForTimeout(500);
+  await page.evaluate(() => document.querySelectorAll('.svlist input:checked').forEach((c) => c.click()));
+  await page.evaluate(() => { const c = [...document.querySelectorAll('.svlist li')].find((l) => /^ハックスクワット/.test(l.textContent)).querySelector('input'); if (!c.checked) c.click(); });
+  await page.waitForTimeout(100);
+  const lfN = Number(((await text('[data-act="sv-save"]')).match(/(\d+) 件/) || [])[1]);
+  await page.click('[data-act="sv-save"]'); await page.waitForTimeout(1500);
+  ok(await count('.exlib li') === 3 + svRec + lfN, 'マシンの種目もまとめて登録できる');
+  await page.locator('[data-act="ex-open"]', { hasText: 'ハックスクワット' }).click(); await page.waitForSelector('.sheet .expoints');
+  ok(/ストッパー/.test(await text('.sheet .expoints')) && /マシン/.test(await text('.sheet .detail-meta')), 'マシンの種目はポイントと「マシン」の目印も一緒に入る');
+  await page.keyboard.press('Escape'); await page.waitForTimeout(400);
   await page.click('[data-act="menu-tab"][data-v="templates"]'); await page.waitForTimeout(300);
   await page.click('[data-act="tpl-new"]');
   await page.fill('input[name="title"]', '火曜の体幹'); await page.fill('textarea[name="content"]', 'SQ 5×5\nタイヤ押し');

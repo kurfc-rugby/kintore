@@ -862,11 +862,17 @@ section('種目の動画');
     { name: 'スクワット', video: 'https://www.instagram.com/reel/a/', parts: ['脚'] },
     { name: 'ベンチプレス', video: 'https://www.instagram.com/reel/b/', parts: ['胸'], aliases: ['ベンチ'], gear: ['バーベル', 'ベンチ'] },
     { name: 'ベンチ', video: 'https://www.instagram.com/reel/c/' },
-    { name: 'プッシュアップ', video: 'https://www.instagram.com/reel/d/', parts: ['胸'], aliases: ['腕立て伏せ'] },
+    { name: 'プッシュアップ', video: 'https://www.instagram.com/reel/d/', parts: ['胸'], aliases: ['腕立て伏せ'], points: '胸を張る\n肘を伸ばしきらない' },
     { name: 'あやしい', video: 'javascript:x' }] });
   ok(im.ok && im.added === 2 && im.skipped === 3, 'まとめて登録：登録ずみ（スクワット）・別の書き方と重なるもの（ベンチ）・リンクが正しくないものは飛ばす');
   ok(L.exMatch(im.exercises, '腕立て伏せ 20回').name === 'プッシュアップ', 'まとめて登録した別の書き方でもメニューに合う');
   ok(im.exercises.find((x) => x.name === 'ベンチプレス').gear.join() === 'バーベル,ベンチ' && im.exercises.find((x) => x.name === 'プッシュアップ').gear.length === 0, 'まとめて登録でも器具が入る（プッシュアップは自重）');
+  ok(im.exercises.find((x) => x.name === 'プッシュアップ').points === '胸を張る\n肘を伸ばしきらない' && im.exercises.find((x) => x.name === 'ベンチプレス').points === '', 'まとめて登録でもポイントが入る（無ければ空）');
+  {
+    const fs = require('fs'), lf = JSON.parse(fs.readFileSync(require('path').join(__dirname, '..', 'media', 'lifefit.json'), 'utf8'));
+    const names = lf.items.map((o) => L.exKey(o.n));
+    ok(lf.items.length === 37 && new Set(names).size === 37 && lf.items.every((o) => /^[\w-]{11}$/.test(o.v) && o.g.join() === 'マシン' && o.p.length && (o.t || '').length <= 400), 'マシンの動画の一覧（37台）：名前の重なりなし・YouTubeのID・目印はマシン・部位あり・ポイント400文字以内');
+  }
   ok(api({ op: 'importExercises', token: MG9, items: [{ name: 'x', video: 'https://a.b/' }] }).error === 'forbidden', 'まとめて登録はFWリーダーと管理者だけ');
   im.exercises.filter((x) => x.name !== 'スクワット').forEach((x) => api({ op: 'deleteExercise', token: LD9, id: x.id }));
   const del = api({ op: 'deleteExercise', token: LD9, id: ad.exercises[0].id });

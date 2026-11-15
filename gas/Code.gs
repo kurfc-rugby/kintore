@@ -10,7 +10,7 @@
  * 最初にやること：スプレッドシートのメニュー「筋トレ管理」→「管理者を登録」
  * 詳しくは 04_ドキュメント/筋トレ管理アプリ_使い方と引き継ぎ.md
  */
-const APP_VERSION = '2.16.0';
+const APP_VERSION = '2.17.0';
 const SCHEMA_VERSION = '9';
 const TZ = 'Asia/Tokyo';
 const SESSION_DAYS = 90;
@@ -2673,7 +2673,9 @@ function opImportExercises_(ctx) {
         .filter(function (a) { return a && !used[exKey_(a)] && exKey_(a) !== exKey_(name); }).slice(0, 10);
       const parts = EX_PARTS.filter(function (p) { return Array.isArray(src.parts) && src.parts.indexOf(p) >= 0; });
       used[exKey_(name)] = 1; aliases.forEach(function (a) { used[exKey_(a)] = 1; });
-      rows.push({ id: newId_('x'), name: name, aliases: aliases.join('、'), video: video, parts: parts.join(','), points: '', gear: gearOf_(src.gear).join(','), createdBy: me.id, createdAt: now, updatedBy: '', updatedAt: '', deletedBy: '', deletedAt: '' });
+      let points = '';
+      try { points = text_(src.points, 400, 'ポイント', false); } catch (e) { points = ''; }
+      rows.push({ id: newId_('x'), name: name, aliases: aliases.join('、'), video: video, parts: parts.join(','), points: points, gear: gearOf_(src.gear).join(','), createdBy: me.id, createdAt: now, updatedBy: '', updatedAt: '', deletedBy: '', deletedAt: '' });
     });
     if (rows.length) { insert_('exercises', rows); log_(me, '種目の動画をまとめて登録', rows.length + '件' + (skipped ? '（' + skipped + '件は登録ずみなどで飛ばした）' : '')); }
     return { ok: true, added: rows.length, skipped: skipped, exercises: exercisesWire_() };
