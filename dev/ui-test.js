@@ -198,9 +198,23 @@ const ok = (c, label) => { if (c) { pass++; console.log('  ✓ ' + label); } els
   await page.keyboard.press('Escape');
   await page.click('[data-act="menu-tab"][data-v="templates"]');
   ok(await count('.menu-card') >= 2 && (await text('.main')).includes('毎週月・木'), '型・繰り返しの一覧が出る');
+  // 種目の動画
+  await page.click('[data-act="menu-tab"][data-v="exercises"]'); await page.waitForTimeout(400);
+  ok(await count('.exlib li') === 3 && await count('.exlib a[target="_blank"]') === 3, '「種目の動画」に登録した種目が並び、押すと動画が開く');
+  ok(await count('.exmiss .chip-btn') >= 3 && await page.evaluate(() => { const t = [...document.querySelectorAll('.exmiss .chip-btn')].map((x) => x.textContent.trim()); return !t.includes('スクワット') && t.includes('ブルガリアンスクワット'); }), 'メニューに出てくるのに動画がない種目が候補に出る（スクワットは出ない）');
+  await page.locator('.exmiss .chip-btn', { hasText: 'ブルガリアンスクワット' }).click(); await page.waitForSelector('form[data-form="exercise"]');
+  ok(await page.inputValue('form[data-form="exercise"] input[name="name"]') === 'ブルガリアンスクワット', '候補を押すと種目名が入った登録画面が開く');
+  await page.click('form[data-form="exercise"] button[type="submit"]'); await page.waitForTimeout(300);
+  ok((await text('#sheet-root .form-err')).includes('動画'), '動画のリンクが空だと保存できない');
+  await page.fill('form[data-form="exercise"] input[name="video"]', 'https://youtu.be/bulgarian'); await page.click('form[data-form="exercise"] button[type="submit"]'); await page.waitForTimeout(900);
+  ok(await count('.exlib li') === 4 && !(await text('.exmiss')).includes('ブルガリアンスクワット'), '登録すると一覧に入り、候補から消える');
+  await page.locator('.exlib li', { hasText: 'ブルガリアンスクワット' }).locator('[data-act="ex-edit"]').click(); await page.waitForSelector('[data-act="ex-del"]');
+  await page.click('[data-act="ex-del"]'); await page.waitForTimeout(900);
+  ok(await count('.exlib li') === 3, '消せる');
+  await page.click('[data-act="menu-tab"][data-v="templates"]'); await page.waitForTimeout(300);
   await page.click('[data-act="tpl-new"]');
-  await page.fill('input[name="title"]', '火曜の体幹'); await page.fill('textarea[name="content"]', 'プランク');
-  await page.fill('input[name="video"]', 'https://youtu.be/xyz');
+  await page.fill('input[name="title"]', '火曜の体幹'); await page.fill('textarea[name="content"]', 'SQ 5×5\nプランク');
+  ok(await count('input[name="video"]') === 0 && /動画あり：スクワット/.test(await text('#ex-hint')) && /動画なし：プランク/.test(await text('#ex-hint')), '内容を書くと、動画のある種目・ない種目が下に出る（メニューごとの動画の欄は無い）');
   await page.evaluate(() => document.querySelector('.radios.wd label:has(input[value="2"]) span').scrollIntoView({ block: 'center' }));
   await page.locator('.radios.wd label:has(input[value="2"]) span').click({ force: true });
   if (!await page.isChecked('.radios.wd input[value="2"]')) await page.check('.radios.wd input[value="2"]', { force: true });
@@ -209,7 +223,7 @@ const ok = (c, label) => { if (c) { pass++; console.log('  ✓ ' + label); } els
   ok((await page.locator('.toast').allInnerTexts()).some((t) => /メニューを [1-9]件作成/.test(t)), '曜日を選んで型を作ると、繰り返しのメニューができる');
   await page.click('[data-act="menu-tab"][data-v="upcoming"]');
   await page.waitForTimeout(400); await page.locator('.menu-card', { hasText: '火曜の体幹' }).first().click(); await page.waitForSelector('.sheet .detail');
-  ok(await count('.sheet .vbtn') === 1, 'メニューにフォームの見本の動画リンクが出る');
+  ok(await count('.sheet .exlines .exbtn') === 1 && /squat-example/.test(await page.getAttribute('.sheet .exbtn', 'href')), 'メニューを開くと、動画のある種目の行に「フォーム」ボタン（別の書き方「SQ」でも合う）');
   await page.click('[data-act="menu-copy"]');
   const free = page.locator('.cday:not(.src) input');
   await free.nth(8).check({ force: true }); await free.nth(9).check({ force: true });

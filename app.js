@@ -3,7 +3,7 @@
   'use strict';
   const L = window.KLogic;
   const API = window.KINTORE_API;
-  const VERSION = '2.11.0';
+  const VERSION = '2.12.0';
   const WD = ['日', '月', '火', '水', '木', '金', '土'];
   const PERM = { admin: '管理者', manager: 'マネージャー', leader: 'FWリーダー', member: '一般部員' };
   const MODE = { leader: 'メニュー参加', self: '自主トレ' };
@@ -1419,12 +1419,13 @@
   const repeatLabel = (t) => (t.repeat && t.repeat.length ? '毎週' + WD_MON.filter((d) => t.repeat.indexOf(d) >= 0).map((d) => WD[d]).join('・') : '');
   function vMenus() {
     const d = S.data, today = d.today;
-    const tabs = [['upcoming', '今日から'], ['past', 'これまで']].concat(can('menu') ? [['templates', '型・繰り返し']] : []);
+    const tabs = [['upcoming', '今日から'], ['past', 'これまで']].concat(can('menu') ? [['templates', '型']] : [], [['exercises', '種目の動画']]);
     if (S.menuTab === 'templates' && !can('menu')) S.menuTab = 'upcoming';
-    let h = '<div class="fbar"><div class="seg" role="group" aria-label="表示">' +
+    let h = '<div class="fbar"><div class="seg menu-tabs" role="group" aria-label="表示">' +
       tabs.map((t) => '<button data-act="menu-tab" data-v="' + t[0] + '" aria-pressed="' + (S.menuTab === t[0]) + '">' + t[1] + '</button>').join('') + '</div>' +
-      (S.menuTab === 'templates' ? '' : '<div class="seg small" role="group" aria-label="グループ">' + ['ALL', 'FW', 'BK'].map((g) => '<button data-act="menu-group" data-v="' + g + '" aria-pressed="' + (S.menuGroup === g) + '">' + MGROUP[g] + '</button>').join('') + '</div>') + '</div>';
+      (S.menuTab === 'templates' || S.menuTab === 'exercises' ? '' : '<div class="seg small" role="group" aria-label="グループ">' + ['ALL', 'FW', 'BK'].map((g) => '<button data-act="menu-group" data-v="' + g + '" aria-pressed="' + (S.menuGroup === g) + '">' + MGROUP[g] + '</button>').join('') + '</div>') + '</div>';
     if (S.menuTab === 'templates') return h + vTemplates();
+    if (S.menuTab === 'exercises') return h + vExercises();
     const all = d.menus.filter((w) => S.menuGroup === 'ALL' || w.group === S.menuGroup || w.group === 'ALL');
     const list = all.filter((w) => (S.menuTab === 'upcoming' ? w.date >= today : w.date < today));
     list.sort((a, b) => (S.menuTab === 'upcoming' ? (a.date < b.date ? -1 : a.date > b.date ? 1 : 0) : (a.date > b.date ? -1 : a.date < b.date ? 1 : 0)) || (a.group < b.group ? -1 : 1));
@@ -1434,7 +1435,7 @@
     if (!list.length) {
       if (S.menuTab !== 'upcoming') return h + emptyState('list', 'これまでのメニューはありません', '');
       return h + (can('menu')
-        ? emptyState('menu', '今日からのメニューはまだありません', 'メニューを作ると、対象の人に通知で知らせます。よく使うメニューは「型」にすると曜日ごとに自動で作れます。', '<div class="toolbar center"><button class="btn primary" data-act="menu-new">' + icon('plus') + 'メニューを作成</button><button class="btn" data-act="menu-tab" data-v="templates">型・繰り返し</button></div>')
+        ? emptyState('menu', '今日からのメニューはまだありません', 'メニューを作ると、対象の人に通知で知らせます。よく使うメニューは「型」にすると曜日ごとに自動で作れます。', '<div class="toolbar center"><button class="btn primary" data-act="menu-new">' + icon('plus') + 'メニューを作成</button><button class="btn" data-act="menu-tab" data-v="templates">型</button></div>')
         : emptyState('menu', '今日からのメニューはまだありません', 'FWリーダーがメニューを出したら、ここに出ます。' + (pushSupported() ? '通知をオンにすると、自分が対象のメニューが出たときに知らせます。' : ''), pushSupported() ? '<div class="toolbar center"><a class="btn" href="#settings/push">' + icon('bell') + '通知の設定</a></div>' : ''));
     }
     // 「今日から」は今週と来週だけ。その先はたたむ（繰り返しのメニューで長くならないように）
@@ -1456,7 +1457,7 @@
         last = w.date;
       }
       h += '<li><button class="menu-card g-' + w.group + '" data-act="menu-open" data-id="' + w.id + '">' +
-        '<span class="menu-top">' + targetChip(w) + '<b>' + esc(w.title) + '</b>' + (w.video ? '<span class="vtag">' + icon('play') + '動画</span>' : '') + '</span>' +
+        '<span class="menu-top">' + targetChip(w) + '<b>' + esc(w.title) + '</b>' + vtagHtml(w) + '</span>' +
         '<span class="menu-body">' + esc(w.content.split('\n').slice(0, 3).join(' / ')) + '</span>' +
         '<span class="menu-foot">対象 ' + w.targets.length + '人' + (w.templateId ? '<small>繰り返し</small>' : '') + '</span></button></li>';
     });
@@ -1468,7 +1469,7 @@
     if (!list.length) return '';
     return '<section class="selfrec"><div class="block-h"><h2>自主トレのおすすめ</h2><span class="count">' + list.length + '件</span></div><ul class="sr-list">' +
       list.map((t) => '<li><button class="sr-card g-' + t.group + '" data-act="selfrec-open" data-id="' + t.id + '">' + targetChip(t) + '<b>' + esc(t.title) + '</b>' +
-        '<span>' + esc(t.content.split('\n').slice(0, 2).join(' / ')) + '</span>' + (t.video ? '<span class="vtag">' + icon('play') + '動画</span>' : '') + '</button></li>').join('') + '</ul></section>';
+        '<span>' + esc(t.content.split('\n').slice(0, 2).join(' / ')) + '</span>' + vtagHtml(t) + '</button></li>').join('') + '</ul></section>';
   }
   function openSelfRec(id) {
     const t = (S.data.selfRecs || []).find((x) => x.id === id);
@@ -1476,10 +1477,75 @@
     openSheet(t.title,
       '<div class="detail"><p class="detail-meta">' + targetChip(t) + '<small class="chip">自主トレのおすすめ</small></p>' +
       (t.video ? '<p>' + videoLink(t.video) + '</p>' : '') +
-      '<h3>トレーニング内容</h3><p class="pre">' + nl2br(t.content) + '</p>' +
+      '<h3>トレーニング内容</h3>' + contentHtml(t.content) +
       (t.detail ? '<h3>回数・セット数・重量</h3><p class="pre">' + nl2br(t.detail) + '</p>' : '') +
       (t.note ? '<h3>備考</h3><p class="pre">' + nl2br(t.note) + '</p>' : '') +
       '<p class="note">メニューがない日や自主トレの人向けに、FWリーダーがすすめているメニューです。やったらマネージャーに伝えてください（「実施した」が付きます）。</p></div>');
+  }
+  // ---------- 種目の動画 ----------
+  function exList() { return S.data.exercises || []; }
+  /** メニューに動画があるか（メニューそのものの動画か、内容に動画のある種目が入っている） */
+  function hasVideo(w) { return !!(w.video || L.exInText(exList(), w.content).length); }
+  function vtagHtml(w) { return hasVideo(w) ? '<span class="vtag">' + icon('play') + '動画</span>' : ''; }
+  /** 「トレーニング内容」を1行ずつ。動画のある種目には、その行に「フォーム」ボタン */
+  function contentHtml(text) {
+    const ex = exList();
+    const lines = L.exLines(text).filter((l) => l.line.trim());
+    if (!ex.length || !lines.some((l) => l.parts.some((p) => L.exMatch(ex, p)))) return '<p class="pre">' + nl2br(text) + '</p>';
+    return '<ul class="exlines">' + lines.map((l) => {
+      const hit = [];
+      l.parts.forEach((p) => { const x = L.exMatch(ex, p); if (x && hit.indexOf(x) < 0) hit.push(x); });
+      return '<li><span>' + esc(l.line.trim()) + '</span>' + hit.map((x) => '<a class="exbtn" href="' + esc(x.video) + '" target="_blank" rel="noopener noreferrer" aria-label="' + esc(x.name) + 'のフォーム動画を見る">' + icon('play') + (hit.length > 1 ? esc(x.name) : 'フォーム') + '</a>').join('') + '</li>';
+    }).join('') + '</ul>';
+  }
+  /** メニューや型に出てくるのに、まだ動画が登録されていない種目（登録の候補） */
+  function exMissing() {
+    const d = S.data, ex = exList(), seen = {}, out = [];
+    d.menus.filter((w) => w.date >= L.addDays(d.today, -28)).concat(d.templates || [], d.selfRecs || []).forEach((w) => {
+      L.exLines(w.content).forEach((l) => l.parts.forEach((p) => {
+        const name = p.replace(/[\s　]*[\d０-９].*$/, '').replace(/[（(].*$/, '').trim();
+        const k = L.exKey(name);
+        if (!name || name.length > 20 || seen[k] || L.exMatch(ex, name)) return;
+        seen[k] = 1; out.push(name);
+      }));
+    });
+    return out.slice(0, 30);
+  }
+  function vExercises() {
+    const ex = exList(), staff = can('menu');
+    let h = staff ? '<div class="toolbar"><button class="btn primary" data-act="ex-new">' + icon('plus') + '種目の動画を登録</button></div>' : '';
+    if (staff) {
+      const miss = exMissing();
+      if (miss.length) h += '<section class="block exmiss"><div class="block-h"><h2>動画がまだない種目</h2><span class="count">' + miss.length + '</span></div><div class="chips wrap">' +
+        miss.map((n) => '<button class="chip-btn" data-act="ex-new" data-v="' + esc(n) + '">' + icon('plus') + esc(n) + '</button>').join('') + '</div></section>';
+    }
+    if (!ex.length) return h + emptyState('play', 'まだ種目の動画がありません', staff ? '種目ごとにフォームの見本の動画を1回登録すると、その種目が入っているメニューすべてに「フォーム」ボタンが出ます。' : 'FWリーダーが登録すると、ここと各メニューに出ます。');
+    return h + '<ul class="exlib">' + ex.map((x) => '<li><a class="exlib-v" href="' + esc(x.video) + '" target="_blank" rel="noopener noreferrer"><span class="exlib-play">' + icon('play') + '</span><span><b>' + esc(x.name) + '</b>' +
+      (x.aliases.length ? '<small>' + x.aliases.map(esc).join('・') + '</small>' : '') + '</span></a>' +
+      (staff ? '<button class="btn small" data-act="ex-edit" data-id="' + x.id + '" aria-label="' + esc(x.name) + 'を編集">編集</button>' : '') + '</li>').join('') + '</ul>';
+  }
+  function openExerciseForm(id, name) {
+    const x = id ? exList().find((e) => e.id === id) : null;
+    const v = x || { name: name || '', aliases: [], video: '' };
+    openSheet(x ? '種目の動画を編集' : '種目の動画を登録',
+      '<form data-form="exercise" class="form" novalidate>' + (x ? '<input type="hidden" name="id" value="' + x.id + '">' : '') +
+      '<label>種目名<input type="text" name="name" maxlength="40" value="' + esc(v.name) + '" placeholder="例：スクワット" required' + (v.name ? '' : ' autofocus') + '></label>' +
+      '<label>フォームの見本の動画<input type="url" name="video" maxlength="500" value="' + esc(v.video) + '" placeholder="https://youtu.be/..." inputmode="url" autocomplete="off" required' + (v.name && !v.video ? ' autofocus' : '') + '></label>' +
+      '<label>別の書き方<span class="opt">任意・「、」で区切る</span><input type="text" name="aliases" maxlength="300" value="' + esc(v.aliases.join('、')) + '" placeholder="例：SQ、バックスクワット" autocomplete="off"></label>' +
+      '<p class="hint">メニューの「トレーニング内容」で、行の頭がこの名前（か別の書き方）になっている種目に「フォーム」ボタンが出ます。「スクワット 5×5」も合います。「ブルガリアンスクワット」は別の種目として登録してください。</p>' +
+      '<p class="form-err" role="alert" hidden></p>' +
+      '<div class="actions">' + (x ? '<button type="button" class="btn danger" data-act="ex-del" data-id="' + x.id + '">削除</button>' : '<button type="button" class="btn" data-act="sheet-close">やめる</button>') +
+      '<button type="submit" class="btn primary">保存</button></div></form>');
+  }
+  /** メニュー・型のフォーム：内容に入っている種目のうち、動画があるもの／ないもの */
+  function updateExHint() {
+    const f = $('#sheet-root form[data-form="menu"]') || $('#sheet-root form[data-form="template"]');
+    const el = f && $('#ex-hint', f);
+    if (!el) return;
+    const ex = exList(), yes = [], no = [];
+    L.exLines(f.content.value).forEach((l) => l.parts.forEach((p) => { const x = L.exMatch(ex, p); if (x) { if (yes.indexOf(x.name) < 0) yes.push(x.name); } else if (no.indexOf(p) < 0) no.push(p); }));
+    el.innerHTML = yes.length || no.length ? (yes.length ? '<span class="ex-yes">' + icon('play') + '動画あり：' + yes.map(esc).join('、') + '</span>' : '') +
+      (no.length && can('menu') ? '<span class="ex-no">動画なし：' + no.slice(0, 8).map(esc).join('、') + (no.length > 8 ? ' ほか' : '') + '（メニューの「種目の動画」で登録できます）</span>' : '') : '';
   }
   function videoLink(url) {
     return url ? '<a class="btn small vbtn" href="' + esc(url) + '" target="_blank" rel="noopener noreferrer">' + icon('play') + 'フォームの見本（動画）を見る</a>' : '';
@@ -1492,7 +1558,7 @@
     openSheet(w.title,
       '<div class="detail"><p class="detail-meta">' + targetChip(w) + mdw(w.date) + (tpl ? '<small class="chip">' + esc(repeatLabel(tpl) || '型') + '</small>' : '') + '</p>' +
       (w.video ? '<p>' + videoLink(w.video) + '</p>' : '') +
-      '<h3>トレーニング内容</h3><p class="pre">' + nl2br(w.content) + '</p>' +
+      '<h3>トレーニング内容</h3>' + contentHtml(w.content) +
       (w.detail ? '<h3>回数・セット数・重量</h3><p class="pre">' + nl2br(w.detail) + '</p>' : '') +
       (w.note ? '<h3>備考</h3><p class="pre">' + nl2br(w.note) + '</p>' : '') +
       '<h3>対象者（' + names.length + '人）</h3><p class="names">' + (names.length ? names.map(esc).join('、') : 'メニュー参加の人がいません。') + '</p>' +
@@ -1512,7 +1578,7 @@
   ];
   function libPicker() {
     return '<details class="lib"><summary>' + icon('plus') + '種目のライブラリから足す</summary><p class="hint">押すと「トレーニング内容」に種目、「回数・セット数・重量」に目安を足します。あとで直せます。</p>' +
-      LIB.map((c, ci) => '<div class="lib-c"><span class="lib-k">' + c[0] + '</span><div class="lib-l">' + c[1].map((x, i) => '<button type="button" class="lib-b" data-act="lib-add" data-c="' + ci + '" data-i="' + i + '">' + esc(x[0]) + '</button>').join('') + '</div></div>').join('') + '</details>';
+      LIB.map((c, ci) => '<div class="lib-c"><span class="lib-k">' + c[0] + '</span><div class="lib-l">' + c[1].map((x, i) => '<button type="button" class="lib-b" data-act="lib-add" data-c="' + ci + '" data-i="' + i + '">' + esc(x[0]) + (L.exMatch(exList(), x[0]) ? '<span class="lib-v" aria-label="動画あり">' + icon('play') + '</span>' : '') + '</button>').join('') + '</div></div>').join('') + '</details>';
   }
   function menuFields(v, opt) {
     opt = opt || {};
@@ -1524,8 +1590,10 @@
       '<label>メニュー名<input type="text" name="title" maxlength="60" value="' + esc(v.title) + '" placeholder="例：下半身の日" required' + (opt.focus ? ' autofocus' : '') + '></label>' +
       libPicker() +
       '<label>トレーニング内容<textarea name="content" rows="5" maxlength="3000" placeholder="例：&#10;スクワット&#10;デッドリフト" required>' + esc(v.content) + '</textarea></label>' +
+      '<p class="hint ex-hint" id="ex-hint"></p>' +
       '<label>回数・セット数・重量<span class="opt">任意</span><textarea name="detail" rows="3" maxlength="3000" placeholder="例：スクワット 5回×5セット（MAXの80%）">' + esc(v.detail) + '</textarea></label>' +
-      '<label>フォームの見本の動画<span class="opt">任意・URL</span><input type="url" name="video" maxlength="500" value="' + esc(v.video || '') + '" placeholder="https://youtu.be/..." inputmode="url" autocomplete="off"></label>' +
+      // フォームの動画は「種目の動画」へ。前に入れたメニューごとの動画は、消せるように残す
+      (v.video ? '<label>メニュー全体の動画<span class="opt">前の形式・消してもよい</span><input type="url" name="video" maxlength="500" value="' + esc(v.video) + '" inputmode="url" autocomplete="off"></label>' : '') +
       '<label>備考<span class="opt">任意</span><textarea name="note" rows="2" maxlength="1000">' + esc(v.note) + '</textarea></label>';
   }
   function openMenuForm(id, prefill) {
@@ -1540,7 +1608,7 @@
       (w && w.templateId && !w.edited ? '<p class="hint">このメニューは繰り返しの型から作られています。ここで直すと、型を直してもこの日はそろわなくなります。</p>' : '') +
       '<p class="form-err" hidden></p>' +
       '<div class="actions"><button type="button" class="btn" data-act="sheet-close">やめる</button><button class="btn primary" type="submit">' + (w ? '変更を保存' : 'メニューを登録') + '</button></div></form>');
-    updateTargetHint();
+    updateTargetHint(); updateExHint();
   }
   // 型（テンプレート）と繰り返し
   function vTemplates() {
@@ -1551,7 +1619,7 @@
     if (!list.length) return h + emptyState('menu', 'まだ型がありません', 'メニューの「型にする」からも作れます。「自主トレのおすすめ」にした型は、部員みんなのメニュー画面に出ます。');
     return h + '<ul class="menus">' + list.map((t) => {
       const next = d.menus.filter((w) => w.templateId === t.id && w.date >= today).sort((a, b) => (a.date < b.date ? -1 : 1))[0];
-      return '<li><button class="menu-card g-' + t.group + '" data-act="tpl-open" data-id="' + t.id + '"><span class="menu-top">' + targetChip(t) + '<b>' + esc(t.title) + '</b>' + (t.video ? '<span class="vtag">' + icon('play') + '</span>' : '') + '</span>' +
+      return '<li><button class="menu-card g-' + t.group + '" data-act="tpl-open" data-id="' + t.id + '"><span class="menu-top">' + targetChip(t) + '<b>' + esc(t.title) + '</b>' + vtagHtml(t) + '</span>' +
         '<span class="menu-body">' + esc(t.content.split('\n').slice(0, 3).join(' / ')) + '</span>' +
         '<span class="menu-foot">' + (t.repeat.length ? repeatLabel(t) + (next ? '・次は ' + mdw(next.date) : '') + (t.repeatTo ? '・' + md(t.repeatTo) + 'まで' : '') : '繰り返しなし') + (t.selfRec ? '<small>自主トレのおすすめ</small>' : '') + '</span></button></li>';
     }).join('') + '</ul>';
@@ -1562,7 +1630,7 @@
     openSheet('型：' + t.title,
       '<div class="detail"><p class="detail-meta">' + targetChip(t) + (t.repeat.length ? repeatLabel(t) : '繰り返しなし') + (t.repeatFrom || t.repeatTo ? '<small>' + (t.repeatFrom ? md(t.repeatFrom) : '') + '〜' + (t.repeatTo ? md(t.repeatTo) : '') + '</small>' : '') + '</p>' +
       (t.video ? '<p>' + videoLink(t.video) + '</p>' : '') +
-      '<h3>トレーニング内容</h3><p class="pre">' + nl2br(t.content) + '</p>' +
+      '<h3>トレーニング内容</h3>' + contentHtml(t.content) +
       (t.detail ? '<h3>回数・セット数・重量</h3><p class="pre">' + nl2br(t.detail) + '</p>' : '') +
       (t.note ? '<h3>備考</h3><p class="pre">' + nl2br(t.note) + '</p>' : '') +
       '<p class="note">作成：' + esc(nameOf(t.createdBy)) + '</p>' +
@@ -1583,7 +1651,7 @@
       (t ? '<p class="hint">保存すると、今日以降の繰り返しのメニュー（手で直していないもの）も、この内容にそろえます。曜日を外した日の分は消えます。</p>' : '') +
       '<p class="form-err" hidden></p>' +
       '<div class="actions"><button type="button" class="btn" data-act="sheet-close">やめる</button><button class="btn primary" type="submit">' + (t ? '変更を保存' : '型を保存') + '</button></div></form>');
-    updateTargetHint();
+    updateTargetHint(); updateExHint();
   }
   function openCopy(id) {
     const w = S.data.menus.find((x) => x.id === id);
@@ -2089,13 +2157,19 @@
       ['line', 'manager', 'LINEで「まだの人」を送る', '文章を自動で作る',
         steps(['ホーム（週間・今週）の「週' + g + '回（マスト）まだの人」の下', '<b>「LINE用の文章をコピー」</b>→ LINEに貼る、または <b>「LINEで送る」</b>']) + tip('月間のホームでは、MVP・皆勤などの<b>表彰の文章</b>もコピーできます。')],
       ['menu', 'leader', 'メニューを作る', '対象・種目ライブラリ・動画',
-        steps(['「メニュー」→ <b>「メニューを作成」</b>', '実施予定日と <b>対象</b>（FW／BK／全体、またはポジション）を選ぶ。対象人数の目安が出ます', 'メニュー名と内容を書く。<b>「種目のライブラリから足す」</b>で押すだけで種目と回数の目安が入ります', 'フォームの見本の <b>動画のURL</b>（YouTube など）も付けられます → <b>「メニューを登録」</b>']) +
+        steps(['「メニュー」→ <b>「メニューを作成」</b>', '実施予定日と <b>対象</b>（FW／BK／全体、またはポジション）を選ぶ。対象人数の目安が出ます', 'メニュー名と内容を書く。<b>「種目のライブラリから足す」</b>で押すだけで種目と回数の目安が入ります', '<b>「メニューを登録」</b>。内容に入れた種目に「種目の動画」があれば、自動で「フォーム」ボタンが付きます（内容の下に「動画あり／なし」が出ます）']) +
         tip('対象は「メニュー参加」の人だけ。自主トレの人は入りません。')],
+      ['exvideo', 'all', '種目のフォーム動画', '見る・登録する（FWリーダー）',
+        '<ul class="dots"><li>メニューを開くと、動画のある種目の行に <b>' + icon('play') + 'フォーム</b> ボタンがあります。押すと動画（YouTube など）が開きます</li>' +
+        '<li>「メニュー」→ <b>「種目の動画」</b>で、登録されている動画を一覧で見られます</li></ul>' +
+        '<h4>登録する（FWリーダー・管理者）</h4>' +
+        steps(['「メニュー」→ <b>「種目の動画」</b>→ <b>「種目の動画を登録」</b>（「動画がまだない種目」を押すと名前が入ります）', '種目名と動画のURLを入れて保存。「SQ」などの <b>別の書き方</b> も入れておくと、その書き方のメニューにも出ます']) +
+        tip('1回登録すれば、その種目が入っているメニュー（これまで・これからの全部、型も）に出ます。メニューの「トレーニング内容」で、行の頭が種目名になっていれば合います（「スクワット 5×5」もOK）。')],
       ['tpl', 'leader', '型と繰り返し', '毎週のメニューを自動で作る',
-        steps(['「メニュー」→ <b>「型・繰り返し」</b>→ <b>「型を作る」</b>（今あるメニューの「型にする」からも）', '<b>繰り返す曜日</b>を選ぶ → 4週間先まで自動で作られ、毎日のびます', '型を直すと、手で直していない今日以降の分もそろいます']) +
+        steps(['「メニュー」→ <b>「型」</b>→ <b>「型を作る」</b>（今あるメニューの「型にする」からも）', '<b>繰り返す曜日</b>を選ぶ → 4週間先まで自動で作られ、毎日のびます', '型を直すと、手で直していない今日以降の分もそろいます']) +
         '<ul class="dots"><li>曜日を選ばなければ、作るときに「型から作る」で選ぶだけの型になります</li><li>1回だけ別の日にしたいとき：メニューを開いて <b>「別の日にコピー」</b></li></ul>'],
       ['selfrec', 'leader', '自主トレのおすすめ', '型に印を付けて、みんなに見せる',
-        steps(['メニュー → <b>型・繰り返し</b> で型を作る（または開いて編集）', '<b>「自主トレのおすすめとして、部員みんなに見せる」</b>に印を付けて保存', 'メニュー画面の上に、横に並んで出ます（ログインしていない部員にも見えます）'])],
+        steps(['メニュー → <b>型</b> で型を作る（または開いて編集）', '<b>「自主トレのおすすめとして、部員みんなに見せる」</b>に印を付けて保存', 'メニュー画面の上に、横に並んで出ます（ログインしていない部員にも見えます）'])],
       ['archive', 'leader', 'FWリーダーの引き継ぎ', 'これまでのメニューを全部見る',
         steps(['「メニュー」→ <b>「これまでのメニュー一覧（引き継ぎ）」</b>', '種目名で探す・作った人で絞る。良いメニューは <b>「型にする」</b>', '<b>「表（CSV）で保存」</b>で、Excel やスプレッドシートに残せます'])],
       ['members', 'admin', '部員の管理', '追加・まとめて編集・進級',
@@ -2808,6 +2882,16 @@
     'tpl-open': (el) => openTemplate(el.dataset.id),
     'tpl-edit': (el) => openTemplateForm(el.dataset.id),
     'tpl-use': (el) => { const t = (S.data.templates || []).find((x) => x.id === el.dataset.id); if (t) openMenuForm('', { group: t.group, positions: t.positions, title: t.title, content: t.content, detail: t.detail, note: t.note, video: t.video }); },
+    'ex-new': (el) => openExerciseForm('', el.dataset.v || ''),
+    'ex-edit': (el) => openExerciseForm(el.dataset.id),
+    'ex-del': async (el) => {
+      const x = exList().find((e) => e.id === el.dataset.id);
+      if (!x || !confirm('「' + x.name + '」の動画を削除しますか？\nメニューの「フォーム」ボタンも出なくなります。')) return;
+      await busy(el, async () => {
+        try { const r = await api('deleteExercise', { id: x.id }); S.data.exercises = r.exercises; closeSheet(); render(); toast('「' + x.name + '」の動画を削除しました'); }
+        catch (e) { sheetError(e.message); }
+      });
+    },
     'tpl-del': async (el) => {
       const t = (S.data.templates || []).find((x) => x.id === el.dataset.id);
       if (!t) return;
@@ -2821,7 +2905,7 @@
       const f = el.closest('form'), x = LIB[+el.dataset.c][1][+el.dataset.i];
       const add = (ta, line) => { ta.value = (ta.value.replace(/\s+$/, '') ? ta.value.replace(/\s+$/, '') + '\n' : '') + line; };
       add(f.content, x[0]); add(f.detail, x[0] + '：' + x[1]);
-      el.classList.add('added'); toast('「' + x[0] + '」を足しました');
+      el.classList.add('added'); updateExHint(); toast('「' + x[0] + '」を足しました');
     },
     'arch-csv': () => archiveCsv(),
     'arch-tpl': (el) => { const w = S.archive.list.find((x) => x.id === el.dataset.id); if (w) openTemplateForm('', { group: w.group, positions: w.positions, title: w.title, content: w.content, detail: w.detail, note: w.note, video: w.video }); },
@@ -2922,7 +3006,7 @@
     },
     menu: async (f, btn) => {
       const v = menuFormValues(f);
-      const menu = { id: f.id ? f.id.value : '', date: f.date.value, group: v.group, positions: v.poss, title: f.title.value, content: f.content.value, detail: f.detail.value, note: f.note.value, video: f.video.value.trim() };
+      const menu = { id: f.id ? f.id.value : '', date: f.date.value, group: v.group, positions: v.poss, title: f.title.value, content: f.content.value, detail: f.detail.value, note: f.note.value, video: (f.video ? f.video.value : '').trim() };
       await busy(btn, async () => {
         try {
           await api('saveMenu', { menu: menu });
@@ -3006,7 +3090,7 @@
     },
     template: async (f, btn) => {
       const v = menuFormValues(f);
-      const t = { id: f.id ? f.id.value : '', group: v.group, positions: v.poss, title: f.title.value, content: f.content.value, detail: f.detail.value, note: f.note.value, video: f.video.value.trim(),
+      const t = { id: f.id ? f.id.value : '', group: v.group, positions: v.poss, title: f.title.value, content: f.content.value, detail: f.detail.value, note: f.note.value, video: (f.video ? f.video.value : '').trim(),
         repeat: $$('input[name="repeat"]:checked', f).map((x) => +x.value), repeatFrom: f.repeatFrom.value, repeatTo: f.repeatTo.value, selfRec: !!(f.selfRec && f.selfRec.checked) };
       await busy(btn, async () => {
         try {
@@ -3022,6 +3106,16 @@
       await busy(btn, async () => {
         try { const r = await api('copyMenu', { id: f.id.value, dates: dates }); closeSheet(); await loadState(); render(); toast(r.created + '日にコピーしました'); }
         catch (e) { sheetError(e.message); }
+      });
+    },
+    exercise: async (f, btn) => {
+      if (!f.name.value.trim()) return sheetError('種目名を入れてください。');
+      if (!f.video.value.trim()) return sheetError('動画のリンクを入れてください。');
+      await busy(btn, async () => {
+        try {
+          const r = await api('saveExercise', { exercise: { id: f.id ? f.id.value : '', name: f.name.value, aliases: f.aliases.value, video: f.video.value.trim() } });
+          S.data.exercises = r.exercises; closeSheet(); render(); toast('「' + f.name.value.trim() + '」の動画を保存しました');
+        } catch (e) { sheetError(e.message); }
       });
     },
     bodygoal: async (f, btn) => {
@@ -3155,10 +3249,10 @@
     if (t.dataset && t.dataset.actChange === 'tpl-fill') {
       const tp = (S.data.templates || []).find((x) => x.id === t.value), f = t.form;
       if (!tp) return;
-      ['title', 'content', 'detail', 'note', 'video'].forEach((k) => { f[k].value = tp[k] || ''; });
+      ['title', 'content', 'detail', 'note', 'video'].forEach((k) => { if (f[k]) f[k].value = tp[k] || ''; });
       $$('input[name="positions"]', f).forEach((x) => { x.checked = tp.positions.indexOf(x.value) >= 0; });
       $$('input[name="group"]', f).forEach((x) => { x.checked = !tp.positions.length && x.value === tp.group; });
-      updateTargetHint(); return;
+      updateTargetHint(); updateExHint(); return;
     }
     if (t.form && t.form.dataset.form === 'copy') {
       const n = $$('input[name="dates"]:checked', t.form).length;
@@ -3168,12 +3262,13 @@
     if (t.form && (t.form.dataset.form === 'menu' || t.form.dataset.form === 'template')) {
       if (t.name === 'group') $$('input[name="positions"]', t.form).forEach((x) => { x.checked = false; });
       if (t.name === 'positions' && t.checked) { const g = $('input[name="group"]:checked', t.form); if (g) g.checked = false; }
-      updateTargetHint();
+      updateTargetHint(); updateExHint();
     }
   });
   let archTimer = 0;
   document.addEventListener('input', (ev) => {
     const t = ev.target;
+    if (t.name === 'content' && t.form && (t.form.dataset.form === 'menu' || t.form.dataset.form === 'template')) updateExHint();
     if (t.dataset && t.dataset.actInput === 'arch-q') {
       clearTimeout(archTimer);
       archTimer = setTimeout(() => { if (!S.archive || S.route.name !== 'archive') return; S.archive.q = t.value; render(); const el = $('.search'); if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); } }, 250);

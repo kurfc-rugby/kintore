@@ -90,6 +90,9 @@ function seed() {
   api({ op: 'saveExempt', token: A, memberId: 'ALL', from: L.addDays(L.weekStart(today), -21), to: L.addDays(L.weekStart(today), -15), reason: '試験期間' });
   // 型（月・木の繰り返し）、体組成、応援スタンプ、暗証番号の再発行の依頼
   api({ op: 'saveTemplate', token: LD, template: { title: 'FW 下半身（型）', group: 'FW', content: 'スクワット\nデッドリフト', detail: 'スクワット：5回×5セット', note: '', video: 'https://www.youtube.com/watch?v=example', repeat: [1, 4] } });
+  api({ op: 'saveExercise', token: LD, exercise: { name: 'スクワット', aliases: 'SQ、バックスクワット', video: 'https://www.youtube.com/watch?v=squat-example' } });
+  api({ op: 'saveExercise', token: LD, exercise: { name: 'デッドリフト', aliases: 'デッド', video: 'https://www.youtube.com/watch?v=dead-example' } });
+  api({ op: 'saveExercise', token: LD, exercise: { name: 'ベンチプレス', aliases: 'ベンチ', video: 'https://www.youtube.com/watch?v=bench-example' } });
   api({ op: 'saveTemplate', token: LD, template: { title: '首・体幹（型）', group: 'ALL', content: 'プランク\n首（前後左右）', detail: '', note: '', video: '', repeat: [] } });
   const bodyRows = [];
   players.slice(0, 12).forEach((p, i) => {

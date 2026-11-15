@@ -450,6 +450,36 @@
     return out.sort(function (a, b) { return (a.date < b.date ? 1 : a.date > b.date ? -1 : 0) || ((b.mark ? 1 : 0) - (a.mark ? 1 : 0)) || (rank[a.kind] - rank[b.kind]) || (a.sort - b.sort); });
   }
 
+  // ---- 種目の動画：メニューの「トレーニング内容」の各行から、登録した種目を見つける ----
+  /** 名前の比べ方：全角半角・大文字小文字・空白の違いを無視 */
+  function exKey(s) { return String(s || '').normalize('NFKC').toLowerCase().replace(/\s+/g, ''); }
+  /** 内容を行ごとに分け、1行の中の「/」「、」区切りも別の種目として取り出す（先頭の・や番号は外す） */
+  function exLines(text) {
+    return String(text || '').split('\n').map(function (line) {
+      var parts = line.split(/[\/／、,，]/).map(function (t) {
+        return t.replace(/^[\s・\-－‐●○◯■□▶▷*＊]+/, '').replace(/^(\d+[.．)）:：]|[①-⑳])\s*/, '').trim();
+      }).filter(Boolean);
+      return { line: line, parts: parts };
+    });
+  }
+  /** その書き方で始まる種目のうち、いちばん長い名前で合うもの（「スクワット 5×5」→スクワット。「ブルガリアンスクワット」にスクワットは合わない） */
+  function exMatch(exercises, token) {
+    var k = exKey(token), best = null, bl = 0;
+    (exercises || []).forEach(function (x) {
+      [x.name].concat(x.aliases || []).forEach(function (n) {
+        var nk = exKey(n);
+        if (nk && k.indexOf(nk) === 0 && nk.length > bl) { best = x; bl = nk.length; }
+      });
+    });
+    return best;
+  }
+  /** 内容に出てくる、動画のある種目（出てきた順・重複なし） */
+  function exInText(exercises, text) {
+    var out = [], seen = {};
+    exLines(text).forEach(function (l) { l.parts.forEach(function (p) { var x = exMatch(exercises, p); if (x && !seen[x.id]) { seen[x.id] = 1; out.push(x); } }); });
+    return out;
+  }
+
   function pct(rate) { return rate === null || rate === undefined ? '－' : Math.round(rate * 100) + '%'; }
 
   return {
@@ -459,6 +489,7 @@
     buildIndex: buildIndex, getRec: getRec, inRoster: inRoster, inRosterRange: inRosterRange, isTarget: isTarget, hasPosition: hasPosition,
     cellState: cellState, memberStats: memberStats, periodStats: periodStats, positionStats: positionStats, rank: rank, dayStatus: dayStatus,
     DEFAULT_GOAL: DEFAULT_GOAL, goalOf: goalOf, weekCount: weekCount, weekNeed: weekNeed, exemptOn: exemptOn, goalWeeks: goalWeeks, goalSummary: goalSummary, streakWeeks: streakWeeks, pct: pct,
-    personal: personal, badgeList: badgeList, pinchList: pinchList, slipList: slipList, TOTAL_MARKS: TOTAL_MARKS, feedEvents: feedEvents, doneDates: doneDates
+    personal: personal, badgeList: badgeList, pinchList: pinchList, slipList: slipList, TOTAL_MARKS: TOTAL_MARKS, feedEvents: feedEvents, doneDates: doneDates,
+    exKey: exKey, exLines: exLines, exMatch: exMatch, exInText: exInText
   };
 });

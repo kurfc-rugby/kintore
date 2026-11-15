@@ -10,8 +10,8 @@
  * 最初にやること：スプレッドシートのメニュー「筋トレ管理」→「管理者を登録」
  * 詳しくは 04_ドキュメント/筋トレ管理アプリ_使い方と引き継ぎ.md
  */
-const APP_VERSION = '2.9.0';
-const SCHEMA_VERSION = '6';
+const APP_VERSION = '2.12.0';
+const SCHEMA_VERSION = '7';
 const TZ = 'Asia/Tokyo';
 const SESSION_DAYS = 90;
 const VIEW_SESSION_DAYS = 180;
@@ -75,7 +75,12 @@ const DEF = {
     ['device', '端末'], ['createdAt', '登録日時'], ['updatedAt', '更新日時'], ['okAt', '最後に届いた日時'], ['failCount', '失敗回数']] },
   feedback: { name: '要望・不具合', cols: [
     ['id', 'ID'], ['kind', '種類'], ['text', '内容'], ['fromId', '送った部員ID'], ['page', '画面'], ['version', '版'], ['device', '端末'], ['at', '日時'],
-    ['doneBy', '対応した人ID'], ['doneAt', '対応日時']] }
+    ['doneBy', '対応した人ID'], ['doneAt', '対応日時']] },
+  // 種目ごとのフォーム動画。1回登録すれば、その種目が入っているメニューすべてに出る
+  exercises: { name: '種目の動画', cols: [
+    ['id', 'ID'], ['name', '種目名'], ['aliases', '別の書き方'], ['video', '動画リンク'],
+    ['createdBy', '登録者ID'], ['createdAt', '登録日時'], ['updatedBy', '更新者ID'], ['updatedAt', '更新日時'],
+    ['deletedBy', '削除者ID'], ['deletedAt', '削除日時']] }
 };
 const DATE_COLS = { start: 1, left: 1, effDate: 1, date: 1, from: 1, to: 1, repeatFrom: 1, repeatTo: 1, targetDate: 1 };
 
@@ -182,6 +187,8 @@ function handle_(req) {
       case 'feedbackList': return opFeedbackList_(ctx);
       case 'feedbackDone': return opFeedbackDone_(ctx);
       case 'saveBodyGoal': return opSaveBodyGoal_(ctx);
+      case 'saveExercise': return opSaveExercise_(ctx);
+      case 'deleteExercise': return opDeleteExercise_(ctx);
       default: throw err_('unknown_op', '不明な操作です。');
     }
   } catch (x) {
@@ -880,6 +887,7 @@ function opState_(ctx) {
   if (admin) { base.pinRequests = pinRequests_(); base.feedbackOpen = table_('feedback').rows.filter(function (f) { return !f.doneAt; }).length; }
   base.selfRecs = table_('templates').rows.filter(function (t) { return !t.deletedAt && t.selfRec === '1'; }).map(templateWire_);
   base.liftRatios = liftRatios_();
+  base.exercises = exercisesWire_();
   return base;
 }
 
@@ -2583,4 +2591,56 @@ function registerAdmin_(name) {
   } finally {
     REQ_ = null;
   }
+}
+
+// ---------------------------------------------------------------------------
+// 種目の動画（FWリーダー・管理者が登録。みんなが見られる）
+// ---------------------------------------------------------------------------
+function exercisesWire_() {
+  return table_('exercises').rows.filter(function (x) { return !x.deletedAt; })
+    .map(function (x) { return { id: x.id, name: x.name, aliases: x.aliases ? x.aliases.split('、') : [], video: x.video }; })
+    .sort(function (a, b) { return a.name < b.name ? -1 : a.name > b.name ? 1 : 0; });
+}
+/** 名前の比べ方：全角半角・大文字小文字・空白の違いを無視 */
+function exKey_(s) { return String(s || '').normalize('NFKC').toLowerCase().replace(/\s+/g, ''); }
+function opSaveExercise_(ctx) {
+  const me = requireRole_(ctx, ['admin', 'leader']);
+  const src = ctx.req.exercise || {};
+  const name = text_(src.name, 40, '種目名', true).replace(/\s+/g, ' ');
+  const aliases = String(src.aliases == null ? '' : src.aliases).split(/[、,，\n]/).map(function (a) { return a.replace(/\s+/g, ' ').trim().slice(0, 40); })
+    .filter(function (a, i, arr) { return a && exKey_(a) !== exKey_(name) && arr.map(exKey_).indexOf(exKey_(a)) === i; }).slice(0, 10);
+  const video = url_(src.video, '動画リンク');
+  if (!video) throw err_('need_video', '動画リンクを入れてください。');
+  return withLock_(function () {
+    const now = now_();
+    const rows = table_('exercises').rows.filter(function (x) { return !x.deletedAt && x.id !== String(src.id || ''); });
+    const used = {};
+    rows.forEach(function (x) { used[exKey_(x.name)] = x.name; (x.aliases ? x.aliases.split('、') : []).forEach(function (a) { used[exKey_(a)] = x.name; }); });
+    [name].concat(aliases).forEach(function (n) { if (used[exKey_(n)]) throw err_('dup_exercise', '「' + n + '」は「' + used[exKey_(n)] + '」で登録ずみです。'); });
+    let x;
+    if (src.id) {
+      x = table_('exercises').rows.filter(function (r) { return r.id === String(src.id) && !r.deletedAt; })[0];
+      if (!x) throw err_('not_found', 'その種目は見つかりません。');
+      Object.assign(x, { name: name, aliases: aliases.join('、'), video: video, updatedBy: me.id, updatedAt: now });
+      update_('exercises', x);
+      log_(me, '種目の動画を編集', name);
+    } else {
+      x = { id: newId_('x'), name: name, aliases: aliases.join('、'), video: video, createdBy: me.id, createdAt: now, updatedBy: '', updatedAt: '', deletedBy: '', deletedAt: '' };
+      insert_('exercises', [x]);
+      log_(me, '種目の動画を登録', name);
+    }
+    return { ok: true, exercises: exercisesWire_() };
+  });
+}
+function opDeleteExercise_(ctx) {
+  const me = requireRole_(ctx, ['admin', 'leader']);
+  const id = String(ctx.req.id || '');
+  return withLock_(function () {
+    const x = table_('exercises').rows.filter(function (r) { return r.id === id && !r.deletedAt; })[0];
+    if (!x) throw err_('not_found', 'その種目は見つかりません。');
+    Object.assign(x, { deletedBy: me.id, deletedAt: now_() });
+    update_('exercises', x);
+    log_(me, '種目の動画を削除', x.name);
+    return { ok: true, exercises: exercisesWire_() };
+  });
 }

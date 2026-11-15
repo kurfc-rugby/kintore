@@ -825,6 +825,33 @@ r = api({ op: 'logs', token: A, limit: 500 });
 const acts = r.logs.map((x) => x.action);
 ok(['共通名簿へ移行', '記録を追加', '記録を取り消し', 'メニューを作成', '部員を編集', '部員をまとめて編集', '部員の一覧を反映', 'ログイン', '暗証番号を発行'].every((a) => acts.includes(a)), '移行・記録・メニュー・部員・ログインの操作が履歴に残る');
 
+section('種目の動画');
+{
+  const EX = [{ id: 'a', name: 'スクワット', aliases: ['BSQ'] }, { id: 'b', name: 'デッドリフト', aliases: ['デッド'] }, { id: 'c', name: 'ベンチプレス', aliases: [] }, { id: 'd', name: 'ブルガリアンスクワット', aliases: [] }];
+  eq(L.exMatch(EX, 'スクワット 5×5').id, 'a', '行の頭が種目名なら合う（回数などが続いてもよい）');
+  eq(L.exMatch(EX, 'ブルガリアンスクワット').id, 'd', 'いちばん長い名前で合わせる（ブルガリアンスクワットはスクワットにしない）');
+  eq(L.exMatch(EX.slice(0, 3), 'ブルガリアンスクワット'), null, '途中に名前が入っているだけでは合わない');
+  eq(L.exMatch(EX, 'ｓｑｕａｔ'), null, '登録していない書き方は合わない');
+  eq(L.exMatch(EX, 'bsq 80kg').id, 'a', '別の書き方・全角半角・大文字小文字の違いは無視');
+  eq(L.exMatch(EX, 'デッド').id, 'b', '別の書き方でも合う');
+  eq(L.exInText(EX, '・スクワット\n2. デッドリフト／ベンチプレス\n①スクワット\nプランク').map((x) => x.id), ['a', 'b', 'c'], '行・「／」区切り・先頭の・や番号に対応。同じ種目は1回だけ');
+  eq(L.exLines('スクワット / デッドリフト\n').map((l) => l.parts.length), [2, 0], '1行に2つ書いてあっても分ける');
+  // サーバー：登録・重複・権限・削除
+  const ad = api({ op: 'saveExercise', token: LD9, exercise: { name: 'スクワット', aliases: 'BSQ、ﾊﾞｯｸｽｸﾜｯﾄ', video: 'https://youtu.be/sq' } });
+  ok(ad.ok && ad.exercises.length === 1 && ad.exercises[0].aliases.length === 2, 'FWリーダーは種目の動画を登録できる（別の書き方つき）');
+  ok(api({ op: 'saveExercise', token: LD9, exercise: { name: 'ｂｓｑ', video: 'https://youtu.be/x' } }).error === 'dup_exercise', '登録ずみの名前（別の書き方も）は二重に登録できない');
+  ok(api({ op: 'saveExercise', token: LD9, exercise: { name: 'デッドリフト', video: '' } }).error === 'need_video', '動画リンクは必須');
+  ok(api({ op: 'saveExercise', token: LD9, exercise: { name: 'デッドリフト', video: 'javascript:alert(1)' } }).error === 'bad_url', 'https のリンクだけ');
+  ok(api({ op: 'saveExercise', exercise: { name: 'デッドリフト', video: 'https://youtu.be/d' } }).ok === false, 'ログインしていない人は登録できない');
+  ok(api({ op: 'saveExercise', token: MG9, exercise: { name: 'デッドリフト', video: 'https://youtu.be/d' } }).error === 'forbidden', 'マネージャーは登録できない（FWリーダーと管理者だけ）');
+  const st = api({ op: 'state' });
+  ok(st.exercises.length === 1 && st.exercises[0].video === 'https://youtu.be/sq', 'みんな（ログインなし）が種目の動画を見られる');
+  const up = api({ op: 'saveExercise', token: LD9, exercise: { id: ad.exercises[0].id, name: 'スクワット', aliases: '', video: 'https://youtu.be/sq2' } });
+  ok(up.ok && up.exercises[0].video === 'https://youtu.be/sq2' && up.exercises[0].aliases.length === 0, '登録した種目を直せる');
+  const del = api({ op: 'deleteExercise', token: LD9, id: ad.exercises[0].id });
+  ok(del.ok && del.exercises.length === 0 && api({ op: 'state' }).exercises.length === 0, '消せる（スプレッドシートには削除日時つきで残る）');
+}
+
 section('2回目以降・保存と読み込み');
 const reqs = gas.stats.writes;
 api({ op: 'state' }); api({ op: 'state' });
