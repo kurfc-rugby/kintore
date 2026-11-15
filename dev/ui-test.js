@@ -219,13 +219,17 @@ const ok = (c, label) => { if (c) { pass++; console.log('  ✓ ' + label); } els
   await page.click('.sheet [data-act="ex-edit"]'); await page.waitForSelector('[data-act="ex-del"]');
   await page.click('[data-act="ex-del"]'); await page.waitForTimeout(900);
   ok(await count('.exlib li') === 3, '消せる');
-  // ザバスの動画からまとめて登録
+  // SAVASの動画からまとめて登録
   await page.click('[data-act="sv-open"]'); await page.waitForSelector('.svlist');
   const svRec = await count('.svlist input:checked');
-  ok(svRec >= 3 && await count('.svlist li.done') === 0 && /選んだ \d+ 件を登録/.test(await text('[data-act="sv-save"]')), 'ザバスの動画：部のメニュー・ライブラリに出てくる種目が「おすすめ」で選んである（登録ずみは選べない）');
+  ok(svRec >= 3 && await count('.svlist li.done') === 0 && /選んだ \d+ 件を登録/.test(await text('[data-act="sv-save"]')), 'SAVASの動画：部のメニュー・ライブラリに出てくる種目が「おすすめ」で選んである（登録ずみは選べない）');
   await page.click('[data-act="sv-part"][data-v=""]'); await page.fill('.sv-q', 'ベンチプレス'); await page.waitForTimeout(300);
   ok(await count('.svlist li.done') === 1 && await page.locator('.svlist li.done input').isDisabled(), '登録ずみの種目（ベンチプレス）は「登録ずみ」で選べない');
-  ok(/instagram\.com\/reel\//.test(await page.getAttribute('.svlist .sv-v', 'href')), '▶で元の動画（Instagram）を開ける');
+  ok(/instagram\.com\/reel\//.test(await page.getAttribute('.svlist .sv-v', 'href')), '▶で元の動画（Instagram）を見られる');
+  await page.click('.svlist .sv-v'); await page.waitForSelector('.fplayer iframe');
+  ok(/instagram\.com\/reel\/[A-Za-z0-9_-]+\/embed\/$/.test(await page.getAttribute('.fplayer iframe', 'src')), 'Instagramの動画もアプリの中で流れる（埋め込み）');
+  await page.goBack(); await page.waitForTimeout(500);
+  ok(await count('.fplayer') === 0 && await count('.svlist') === 1, 'スマホの「戻る」で動画だけ閉じて、選ぶ画面に戻る');
   await page.fill('.sv-q', ''); await page.click('[data-act="sv-part"][data-v="rec"]'); await page.waitForTimeout(200);
   await page.click('[data-act="sv-save"]'); await page.waitForTimeout(1500);
   ok((await page.locator('.toast').allInnerTexts()).some((t) => new RegExp(svRec + '件を登録しました').test(t)) && await count('.exlib li') === 3 + svRec, '選んだ種目をまとめて登録できる');
@@ -242,6 +246,10 @@ const ok = (c, label) => { if (c) { pass++; console.log('  ✓ ' + label); } els
   await page.click('[data-act="menu-tab"][data-v="upcoming"]');
   await page.waitForTimeout(400); await page.locator('.menu-card', { hasText: '火曜の体幹' }).first().click(); await page.waitForSelector('.sheet .detail');
   ok(await count('.sheet .exlines .exbtn') === 1 && /squat-example/.test(await page.getAttribute('.sheet .exbtn', 'href')), 'メニューを開くと、動画のある種目の行に「フォーム」ボタン（別の書き方「SQ」でも合う）');
+  await page.click('.sheet .exbtn'); await page.waitForSelector('.fplayer iframe');
+  ok(/youtube-nocookie\.com\/embed\/squat-example/.test(await page.getAttribute('.fplayer iframe', 'src')) && await count('.fplayer .fp-out') === 1 && (await text('.fp-h')).includes('スクワット'), '「フォーム」を押すと、アプリの中で動画が流れる（外で開くリンクもある）');
+  await page.click('.fplayer .vp-x'); await page.waitForTimeout(500);
+  ok(await count('.fplayer') === 0 && await count('.sheet .exbtn') === 1, '×で動画を閉じると、メニューの画面に戻る');
   await page.click('[data-act="menu-copy"]');
   const free = page.locator('.cday:not(.src) input');
   await free.nth(8).check({ force: true }); await free.nth(9).check({ force: true });
