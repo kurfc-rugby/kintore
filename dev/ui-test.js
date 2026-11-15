@@ -216,6 +216,14 @@ const ok = (c, label) => { if (c) { pass++; console.log('  ✓ ' + label); } els
   ok((await text('#sheet-root .form-err')).includes('動画'), '動画のリンクが空だと保存できない');
   await page.fill('form[data-form="exercise"] input[name="video"]', 'https://youtu.be/bulgarian'); await page.click('form[data-form="exercise"] button[type="submit"]'); await page.waitForTimeout(900);
   ok(await count('.exlib li') === 4 && !(await text('.exmiss')).includes('ブルガリアンスクワット'), '登録すると一覧に入り、候補から消える');
+  // ポイントが空でも、動画元（SAVAS）の動画なら説明の要約が出る
+  await page.click('[data-act="ex-new"]'); await page.waitForSelector('form[data-form="exercise"]');
+  await page.fill('form[data-form="exercise"] input[name="name"]', 'ダンベルショルダープレス'); await page.fill('form[data-form="exercise"] input[name="video"]', 'https://www.instagram.com/reel/Cqo7qphAcu1/');
+  await page.click('form[data-form="exercise"] button[type="submit"]'); await page.waitForTimeout(900);
+  await page.locator('[data-act="ex-open"]', { hasText: 'ダンベルショルダープレス' }).click(); await page.waitForSelector('.sheet .exgo');
+  ok(/前腕/.test(await text('.sheet .expoints')) && /SAVAS/.test(await text('.sheet .exsrc')), 'ポイントが空でも、SAVASの動画なら「やり方とポイント」に動画元の説明の要約が出る（出どころも表示）');
+  await page.click('.sheet [data-act="ex-edit"]'); await page.waitForSelector('[data-act="ex-del"]');
+  await page.click('[data-act="ex-del"]'); await page.waitForTimeout(900);
   await page.locator('[data-act="ex-open"]', { hasText: 'ブルガリアンスクワット' }).click(); await page.waitForSelector('.sheet [data-act="ex-edit"]');
   await page.click('.sheet [data-act="ex-edit"]'); await page.waitForSelector('[data-act="ex-del"]');
   await page.click('[data-act="ex-del"]'); await page.waitForTimeout(900);
@@ -255,6 +263,7 @@ const ok = (c, label) => { if (c) { pass++; console.log('  ✓ ' + label); } els
   ok(await count('.exlib li') === 3 + svRec + lfN, 'マシンの種目もまとめて登録できる');
   await page.locator('[data-act="ex-open"]', { hasText: 'ハックスクワット' }).click(); await page.waitForSelector('.sheet .expoints');
   ok(/ストッパー/.test(await text('.sheet .expoints')) && /マシン/.test(await text('.sheet .detail-meta')), 'マシンの種目はポイントと「マシン」の目印も一緒に入る');
+  ok(await count('.sheet .exsrc') === 0, 'まとめて登録した説明は種目に保存される（出どころの注記は出ない）');
   await page.keyboard.press('Escape'); await page.waitForTimeout(400);
   await page.click('[data-act="menu-tab"][data-v="templates"]'); await page.waitForTimeout(300);
   await page.click('[data-act="tpl-new"]');

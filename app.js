@@ -3,7 +3,7 @@
   'use strict';
   const L = window.KLogic;
   const API = window.KINTORE_API;
-  const VERSION = '2.17.1';
+  const VERSION = '2.18.0';
   const WD = ['日', '月', '火', '水', '木', '金', '土'];
   const PERM = { admin: '管理者', manager: 'マネージャー', leader: 'FWリーダー', member: '一般部員' };
   const MODE = { leader: 'メニュー参加', self: '自主トレ' };
@@ -1483,7 +1483,36 @@
       '<p class="note">メニューがない日や自主トレの人向けに、FWリーダーがすすめているメニューです。やったらマネージャーに伝えてください（「実施した」が付きます）。</p></div>');
   }
   // ---------- 種目の動画 ----------
-  function exList() { return S.data.exercises || []; }
+  /** 種目の説明：「ポイント」が空の種目は、動画元（SAVAS・LIFE FIT）の説明の要約で補う（動画のIDで照合） */
+  let CAT = null, catLoading = null;
+  const exCache = { src: null, cat: null, out: null };
+  function vidKey(u) {
+    const m = String(u || '').match(/instagram\.com\/(?:reel|p|tv)\/([\w-]+)/) || String(u || '').match(/(?:youtube\.com\/(?:watch\?(?:.*&)?v=|shorts\/|embed\/)|youtu\.be\/)([\w-]{6,})/);
+    return m ? m[1] : '';
+  }
+  function loadCat() {
+    if (CAT) return Promise.resolve(CAT);
+    if (!catLoading) {
+      catLoading = Promise.all([['media/savas.json', 'SAVAS「筋トレ辞典」'], ['media/lifefit.json', 'LIFE FIT「マシンの使い方」']].map((f) =>
+        fetch(f[0] + '?v=' + VERSION).then((r) => (r.ok ? r.json() : null)).catch(() => null).then((d) => [d, f[1]])))
+        .then((ds) => {
+          const m = new Map();
+          ds.forEach((x) => { if (x[0]) x[0].items.forEach((o) => { if (o.t) m.set(o.v, { t: o.t, src: x[1] }); }); });
+          CAT = m;
+          if (S.route && S.route.name === 'menus' && S.menuTab === 'exercises' && !$('#sheet-root').innerHTML) render();
+          return m;
+        });
+    }
+    return catLoading;
+  }
+  function exList() {
+    const a = (S.data && S.data.exercises) || [];
+    if (!CAT || !a.length) return a;
+    if (exCache.src === a && exCache.cat === CAT) return exCache.out;
+    exCache.src = a; exCache.cat = CAT;
+    exCache.out = a.map((x) => { if (x.points) return x; const c = CAT.get(vidKey(x.video)); return c ? Object.assign({}, x, { points: c.t, autoSrc: c.src }) : x; });
+    return exCache.out;
+  }
   /** メニューに動画があるか（メニューそのものの動画か、内容に動画のある種目が入っている） */
   function hasVideo(w) { return !!(w.video || L.exInText(exList(), w.content).length); }
   function vtagHtml(w) { return hasVideo(w) ? '<span class="vtag">' + icon('play') + '動画</span>' : ''; }
@@ -1537,6 +1566,7 @@
       (pts ? '<small>' + esc(pts) + '</small>' : '') + '</span>' + icon('next') + '</button></li>';
   }
   function vExercises() {
+    if (!CAT) loadCat();
     const ex = exList(), staff = can('menu');
     let h = staff ? '<div class="toolbar"><button class="btn primary" data-act="ex-new">' + icon('plus') + '種目の動画を登録</button><button class="btn" data-act="sv-open" data-v="savas">' + icon('play') + 'SAVASの動画から選ぶ</button><button class="btn" data-act="sv-open" data-v="lifefit">' + icon('play') + 'マシンの動画から選ぶ</button></div>' : '';
     if (staff) {
@@ -1621,7 +1651,8 @@
       '<div class="detail"><p class="detail-meta exparts">' + x.parts.map((p) => '<i>' + p + '</i>').join('') + ((x.gear || []).length ? gearTag(x.gear) : '<span class="nogear">器具なし（自重）</span>') + '</p>' +
       '<a class="btn primary exgo" href="' + esc(x.video) + '" target="_blank" rel="noopener noreferrer" data-act="ex-play" data-name="' + esc(x.name) + '">' + icon('play') + 'フォームの動画を見る</a>' +
       (() => { const alt = exList().filter((e) => e.id !== x.id && e.name.replace(/[②-⑤]$/, '') === x.name.replace(/[②-⑤]$/, '')); return alt.length ? '<p class="exalt">別の動画：' + alt.map((e) => '<a class="btn small" href="' + esc(e.video) + '" target="_blank" rel="noopener noreferrer" data-act="ex-play" data-name="' + esc(e.name) + '">' + icon('play') + esc(e.name.slice(-1).match(/[②-⑤]/) ? e.name.slice(-1) : '①') + '</a>').join('') + '</p>' : ''; })() +
-      (x.points ? '<h3>ポイント</h3><ul class="dots expoints">' + x.points.split('\n').filter((t) => t.trim()).map((t) => '<li>' + esc(t.trim()) + '</li>').join('') + '</ul>' : '') +
+      (x.points ? '<h3>やり方とポイント</h3><ul class="dots expoints">' + x.points.split('\n').filter((t) => t.trim()).map((t) => '<li>' + esc(t.trim()) + '</li>').join('') + '</ul>' +
+        (x.autoSrc ? '<p class="hint exsrc">' + esc(x.autoSrc) + 'の説明を短くまとめたものです。' + (can('menu') ? '「編集」で書きかえられます。' : '') + '</p>' : '') : '') +
       (x.aliases.length ? '<h3>別の書き方</h3><p>' + x.aliases.map(esc).join('、') + '</p>' : '') +
       (menus.length ? '<h3>この種目が入っているメニュー</h3><ul class="exmenus">' + menus.map((w) => '<li><button data-act="menu-open" data-id="' + w.id + '">' + mdw(w.date) + '<b>' + esc(w.title) + '</b></button></li>').join('') + '</ul>' : '') +
       (can('menu') ? '<div class="actions"><button class="btn" data-act="ex-edit" data-id="' + x.id + '">編集</button></div>' : '') + '</div>');
@@ -1637,7 +1668,7 @@
       EX_PARTS.map((p) => '<label><input type="checkbox" name="parts" value="' + p + '"' + (v.parts.indexOf(p) >= 0 ? ' checked' : '') + '><span>' + p + '</span></label>').join('') + '</div></fieldset>' +
       '<fieldset><legend>器具<span class="opt">使うものを選ぶ・なければ自重</span></legend><div class="radios small">' +
       EX_GEAR.map((g) => '<label><input type="checkbox" name="gear" value="' + g + '"' + ((v.gear || []).indexOf(g) >= 0 ? ' checked' : '') + '><span>' + g + '</span></label>').join('') + '</div></fieldset>' +
-      '<label>ポイント<span class="opt">任意・1行に1つ</span><textarea name="points" rows="3" maxlength="400" placeholder="例：&#10;膝とつま先の向きをそろえる&#10;背中を丸めない">' + esc(v.points) + '</textarea></label>' +
+      '<label>やり方とポイント<span class="opt">任意・1行に1つ</span><textarea name="points" rows="3" maxlength="400" placeholder="例：&#10;膝とつま先の向きをそろえる&#10;背中を丸めない">' + esc(v.points) + '</textarea></label>' +
       '<label>別の書き方<span class="opt">任意・「、」で区切る</span><input type="text" name="aliases" maxlength="300" value="' + esc(v.aliases.join('、')) + '" placeholder="例：SQ、バックスクワット" autocomplete="off"></label>' +
       '<p class="hint">メニューの「トレーニング内容」で、行の頭がこの名前（か別の書き方）になっている種目に「フォーム」ボタンが出ます。「スクワット 5×5」も合います。「ブルガリアンスクワット」は別の種目として登録してください。</p>' +
       '<p class="form-err" role="alert" hidden></p>' +
@@ -2269,7 +2300,7 @@
       ['exvideo', 'all', '種目のフォーム動画', '部位別に探す・ポイント・登録（FWリーダー）',
         '<ul class="dots"><li>メニューを開くと、動画のある種目の行に <b>' + icon('play') + 'フォーム</b> ボタンがあります。押すと<b>アプリの中で</b>動画が流れます（Instagram・YouTube。ほかのサイトの動画はそのサイトで開きます）</li>' +
         '<li>器具（ダンベル・バーベル・ケトルベル・チューブ・ベンチ・椅子など）を使う種目には <span class="gear">' + icon('menu') + 'ダンベル</span> のような目印が付きます。目印がなければ自重でできます</li>' +
-        '<li>「メニュー」→ <b>「種目の動画」</b>で、<b>部位別</b>（胸・肩・背中・腕・腹・脚・尻・首・全身）に探せます。種目を押すと、動画・<b>フォームのポイント</b>・その種目が入っている今後のメニューが見られます</li></ul>' +
+        '<li>「メニュー」→ <b>「種目の動画」</b>で、<b>部位別</b>（胸・肩・背中・腕・腹・脚・尻・首・全身）に探せます。種目を押すと、動画・<b>やり方とポイント</b>・その種目が入っている今後のメニューが見られます。SAVAS・マシンの動画から登録した種目には、動画元の説明を短くまとめたものが最初から入っています</li></ul>' +
         '<h4>登録する（FWリーダー・管理者）</h4>' +
         steps(['「メニュー」→ <b>「種目の動画」</b>→ <b>「SAVASの動画から選ぶ」</b>で、明治 SAVAS「筋トレ辞典」の動画（365本）からまとめて登録できます。同じ名前で別の動画があるものは「②」「③」が付いています。部のメニューに出てくる種目は最初から選んであります', 'ジムのマシン（チェストプレス・ラットプルダウン・レッグプレス・ハックスクワットなど37台）は <b>「マシンの動画から選ぶ」</b>で、LIFE FIT「マシンの使い方」の動画とポイントをまとめて登録できます', '1つずつ入れるときは <b>「種目の動画を登録」</b>（「動画がまだない種目」を押すと名前が入ります）', '種目名・動画のURL・<b>部位</b>・<b>器具</b>・<b>ポイント</b>（1行に1つ）を入れて保存。「SQ」などの <b>別の書き方</b> も入れておくと、その書き方のメニューにも出ます']) +
         tip('1回登録すれば、その種目が入っているメニュー（これまで・これからの全部、型も）に出ます。メニューの「トレーニング内容」で、行の頭が種目名になっていれば合います（「スクワット 5×5」もOK）。')],
@@ -3049,7 +3080,10 @@
     'tpl-use': (el) => { const t = (S.data.templates || []).find((x) => x.id === el.dataset.id); if (t) openMenuForm('', { group: t.group, positions: t.positions, title: t.title, content: t.content, detail: t.detail, note: t.note, video: t.video }); },
     'ex-new': (el) => openExerciseForm('', el.dataset.v || ''),
     'ex-edit': (el) => openExerciseForm(el.dataset.id),
-    'ex-open': (el) => openExercise(el.dataset.id),
+    'ex-open': async (el) => {
+      if (!CAT) await Promise.race([loadCat(), new Promise((r) => setTimeout(r, 1500))]);
+      openExercise(el.dataset.id);
+    },
     'ex-play': (el, ev) => { playForm(el.getAttribute('href'), el.dataset.name || '', ev); },
     'sv-open': (el) => openSavas(el.dataset.v),
     'sv-part': (el) => { SV.part = el.dataset.v; svRender(); const l = $('#sv-list'); if (l) l.scrollIntoView({ block: 'nearest' }); },
