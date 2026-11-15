@@ -1367,3 +1367,9 @@ html[data-size="l"] .help-seg button[aria-pressed="true"], html[data-size="xl"] 
 .fp-box.igcrop { flex: 0 0 auto; position: relative; overflow: hidden; border-radius: 12px; background: #000; max-width: none; max-height: none; }
 .fp-box.igcrop iframe { position: absolute; border-radius: 0; background: transparent; }
 .exalt { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 13px; color: var(--sub); margin: 6px 0 0; }
+/* v2.16 器具の目印 */
+.gear { display: inline-flex; align-items: center; gap: 3px; font-size: 11px; font-weight: 700; line-height: 1; padding: 2px 6px 2px 4px; border-radius: 4px; border: 1.5px solid var(--ink); color: var(--ink); background: var(--paper); white-space: nowrap; vertical-align: 1px; }
+.gear .ic { width: 13px; height: 13px; }
+.nogear { font-size: 11px; color: var(--sub); }
+.exlines .gear { margin-left: 2px; }
+.radios.small span { min-height: 38px; padding: 0 12px; font-size: 13px; }

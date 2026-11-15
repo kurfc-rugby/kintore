@@ -206,6 +206,7 @@ const ok = (c, label) => { if (c) { pass++; console.log('  ✓ ' + label); } els
   await page.click('[data-act="ex-part"][data-v=""]'); await page.waitForTimeout(300);
   await page.locator('[data-act="ex-open"]', { hasText: 'スクワット' }).click(); await page.waitForSelector('.sheet .exgo');
   ok(/squat-example/.test(await page.getAttribute('.sheet .exgo', 'href')) && await count('.sheet .expoints li') === 3 && await count('.sheet .exmenus li') >= 1, '種目を押すと、動画・ポイント・この種目が入っているメニュー');
+  ok((await text('.sheet .detail-meta')).includes('器具なし'), '器具を使わない種目は「器具なし（自重）」');
   await page.keyboard.press('Escape'); await page.waitForTimeout(300);
   await page.click('.exmiss > summary'); await page.waitForTimeout(200);
   ok(await count('.exmiss .chip-btn') >= 3 && await page.evaluate(() => { const t = [...document.querySelectorAll('.exmiss .chip-btn')].map((x) => x.textContent.trim()); return !t.includes('スクワット') && t.includes('ブルガリアンスクワット'); }), 'メニューに出てくるのに動画がない種目が候補に出る（スクワットは出ない）');
@@ -226,6 +227,7 @@ const ok = (c, label) => { if (c) { pass++; console.log('  ✓ ' + label); } els
   ok((await text('[data-act="sv-part"][data-v=""] small')) === '365', 'SAVASの動画は365本（同じ名前の別の動画は②③付き）');
   await page.click('[data-act="sv-part"][data-v=""]'); await page.fill('.sv-q', 'ルーマニアンデッドリフト'); await page.waitForTimeout(300);
   ok(await count('.svlist li') >= 4 && (await text('.svlist')).includes('ルーマニアンデッドリフト③'), '同じ名前の別の動画も選べる');
+  ok(await count('.svlist .gear') >= 1 && /ダンベル|バーベル/.test(await text('.svlist .gear')), '器具を使う種目には目印（器具の名前）が付く');
   await page.fill('.sv-q', 'ベンチプレス'); await page.waitForTimeout(300);
   ok(await count('.svlist li.done') === 1 && await page.locator('.svlist li.done input').isDisabled(), '登録ずみの種目（ベンチプレス）は「登録ずみ」で選べない');
   ok(/instagram\.com\/reel\//.test(await page.getAttribute('.svlist .sv-v', 'href')), '▶で元の動画（Instagram）を見られる');

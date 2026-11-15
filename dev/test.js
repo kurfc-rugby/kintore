@@ -854,16 +854,19 @@ section('種目の動画');
   const pt = api({ op: 'saveExercise', token: LD9, exercise: { name: 'デッドリフト', video: 'https://youtu.be/d', parts: ['背中', '尻', '脚', 'お腹', '背中'], points: '背中を丸めない\nバーを体の近くに' } });
   const dl = pt.exercises.find((x) => x.name === 'デッドリフト');
   ok(pt.ok && dl.parts.join() === '背中,脚,尻' && dl.points.includes('\n'), '部位（決まった中から・重複なし・決まった順）とポイントを登録できる');
+  const gr = api({ op: 'saveExercise', token: LD9, exercise: { id: dl.id, name: 'デッドリフト', video: 'https://youtu.be/d', gear: ['ベンチ', 'バーベル', 'ロケット'] } });
+  ok(gr.ok && gr.exercises.find((x) => x.id === dl.id).gear.join() === 'バーベル,ベンチ', '器具も登録できる（決まった中から・決まった順）。空なら自重');
   ok(api({ op: 'saveExercise', token: LD9, exercise: { id: dl.id, name: 'デッドリフト', video: 'https://youtu.be/d', points: 'あ'.repeat(401) } }).error === 'too_long', 'ポイントは400文字まで');
   api({ op: 'deleteExercise', token: LD9, id: dl.id });
   const im = api({ op: 'importExercises', token: LD9, items: [
     { name: 'スクワット', video: 'https://www.instagram.com/reel/a/', parts: ['脚'] },
-    { name: 'ベンチプレス', video: 'https://www.instagram.com/reel/b/', parts: ['胸'], aliases: ['ベンチ'] },
+    { name: 'ベンチプレス', video: 'https://www.instagram.com/reel/b/', parts: ['胸'], aliases: ['ベンチ'], gear: ['バーベル', 'ベンチ'] },
     { name: 'ベンチ', video: 'https://www.instagram.com/reel/c/' },
     { name: 'プッシュアップ', video: 'https://www.instagram.com/reel/d/', parts: ['胸'], aliases: ['腕立て伏せ'] },
     { name: 'あやしい', video: 'javascript:x' }] });
   ok(im.ok && im.added === 2 && im.skipped === 3, 'まとめて登録：登録ずみ（スクワット）・別の書き方と重なるもの（ベンチ）・リンクが正しくないものは飛ばす');
   ok(L.exMatch(im.exercises, '腕立て伏せ 20回').name === 'プッシュアップ', 'まとめて登録した別の書き方でもメニューに合う');
+  ok(im.exercises.find((x) => x.name === 'ベンチプレス').gear.join() === 'バーベル,ベンチ' && im.exercises.find((x) => x.name === 'プッシュアップ').gear.length === 0, 'まとめて登録でも器具が入る（プッシュアップは自重）');
   ok(api({ op: 'importExercises', token: MG9, items: [{ name: 'x', video: 'https://a.b/' }] }).error === 'forbidden', 'まとめて登録はFWリーダーと管理者だけ');
   im.exercises.filter((x) => x.name !== 'スクワット').forEach((x) => api({ op: 'deleteExercise', token: LD9, id: x.id }));
   const del = api({ op: 'deleteExercise', token: LD9, id: ad.exercises[0].id });

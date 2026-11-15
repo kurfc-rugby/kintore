@@ -3,7 +3,7 @@
   'use strict';
   const L = window.KLogic;
   const API = window.KINTORE_API;
-  const VERSION = '2.15.3';
+  const VERSION = '2.16.0';
   const WD = ['日', '月', '火', '水', '木', '金', '土'];
   const PERM = { admin: '管理者', manager: 'マネージャー', leader: 'FWリーダー', member: '一般部員' };
   const MODE = { leader: 'メニュー参加', self: '自主トレ' };
@@ -1495,7 +1495,8 @@
     return '<ul class="exlines">' + lines.map((l) => {
       const hit = [];
       l.parts.forEach((p) => { const x = L.exMatch(ex, p); if (x && hit.indexOf(x) < 0) hit.push(x); });
-      return '<li><span>' + esc(l.line.trim()) + '</span>' + hit.map((x) => '<a class="exbtn" href="' + esc(x.video) + '" target="_blank" rel="noopener noreferrer" data-act="ex-play" data-name="' + esc(x.name) + '" aria-label="' + esc(x.name) + 'のフォーム動画を見る">' + icon('play') + (hit.length > 1 ? esc(x.name) : 'フォーム') + '</a>').join('') + '</li>';
+      const gs = []; hit.forEach((x) => (x.gear || []).forEach((g) => { if (gs.indexOf(g) < 0) gs.push(g); }));
+      return '<li><span>' + esc(l.line.trim()) + (gs.length ? ' ' + gearTag(gs) : '') + '</span>' + hit.map((x) => '<a class="exbtn" href="' + esc(x.video) + '" target="_blank" rel="noopener noreferrer" data-act="ex-play" data-name="' + esc(x.name) + '" aria-label="' + esc(x.name) + 'のフォーム動画を見る">' + icon('play') + (hit.length > 1 ? esc(x.name) : 'フォーム') + '</a>').join('') + '</li>';
     }).join('') + '</ul>';
   }
   /** メニューや型に出てくるのに、まだ動画が登録されていない種目（登録の候補） */
@@ -1513,6 +1514,9 @@
   }
   // 部位（筋トレ辞典の部位別にならう。ラグビー部なので「首」も）
   const EX_PARTS = ['胸', '肩', '背中', '腕', '腹', '脚', '尻', '首', '全身'];
+  // 器具（空なら自重）。器具を使う種目には目印を付ける
+  const EX_GEAR = ['ダンベル', 'バーベル', 'ケトルベル', 'バランスボール', 'チューブ', 'メディシンボール', 'マシン', '鉄棒', 'ベンチ', '椅子', 'プレート', '台', 'テーブル', 'タオル', 'ロープ'];
+  function gearTag(g) { return g && g.length ? '<span class="gear" title="器具を使う">' + icon('menu') + g.map(esc).join('・') + '</span>' : ''; }
   /** 種目のライブラリの分け方から、部位の見当をつける（登録画面の最初の値） */
   function guessParts(name) {
     for (const c of LIB) {
@@ -1529,7 +1533,7 @@
   function exRow(x) {
     const pts = (x.points || '').split('\n')[0];
     return '<li><button class="exlib-v" data-act="ex-open" data-id="' + x.id + '"><span class="exlib-play">' + icon('play') + '</span><span class="exlib-t"><b>' + esc(x.name) + '</b>' +
-      (x.parts.length ? '<span class="exparts">' + x.parts.map((p) => '<i>' + p + '</i>').join('') + '</span>' : '') +
+      (x.parts.length || (x.gear || []).length ? '<span class="exparts">' + x.parts.map((p) => '<i>' + p + '</i>').join('') + gearTag(x.gear) + '</span>' : '') +
       (pts ? '<small>' + esc(pts) + '</small>' : '') + '</span>' + icon('next') + '</button></li>';
   }
   function vExercises() {
@@ -1560,7 +1564,7 @@
     let d;
     try { d = await fetch('media/savas.json?v=' + VERSION, { cache: 'no-cache' }).then((r) => { if (!r.ok) throw new Error(); return r.json(); }); }
     catch (e) { sheetError(''); $('#sheet-root .sheet-b').innerHTML = '<p class="form-err">一覧を読み込めませんでした。通信を確かめて、もう一度開いてください。</p>'; return; }
-    const items = d.items.map((o, i) => ({ i: i, name: o.n, video: d.video + o.v + '/', parts: o.p || [], aliases: o.a || [] }));
+    const items = d.items.map((o, i) => ({ i: i, name: o.n, video: d.video + o.v + '/', parts: o.p || [], aliases: o.a || [], gear: o.g || [] }));
     const lib = items.map((o) => ({ id: o.i, name: o.name, aliases: o.aliases }));
     const has = exList();
     items.forEach((o) => { o.done = has.some((x) => [x.name].concat(x.aliases).some((n) => L.exKey(n) === L.exKey(o.name))); });
@@ -1592,7 +1596,7 @@
       .map((x) => '<button type="button" data-act="sv-part" data-v="' + x[0] + '" aria-pressed="' + (SV.part === x[0]) + '">' + x[1] + '<small>' + x[2] + '</small></button>').join('');
     const list = svShown();
     $('#sv-list').innerHTML = list.length ? '<ul class="svlist">' + list.slice(0, 400).map((o) => '<li class="' + (o.done ? 'done' : '') + '"><label><input type="checkbox" name="sv" value="' + o.i + '"' + (o.done ? ' disabled' : SV.sel.has(o.i) ? ' checked' : '') + '>' +
-      '<span class="sv-n"><b>' + esc(o.name) + '</b><span class="exparts">' + o.parts.map((p) => '<i>' + p + '</i>').join('') + (o.done ? '<i class="sv-done">登録ずみ</i>' : '') + '</span></span></label>' +
+      '<span class="sv-n"><b>' + esc(o.name) + '</b><span class="exparts">' + o.parts.map((p) => '<i>' + p + '</i>').join('') + gearTag(o.gear) + (o.done ? '<i class="sv-done">登録ずみ</i>' : '') + '</span></span></label>' +
       '<a class="sv-v" href="' + esc(o.video) + '" target="_blank" rel="noopener noreferrer" data-act="ex-play" data-name="' + esc(o.name) + '" aria-label="' + esc(o.name) + 'の動画を見る">' + icon('play') + '</a></li>').join('') + '</ul>' : '<p class="empty small">見つかりません。</p>';
     svCount();
   }
@@ -1607,7 +1611,7 @@
     const d = S.data;
     const menus = d.menus.filter((w) => w.date >= d.today && L.exInText([x], w.content).length).sort((a, b) => (a.date < b.date ? -1 : 1)).slice(0, 5);
     openSheet(x.name,
-      '<div class="detail">' + (x.parts.length ? '<p class="detail-meta exparts">' + x.parts.map((p) => '<i>' + p + '</i>').join('') + '</p>' : '') +
+      '<div class="detail"><p class="detail-meta exparts">' + x.parts.map((p) => '<i>' + p + '</i>').join('') + ((x.gear || []).length ? gearTag(x.gear) : '<span class="nogear">器具なし（自重）</span>') + '</p>' +
       '<a class="btn primary exgo" href="' + esc(x.video) + '" target="_blank" rel="noopener noreferrer" data-act="ex-play" data-name="' + esc(x.name) + '">' + icon('play') + 'フォームの動画を見る</a>' +
       (() => { const alt = exList().filter((e) => e.id !== x.id && e.name.replace(/[②-⑤]$/, '') === x.name.replace(/[②-⑤]$/, '')); return alt.length ? '<p class="exalt">別の動画：' + alt.map((e) => '<a class="btn small" href="' + esc(e.video) + '" target="_blank" rel="noopener noreferrer" data-act="ex-play" data-name="' + esc(e.name) + '">' + icon('play') + esc(e.name.slice(-1).match(/[②-⑤]/) ? e.name.slice(-1) : '①') + '</a>').join('') + '</p>' : ''; })() +
       (x.points ? '<h3>ポイント</h3><ul class="dots expoints">' + x.points.split('\n').filter((t) => t.trim()).map((t) => '<li>' + esc(t.trim()) + '</li>').join('') + '</ul>' : '') +
@@ -1617,13 +1621,15 @@
   }
   function openExerciseForm(id, name) {
     const x = id ? exList().find((e) => e.id === id) : null;
-    const v = x || { name: name || '', aliases: [], video: '', parts: guessParts(name || ''), points: '' };
+    const v = x || { name: name || '', aliases: [], video: '', parts: guessParts(name || ''), points: '', gear: [] };
     openSheet(x ? '種目の動画を編集' : '種目の動画を登録',
       '<form data-form="exercise" class="form" novalidate>' + (x ? '<input type="hidden" name="id" value="' + x.id + '">' : '') +
       '<label>種目名<input type="text" name="name" maxlength="40" value="' + esc(v.name) + '" placeholder="例：スクワット" required' + (v.name ? '' : ' autofocus') + '></label>' +
       '<label>フォームの見本の動画<input type="url" name="video" maxlength="500" value="' + esc(v.video) + '" placeholder="https://youtu.be/..." inputmode="url" autocomplete="off" required' + (v.name && !v.video ? ' autofocus' : '') + '></label>' +
       '<fieldset><legend>部位<span class="opt">複数可</span></legend><div class="radios">' +
       EX_PARTS.map((p) => '<label><input type="checkbox" name="parts" value="' + p + '"' + (v.parts.indexOf(p) >= 0 ? ' checked' : '') + '><span>' + p + '</span></label>').join('') + '</div></fieldset>' +
+      '<fieldset><legend>器具<span class="opt">使うものを選ぶ・なければ自重</span></legend><div class="radios small">' +
+      EX_GEAR.map((g) => '<label><input type="checkbox" name="gear" value="' + g + '"' + ((v.gear || []).indexOf(g) >= 0 ? ' checked' : '') + '><span>' + g + '</span></label>').join('') + '</div></fieldset>' +
       '<label>ポイント<span class="opt">任意・1行に1つ</span><textarea name="points" rows="3" maxlength="400" placeholder="例：&#10;膝とつま先の向きをそろえる&#10;背中を丸めない">' + esc(v.points) + '</textarea></label>' +
       '<label>別の書き方<span class="opt">任意・「、」で区切る</span><input type="text" name="aliases" maxlength="300" value="' + esc(v.aliases.join('、')) + '" placeholder="例：SQ、バックスクワット" autocomplete="off"></label>' +
       '<p class="hint">メニューの「トレーニング内容」で、行の頭がこの名前（か別の書き方）になっている種目に「フォーム」ボタンが出ます。「スクワット 5×5」も合います。「ブルガリアンスクワット」は別の種目として登録してください。</p>' +
@@ -2255,9 +2261,10 @@
         tip('対象は「メニュー参加」の人だけ。自主トレの人は入りません。')],
       ['exvideo', 'all', '種目のフォーム動画', '部位別に探す・ポイント・登録（FWリーダー）',
         '<ul class="dots"><li>メニューを開くと、動画のある種目の行に <b>' + icon('play') + 'フォーム</b> ボタンがあります。押すと<b>アプリの中で</b>動画が流れます（Instagram・YouTube。ほかのサイトの動画はそのサイトで開きます）</li>' +
+        '<li>器具（ダンベル・バーベル・ケトルベル・チューブ・ベンチ・椅子など）を使う種目には <span class="gear">' + icon('menu') + 'ダンベル</span> のような目印が付きます。目印がなければ自重でできます</li>' +
         '<li>「メニュー」→ <b>「種目の動画」</b>で、<b>部位別</b>（胸・肩・背中・腕・腹・脚・尻・首・全身）に探せます。種目を押すと、動画・<b>フォームのポイント</b>・その種目が入っている今後のメニューが見られます</li></ul>' +
         '<h4>登録する（FWリーダー・管理者）</h4>' +
-        steps(['「メニュー」→ <b>「種目の動画」</b>→ <b>「SAVASの動画から選ぶ」</b>で、明治 SAVAS「筋トレ辞典」の動画（365本）からまとめて登録できます。同じ名前で別の動画があるものは「②」「③」が付いています。部のメニューに出てくる種目は最初から選んであります', '1つずつ入れるときは <b>「種目の動画を登録」</b>（「動画がまだない種目」を押すと名前が入ります）', '種目名・動画のURL・<b>部位</b>・<b>ポイント</b>（1行に1つ）を入れて保存。「SQ」などの <b>別の書き方</b> も入れておくと、その書き方のメニューにも出ます']) +
+        steps(['「メニュー」→ <b>「種目の動画」</b>→ <b>「SAVASの動画から選ぶ」</b>で、明治 SAVAS「筋トレ辞典」の動画（365本）からまとめて登録できます。同じ名前で別の動画があるものは「②」「③」が付いています。部のメニューに出てくる種目は最初から選んであります', '1つずつ入れるときは <b>「種目の動画を登録」</b>（「動画がまだない種目」を押すと名前が入ります）', '種目名・動画のURL・<b>部位</b>・<b>器具</b>・<b>ポイント</b>（1行に1つ）を入れて保存。「SQ」などの <b>別の書き方</b> も入れておくと、その書き方のメニューにも出ます']) +
         tip('1回登録すれば、その種目が入っているメニュー（これまで・これからの全部、型も）に出ます。メニューの「トレーニング内容」で、行の頭が種目名になっていれば合います（「スクワット 5×5」もOK）。')],
       ['tpl', 'leader', '型と繰り返し', '毎週のメニューを自動で作る',
         steps(['「メニュー」→ <b>「型」</b>→ <b>「型を作る」</b>（今あるメニューの「型にする」からも）', '<b>繰り返す曜日</b>を選ぶ → 4週間先まで自動で作られ、毎日のびます', '型を直すと、手で直していない今日以降の分もそろいます']) +
@@ -3041,7 +3048,7 @@
     'sv-part': (el) => { SV.part = el.dataset.v; svRender(); const l = $('#sv-list'); if (l) l.scrollIntoView({ block: 'nearest' }); },
     'sv-all': () => { const list = svShown().filter((o) => !o.done); const allOn = list.every((o) => SV.sel.has(o.i)); list.forEach((o) => { if (allOn) SV.sel.delete(o.i); else SV.sel.add(o.i); }); svRender(); },
     'sv-save': async (el) => {
-      const items = SV.items.filter((o) => SV.sel.has(o.i) && !o.done).map((o) => ({ name: o.name, video: o.video, parts: o.parts, aliases: o.aliases }));
+      const items = SV.items.filter((o) => SV.sel.has(o.i) && !o.done).map((o) => ({ name: o.name, video: o.video, parts: o.parts, aliases: o.aliases, gear: o.gear }));
       if (!items.length) return;
       await busy(el, async () => {
         try {
@@ -3282,7 +3289,8 @@
       await busy(btn, async () => {
         try {
           const parts = $$('input[name="parts"]:checked', f).map((c) => c.value);
-          const r = await api('saveExercise', { exercise: { id: f.id ? f.id.value : '', name: f.name.value, aliases: f.aliases.value, video: f.video.value.trim(), parts: parts, points: f.points.value } });
+          const gear = $$('input[name="gear"]:checked', f).map((c) => c.value);
+          const r = await api('saveExercise', { exercise: { id: f.id ? f.id.value : '', name: f.name.value, aliases: f.aliases.value, video: f.video.value.trim(), parts: parts, points: f.points.value, gear: gear } });
           S.data.exercises = r.exercises; closeSheet(); render(); toast('「' + f.name.value.trim() + '」の動画を保存しました');
         } catch (e) { sheetError(e.message); }
       });

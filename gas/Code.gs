@@ -10,8 +10,8 @@
  * 最初にやること：スプレッドシートのメニュー「筋トレ管理」→「管理者を登録」
  * 詳しくは 04_ドキュメント/筋トレ管理アプリ_使い方と引き継ぎ.md
  */
-const APP_VERSION = '2.15.3';
-const SCHEMA_VERSION = '8';
+const APP_VERSION = '2.16.0';
+const SCHEMA_VERSION = '9';
 const TZ = 'Asia/Tokyo';
 const SESSION_DAYS = 90;
 const VIEW_SESSION_DAYS = 180;
@@ -80,10 +80,13 @@ const DEF = {
   exercises: { name: '種目の動画', cols: [
     ['id', 'ID'], ['name', '種目名'], ['aliases', '別の書き方'], ['video', '動画リンク'],
     ['createdBy', '登録者ID'], ['createdAt', '登録日時'], ['updatedBy', '更新者ID'], ['updatedAt', '更新日時'],
-    ['deletedBy', '削除者ID'], ['deletedAt', '削除日時'], ['parts', '部位'], ['points', 'ポイント']] }
+    ['deletedBy', '削除者ID'], ['deletedAt', '削除日時'], ['parts', '部位'], ['points', 'ポイント'], ['gear', '器具']] }
 };
 /** 種目の部位（筋トレ辞典の部位別にならう。ラグビー部なので「首」も） */
 const EX_PARTS = ['胸', '肩', '背中', '腕', '腹', '脚', '尻', '首', '全身'];
+/** 種目に使う器具（空なら自重） */
+const EX_GEAR = ['ダンベル', 'バーベル', 'ケトルベル', 'バランスボール', 'チューブ', 'メディシンボール', 'マシン', '鉄棒', 'ベンチ', '椅子', 'プレート', '台', 'テーブル', 'タオル', 'ロープ'];
+function gearOf_(v) { return EX_GEAR.filter(function (g) { return Array.isArray(v) && v.indexOf(g) >= 0; }); }
 const DATE_COLS = { start: 1, left: 1, effDate: 1, date: 1, from: 1, to: 1, repeatFrom: 1, repeatTo: 1, targetDate: 1 };
 
 const ENC = {
@@ -2601,7 +2604,7 @@ function registerAdmin_(name) {
 // ---------------------------------------------------------------------------
 function exercisesWire_() {
   return table_('exercises').rows.filter(function (x) { return !x.deletedAt; })
-    .map(function (x) { return { id: x.id, name: x.name, aliases: x.aliases ? x.aliases.split('、') : [], video: x.video, parts: x.parts ? x.parts.split(',') : [], points: x.points || '' }; })
+    .map(function (x) { return { id: x.id, name: x.name, aliases: x.aliases ? x.aliases.split('、') : [], video: x.video, parts: x.parts ? x.parts.split(',') : [], points: x.points || '', gear: x.gear ? x.gear.split(',') : [] }; })
     .sort(function (a, b) { return a.name < b.name ? -1 : a.name > b.name ? 1 : 0; });
 }
 /** 名前の比べ方：全角半角・大文字小文字・空白の違いを無視 */
@@ -2616,6 +2619,7 @@ function opSaveExercise_(ctx) {
   if (!video) throw err_('need_video', '動画リンクを入れてください。');
   const parts = EX_PARTS.filter(function (p) { return Array.isArray(src.parts) && src.parts.indexOf(p) >= 0; });
   const points = text_(src.points, 400, 'ポイント', false);
+  const gear = gearOf_(src.gear);
   return withLock_(function () {
     const now = now_();
     const rows = table_('exercises').rows.filter(function (x) { return !x.deletedAt && x.id !== String(src.id || ''); });
@@ -2626,11 +2630,11 @@ function opSaveExercise_(ctx) {
     if (src.id) {
       x = table_('exercises').rows.filter(function (r) { return r.id === String(src.id) && !r.deletedAt; })[0];
       if (!x) throw err_('not_found', 'その種目は見つかりません。');
-      Object.assign(x, { name: name, aliases: aliases.join('、'), video: video, parts: parts.join(','), points: points, updatedBy: me.id, updatedAt: now });
+      Object.assign(x, { name: name, aliases: aliases.join('、'), video: video, parts: parts.join(','), points: points, gear: gear.join(','), updatedBy: me.id, updatedAt: now });
       update_('exercises', x);
       log_(me, '種目の動画を編集', name);
     } else {
-      x = { id: newId_('x'), name: name, aliases: aliases.join('、'), video: video, parts: parts.join(','), points: points, createdBy: me.id, createdAt: now, updatedBy: '', updatedAt: '', deletedBy: '', deletedAt: '' };
+      x = { id: newId_('x'), name: name, aliases: aliases.join('、'), video: video, parts: parts.join(','), points: points, gear: gear.join(','), createdBy: me.id, createdAt: now, updatedBy: '', updatedAt: '', deletedBy: '', deletedAt: '' };
       insert_('exercises', [x]);
       log_(me, '種目の動画を登録', name);
     }
@@ -2669,7 +2673,7 @@ function opImportExercises_(ctx) {
         .filter(function (a) { return a && !used[exKey_(a)] && exKey_(a) !== exKey_(name); }).slice(0, 10);
       const parts = EX_PARTS.filter(function (p) { return Array.isArray(src.parts) && src.parts.indexOf(p) >= 0; });
       used[exKey_(name)] = 1; aliases.forEach(function (a) { used[exKey_(a)] = 1; });
-      rows.push({ id: newId_('x'), name: name, aliases: aliases.join('、'), video: video, parts: parts.join(','), points: '', createdBy: me.id, createdAt: now, updatedBy: '', updatedAt: '', deletedBy: '', deletedAt: '' });
+      rows.push({ id: newId_('x'), name: name, aliases: aliases.join('、'), video: video, parts: parts.join(','), points: '', gear: gearOf_(src.gear).join(','), createdBy: me.id, createdAt: now, updatedBy: '', updatedAt: '', deletedBy: '', deletedAt: '' });
     });
     if (rows.length) { insert_('exercises', rows); log_(me, '種目の動画をまとめて登録', rows.length + '件' + (skipped ? '（' + skipped + '件は登録ずみなどで飛ばした）' : '')); }
     return { ok: true, added: rows.length, skipped: skipped, exercises: exercisesWire_() };
