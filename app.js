@@ -3,7 +3,7 @@
   'use strict';
   const L = window.KLogic;
   const API = window.KINTORE_API;
-  const VERSION = '2.15.2';
+  const VERSION = '2.15.3';
   const WD = ['日', '月', '火', '水', '木', '金', '土'];
   const PERM = { admin: '管理者', manager: 'マネージャー', leader: 'FWリーダー', member: '一般部員' };
   const MODE = { leader: 'メニュー参加', self: '自主トレ' };
@@ -1609,6 +1609,7 @@
     openSheet(x.name,
       '<div class="detail">' + (x.parts.length ? '<p class="detail-meta exparts">' + x.parts.map((p) => '<i>' + p + '</i>').join('') + '</p>' : '') +
       '<a class="btn primary exgo" href="' + esc(x.video) + '" target="_blank" rel="noopener noreferrer" data-act="ex-play" data-name="' + esc(x.name) + '">' + icon('play') + 'フォームの動画を見る</a>' +
+      (() => { const alt = exList().filter((e) => e.id !== x.id && e.name.replace(/[②-⑤]$/, '') === x.name.replace(/[②-⑤]$/, '')); return alt.length ? '<p class="exalt">別の動画：' + alt.map((e) => '<a class="btn small" href="' + esc(e.video) + '" target="_blank" rel="noopener noreferrer" data-act="ex-play" data-name="' + esc(e.name) + '">' + icon('play') + esc(e.name.slice(-1).match(/[②-⑤]/) ? e.name.slice(-1) : '①') + '</a>').join('') + '</p>' : ''; })() +
       (x.points ? '<h3>ポイント</h3><ul class="dots expoints">' + x.points.split('\n').filter((t) => t.trim()).map((t) => '<li>' + esc(t.trim()) + '</li>').join('') + '</ul>' : '') +
       (x.aliases.length ? '<h3>別の書き方</h3><p>' + x.aliases.map(esc).join('、') + '</p>' : '') +
       (menus.length ? '<h3>この種目が入っているメニュー</h3><ul class="exmenus">' + menus.map((w) => '<li><button data-act="menu-open" data-id="' + w.id + '">' + mdw(w.date) + '<b>' + esc(w.title) + '</b></button></li>').join('') + '</ul>' : '') +
@@ -2256,7 +2257,7 @@
         '<ul class="dots"><li>メニューを開くと、動画のある種目の行に <b>' + icon('play') + 'フォーム</b> ボタンがあります。押すと<b>アプリの中で</b>動画が流れます（Instagram・YouTube。ほかのサイトの動画はそのサイトで開きます）</li>' +
         '<li>「メニュー」→ <b>「種目の動画」</b>で、<b>部位別</b>（胸・肩・背中・腕・腹・脚・尻・首・全身）に探せます。種目を押すと、動画・<b>フォームのポイント</b>・その種目が入っている今後のメニューが見られます</li></ul>' +
         '<h4>登録する（FWリーダー・管理者）</h4>' +
-        steps(['「メニュー」→ <b>「種目の動画」</b>→ <b>「SAVASの動画から選ぶ」</b>で、明治 SAVAS「筋トレ辞典」の動画（約340種目）からまとめて登録できます。部のメニューに出てくる種目は最初から選んであります', '1つずつ入れるときは <b>「種目の動画を登録」</b>（「動画がまだない種目」を押すと名前が入ります）', '種目名・動画のURL・<b>部位</b>・<b>ポイント</b>（1行に1つ）を入れて保存。「SQ」などの <b>別の書き方</b> も入れておくと、その書き方のメニューにも出ます']) +
+        steps(['「メニュー」→ <b>「種目の動画」</b>→ <b>「SAVASの動画から選ぶ」</b>で、明治 SAVAS「筋トレ辞典」の動画（365本）からまとめて登録できます。同じ名前で別の動画があるものは「②」「③」が付いています。部のメニューに出てくる種目は最初から選んであります', '1つずつ入れるときは <b>「種目の動画を登録」</b>（「動画がまだない種目」を押すと名前が入ります）', '種目名・動画のURL・<b>部位</b>・<b>ポイント</b>（1行に1つ）を入れて保存。「SQ」などの <b>別の書き方</b> も入れておくと、その書き方のメニューにも出ます']) +
         tip('1回登録すれば、その種目が入っているメニュー（これまで・これからの全部、型も）に出ます。メニューの「トレーニング内容」で、行の頭が種目名になっていれば合います（「スクワット 5×5」もOK）。')],
       ['tpl', 'leader', '型と繰り返し', '毎週のメニューを自動で作る',
         steps(['「メニュー」→ <b>「型」</b>→ <b>「型を作る」</b>（今あるメニューの「型にする」からも）', '<b>繰り返す曜日</b>を選ぶ → 4週間先まで自動で作られ、毎日のびます', '型を直すと、手で直していない今日以降の分もそろいます']) +

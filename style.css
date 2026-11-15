@@ -1366,3 +1366,4 @@ html[data-size="l"] .help-seg button[aria-pressed="true"], html[data-size="xl"] 
 /* v2.15.1 Instagram は動画の部分だけを切り抜いて見せる */
 .fp-box.igcrop { flex: 0 0 auto; position: relative; overflow: hidden; border-radius: 12px; background: #000; max-width: none; max-height: none; }
 .fp-box.igcrop iframe { position: absolute; border-radius: 0; background: transparent; }
+.exalt { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 13px; color: var(--sub); margin: 6px 0 0; }

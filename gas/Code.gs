@@ -10,7 +10,7 @@
  * 最初にやること：スプレッドシートのメニュー「筋トレ管理」→「管理者を登録」
  * 詳しくは 04_ドキュメント/筋トレ管理アプリ_使い方と引き継ぎ.md
  */
-const APP_VERSION = '2.14.0';
+const APP_VERSION = '2.15.3';
 const SCHEMA_VERSION = '8';
 const TZ = 'Asia/Tokyo';
 const SESSION_DAYS = 90;
@@ -2605,7 +2605,7 @@ function exercisesWire_() {
     .sort(function (a, b) { return a.name < b.name ? -1 : a.name > b.name ? 1 : 0; });
 }
 /** 名前の比べ方：全角半角・大文字小文字・空白の違いを無視 */
-function exKey_(s) { return String(s || '').normalize('NFKC').toLowerCase().replace(/\s+/g, ''); }
+function exKey_(s) { return String(s || '').replace(/[①-⑳]/g, function (c) { return '#' + (c.charCodeAt(0) - 0x245F); }).normalize('NFKC').toLowerCase().replace(/\s+/g, ''); }
 function opSaveExercise_(ctx) {
   const me = requireRole_(ctx, ['admin', 'leader']);
   const src = ctx.req.exercise || {};

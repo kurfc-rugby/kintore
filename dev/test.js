@@ -836,6 +836,9 @@ section('種目の動画');
   eq(L.exMatch(EX, 'デッド').id, 'b', '別の書き方でも合う');
   eq(L.exInText(EX, '・スクワット\n2. デッドリフト／ベンチプレス\n①スクワット\nプランク').map((x) => x.id), ['a', 'b', 'c'], '行・「／」区切り・先頭の・や番号に対応。同じ種目は1回だけ');
   eq(L.exLines('スクワット / デッドリフト\n').map((l) => l.parts.length), [2, 0], '1行に2つ書いてあっても分ける');
+  const EX2 = EX.concat([{ id: 'e', name: 'デッドリフト②', aliases: [] }]);
+  eq(L.exMatch(EX2, 'デッドリフト 2セット').id, 'b', '「デッドリフト 2セット」は同じ名前の別の動画（デッドリフト②）にしない');
+  eq(L.exMatch(EX2, 'デッドリフト②').id, 'e', '「デッドリフト②」と書けば②の動画');
   // サーバー：登録・重複・権限・削除
   const ad = api({ op: 'saveExercise', token: LD9, exercise: { name: 'スクワット', aliases: 'BSQ、ﾊﾞｯｸｽｸﾜｯﾄ', video: 'https://youtu.be/sq' } });
   ok(ad.ok && ad.exercises.length === 1 && ad.exercises[0].aliases.length === 2, 'FWリーダーは種目の動画を登録できる（別の書き方つき）');

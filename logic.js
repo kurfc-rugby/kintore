@@ -452,7 +452,8 @@
 
   // ---- 種目の動画：メニューの「トレーニング内容」の各行から、登録した種目を見つける ----
   /** 名前の比べ方：全角半角・大文字小文字・空白の違いを無視 */
-  function exKey(s) { return String(s || '').normalize('NFKC').toLowerCase().replace(/\s+/g, ''); }
+  //  ②③（同じ名前の別の動画）は数字にしない（「デッドリフト 2セット」がデッドリフト②に合わないように）
+  function exKey(s) { return String(s || '').replace(/[①-⑳]/g, function (c) { return '#' + (c.charCodeAt(0) - 0x245F); }).normalize('NFKC').toLowerCase().replace(/\s+/g, ''); }
   /** 内容を行ごとに分け、1行の中の「/」「、」区切りも別の種目として取り出す（先頭の・や番号は外す） */
   function exLines(text) {
     return String(text || '').split('\n').map(function (line) {
