@@ -42,13 +42,13 @@ const out = process.argv[2] || '';
           const tipIn = t.left >= 0 && t.top >= 0 && t.right <= vw + 1 && t.bottom <= vh + 1;
           const ov = Math.max(0, Math.min(t.bottom, h.bottom) - Math.max(t.top, h.top)) * Math.max(0, Math.min(t.right, h.right) - Math.max(t.left, h.left));
           const big = false;
-          return { title: document.querySelector('.tour-tip h2').textContent, off: Math.round(off), visible, tipIn, overlap: ov > 200 && !big };
+          return { cutH: document.querySelector('.tour-hole').classList.contains('cut'), title: document.querySelector('.tour-tip h2').textContent, off: Math.round(off), visible, tipIn, overlap: ov > 200 && !big };
         });
         total++;
         const ng = !m || m.off > 2 || !m.visible || !m.tipIn || m.overlap;
         if (ng) bad++;
-        console.log((ng ? '✗' : '✓'), name, key, i + 1, m ? m.title + ' ずれ' + m.off + 'px' + (m.visible ? '' : ' 画面外') + (m.tipIn ? '' : ' 吹き出しがはみ出し') + (m.overlap ? ' 吹き出しが枠に重なる' : '') : '場所なし');
-        if (out && (ng || key === 'all')) await page.screenshot({ path: out + '/' + name + '-' + key + '-' + String(i + 1).padStart(2, '0') + '.png' });
+        console.log((ng ? '✗' : '✓'), name, key, i + 1, m ? (m.cutH ? '[途中まで] ' : '') + m.title + ' ずれ' + m.off + 'px' + (m.visible ? '' : ' 画面外') + (m.tipIn ? '' : ' 吹き出しがはみ出し') + (m.overlap ? ' 吹き出しが枠に重なる' : '') : '場所なし');
+        if (out && (ng || key === 'all' || (m && m.cutH))) await page.screenshot({ path: out + '/' + name + '-' + key + '-' + String(i + 1).padStart(2, '0') + '.png' });
         await page.click('[data-act="tour-next"]');
       }
       await page.waitForTimeout(700);

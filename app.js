@@ -3,7 +3,7 @@
   'use strict';
   const L = window.KLogic;
   const API = window.KINTORE_API;
-  const VERSION = '2.19.1';
+  const VERSION = '2.19.2';
   const WD = ['日', '月', '火', '水', '木', '金', '土'];
   const PERM = { admin: '管理者', manager: 'マネージャー', leader: 'FWリーダー', member: '一般部員' };
   const MODE = { leader: 'メニュー参加', self: '自主トレ' };
@@ -2606,6 +2606,7 @@
     const r = TOUR.el.getBoundingClientRect();
     const top = Math.max(4, r.top - pad), bot = Math.min(vh - 4, r.bottom + pad);
     const left = Math.max(4, r.left - pad), right = Math.min(vw - 4, r.right + pad);
+    hole.classList.remove('cut');
     hole.style.left = left / k + 'px'; hole.style.top = top / k + 'px';
     hole.style.width = Math.max(0, right - left) / k + 'px'; hole.style.height = Math.max(0, bot - top) / k + 'px';
     const tw = Math.min(380 * k, vw - 24);
@@ -2623,7 +2624,21 @@
     else {
       // 画面に収まらない大きさ：吹き出しを下に置き、枠は吹き出しの上までにする
       ty = Math.max(ceil, floor - th - 8);
-      if (ty - gap > top + 40) hole.style.height = Math.max(0, Math.min(bot, ty - gap) - top) / k + 'px';
+      const lim = ty - gap;
+      if (lim > top + 40 && bot > lim) {
+        // 行の途中で切らないように、吹き出しより上で終わる中身の区切りにそろえ、下はぼかす
+        let cut = 0;
+        const ns = TOUR.el.querySelectorAll('*');
+        for (let n = 0; n < ns.length && n < 600; n++) {
+          const rb = ns[n].getBoundingClientRect();
+          // 幅の広い（行にあたる）要素の下端だけを区切りにする
+          if (rb.height < 8 || rb.width < r.width * 0.6 || rb.bottom + pad > lim || rb.bottom <= cut) continue;
+          cut = rb.bottom;
+        }
+        const end = cut > top + 40 ? Math.min(lim, cut + pad) : lim;
+        hole.style.height = Math.max(0, end - top) / k + 'px';
+        hole.classList.add('cut');
+      }
     }
     tip.style.left = tx / k + 'px'; tip.style.top = ty / k + 'px';
   }
