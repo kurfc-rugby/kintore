@@ -60,10 +60,12 @@ const ok = (c, label) => { if (c) { pass++; console.log('  ✓ ' + label); } els
   console.log('■ 一般部員（ログインなし）');
   await page.goto(BASE); await page.waitForSelector('.board');
   ok(await count('.nav a[href="#record"]') === 0, '「記録」のタブが出ない');
-  ok(await count('.podium .jersey') >= 1, 'ランキング上位がジャージ（背番号＝順位）で出る');
+  // 週の初めは同率が多く、表彰台の代わりに順位の一覧になることがある（日付で変わる）
+  const homePod = await count('.podium .jersey');
+  ok(homePod >= 1 || await count('main .block .rlist') === 1, 'ランキング上位がジャージ（背番号＝順位）で出る（同率が多い日は一覧）');
   ok(await count('.pitch') === 0 && await count('.versus') === 0 && await count('.to-stats') === 1, 'ホームは「いま」だけ（分析はランキングの「分析」へ。ホームにはその入口）');
   ok(await count('.voice') <= 1 && await count('.mvp') === 0 && await count('.mvp-line') === 0, '「連続がピンチ」などは「声をかけたい人」にまとまる（MVPの行は出さない）');
-  ok(await count('main .block .rlist') === 0 && await count('.board-cell') === 1, 'ホームのランキングは表彰台だけ。大きな数字は「実施回数」と「週3回の達成率」の2つ');
+  ok((homePod ? await count('main .block .rlist') === 0 : true) && await count('.board-cell') === 1, 'ホームのランキングは表彰台だけ。大きな数字は「実施回数」と「週3回の達成率」の2つ');
   ok(await count('main .note') === 0, 'ホームに説明文を出さない（使い方ガイドへ）');
   await page.click('.to-stats'); await page.waitForTimeout(600);
   ok(page.url().endsWith('#rank') && await count('[data-act="rank-tab"][data-v="stats"][aria-pressed="true"]') === 1, '「くわしい分析」から、ランキングの「分析」を開く');
@@ -168,7 +170,7 @@ const ok = (c, label) => { if (c) { pass++; console.log('  ✓ ' + label); } els
   ok(await count('.rec-row') < 20 && await count('[data-act="rec-all"]') === 0 && await count('[data-act="r-pos"]') === 0, 'FWで絞れる（ポジションの絞り込みと「全員を実施した」は無い）');
   await page.click('[data-act="r-group"][data-v="ALL"]');
   await page.click('[data-act="rec-more"]'); await page.waitForTimeout(300);
-  ok(await count('#sheet-root [data-act="week-open"]') === 1 && await count('#sheet-root [data-act="trash-open"]') === 1, '「その他」に「1週間まとめて入力」と「取り消した記録」');
+  ok(await count('#sheet-root [data-act="week-open"]') === 1 && await count('#sheet-root [data-act="trash-open"]') === 1, '「その他」に「1週間まとめて記録」と「取り消した記録」');
   await page.keyboard.press('Escape'); await page.waitForTimeout(300);
   await page.locator('.rec-row:not(.on):not(.locked) .rec-btn').first().click();
   await page.click('[data-act="rec-confirm"]');
@@ -266,7 +268,7 @@ const ok = (c, label) => { if (c) { pass++; console.log('  ✓ ' + label); } els
   ok(await count('.svlist li') >= 4 && (await text('.svlist')).includes('ルーマニアンデッドリフト③'), '同じ名前の別の動画も選べる');
   ok(await count('.svlist .gear') >= 1 && /ダンベル|バーベル/.test(await text('.svlist .gear')), '器具を使う種目には目印（器具の名前）が付く');
   await page.fill('.sv-q', 'ベンチプレス'); await page.waitForTimeout(300);
-  ok(await count('.svlist li.done') === 1 && await page.locator('.svlist li.done input').isDisabled(), '登録ずみの種目（ベンチプレス）は「登録ずみ」で選べない');
+  ok(await count('.svlist li.done') === 1 && await page.locator('.svlist li.done input').isDisabled(), '登録済みの種目（ベンチプレス）は「登録済み」で選べない');
   ok(/instagram\.com\/reel\//.test(await page.getAttribute('.svlist .sv-v', 'href')), '▶で元の動画（Instagram）を見られる');
   await page.click('.svlist .sv-v'); await page.waitForSelector('.fplayer iframe');
   ok(/instagram\.com\/reel\/[A-Za-z0-9_-]+\/embed\/$/.test(await page.getAttribute('.fplayer iframe', 'src')), 'Instagramの動画もアプリの中で流れる（埋め込み）');
@@ -448,7 +450,7 @@ const ok = (c, label) => { if (c) { pass++; console.log('  ✓ ' + label); } els
       await q.click('form[data-form="login"] button[type="submit"]'); await q.waitForTimeout(1000);
     };
     await q.goto(BASE); await q.waitForSelector('.board'); await q.waitForTimeout(400);
-    ok(await q.locator('.selfcard').count() === 0 || /先週の同じ時点/.test(await q.locator('.selfcard').innerText()), '「わたし」に先週の同じ時点との比べ');
+    ok(await q.locator('.selfcard').count() === 0 || /前の週の同じ時点/.test(await q.locator('.selfcard').innerText()), '「わたし」に前の週の同じ時点との比べ');
     await qgo('#rank'); await q.click('[data-act="rank-tab"][data-v="stats"]'); await q.waitForTimeout(400);
     ok(await q.locator('.versus .vs-side').count() === 2 && /FW|BK|互角/.test(await q.locator('.versus .count').innerText()), '分析に「FW対BK」（1人あたりの回数で比べる）');
     ok(await q.locator('.spread li').count() === 4, '分析に「達成率の分布」（0%・1〜49%・50〜99%・100%）');

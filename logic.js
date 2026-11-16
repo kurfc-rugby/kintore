@@ -372,7 +372,8 @@
     return b;
   }
 
-  // ---------- 連続がピンチの人（今週まだ目標に届かず、先週までの連続が2週以上） ----------
+  // ---------- 連続がピンチの人（今週まだ目標に届かず、先週までの連続が2週以上、残りの日の余裕が2日以下） ----------
+  var PINCH_SLACK = 2;
   function pinchList(state, idx, today, goal, minDate) {
     goal = goalOf(goal);
     var ws = weekStart(today), we = addDays(ws, 6), out = [];
@@ -388,6 +389,7 @@
       var st = streakWeeks(idx, m, addDays(ws, -1), minDate, goal);
       if (st < 2) return;
       var left = nd.need - c;
+      if (daysLeft - left > PINCH_SLACK) return; // まだ余裕がある人は出さない（週の初めに全員が並ばないように）
       out.push({ id: m.id, name: m.name, sort: m.sort || 0, streak: st, count: c, need: nd.need, left: left, daysLeft: daysLeft, slack: daysLeft - left });
     });
     return out.sort(function (a, b) { return (a.slack - b.slack) || (b.streak - a.streak) || (a.sort - b.sort); });

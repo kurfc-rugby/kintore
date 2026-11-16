@@ -10,7 +10,7 @@
  * 最初にやること：スプレッドシートのメニュー「筋トレ管理」→「管理者を登録」
  * 詳しくは 04_ドキュメント/筋トレ管理アプリ_使い方と引き継ぎ.md
  */
-const APP_VERSION = '2.17.0';
+const APP_VERSION = '2.20.0';
 const SCHEMA_VERSION = '9';
 const TZ = 'Asia/Tokyo';
 const SESSION_DAYS = 90;
@@ -2312,7 +2312,7 @@ function pushCheers_() {
     const o = by[r.memberId];
     const names = o.f.map(function (id) { const x = memberById_(id); return x ? x.name : ''; }).filter(Boolean);
     const em = Object.keys(o.c).map(function (k) { return (STAMP_EMOJI[k] || '') + (o.c[k] > 1 ? '×' + o.c[k] : ''); }).join(' ');
-    return { title: '応援が届きました ' + em, body: (names.length ? names.slice(0, 2).join('、') + (names.length > 2 ? 'ほか' + (names.length - 2) + '人' : '') + ' さんから' : 'だれかから') + '「おめでとう」が届いています。', url: './#member/' + r.memberId, tag: 'cheer' };
+    return { title: '応援が届きました ' + em, body: (names.length ? names.slice(0, 2).join('、') + (names.length > 2 ? 'ほか' + (names.length - 2) + '人' : '') + ' さんから' : 'だれかから') + 'スタンプが届いています。', url: './#member/' + r.memberId, tag: 'cheer' };
   });
 }
 function pushGoal_(today, slot) {

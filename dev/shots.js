@@ -33,6 +33,7 @@ const FONT_CSS = [['Noto Sans JP', 500, 'noto-sans-jp-latin-500-normal'], ['Noto
     await page.fill('input[name="pin"]', pin);
     await page.click('form[data-form="login"] button[type="submit"]');
     await page.waitForTimeout(900);
+    const later = await page.waitForSelector('#guide-root [data-act="tour-later"]', { timeout: 1500 }).catch(() => null); if (later) { await later.click(); await page.waitForTimeout(300); }
   }
   await page.goto(BASE);
   await page.waitForSelector('.guide');
@@ -42,6 +43,9 @@ const FONT_CSS = [['Noto Sans JP', 500, 'noto-sans-jp-latin-500-normal'], ['Noto
   for (let i = 0; i < 12 && await page.$('.guide [data-act="guide-next"]'); i++) {
     if (await page.$('.guide select')) { await page.selectOption('.guide select', { label: '岡本 蓮' }); await shot('00b-guide-self', false); }
     await page.click('.guide [data-act="guide-next"]');
+    // 名前のあとは画面の案内（ツアー）：ここでは閉じて紹介の続きへ
+    await page.waitForTimeout(400);
+    if (await page.$('.tour-tip')) { await page.waitForTimeout(600); await page.click('[data-act="tour-close"]'); await page.waitForSelector('.guide'); await page.waitForTimeout(300); }
   }
   await page.click('.guide [data-act="guide-close"]');
   await page.waitForTimeout(900);

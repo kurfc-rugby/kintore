@@ -341,7 +341,7 @@ section('免除・部全体のオフ期間');
   ok(sm.closed === 1 && sm.hit === 1 && sm.now === null && sm.nowExempt, '対象外の週は達成にも未達にも数えない');
   eq(L.streakWeeks(ix, m, '2026-11-13', '2026-01-01', 3), 1, '連続達成は免除の週をとばして続く');
 })();
-section('自己ベスト・称号・ピンチ・おめでとう（集計）');
+section('自己ベスト・称号・ピンチ・最近の達成（集計）');
 (function () {
   const m = { id: 'p', name: '山田 太郎', player: true, active: true, start: '', left: '', sort: 1 };
   // 10/5〜11/1 の4週は毎週3回（月水金）、11/2の週は2回、11/9の週（今週）は1回
@@ -379,7 +379,9 @@ section('自己ベスト・称号・ピンチ・おめでとう（集計）');
   const ix2 = L.buildIndex(st2);
   const pin = L.pinchList(st2, ix2, '2026-11-13', 3, '2026-08-01');
   ok(pin.length === 1 && pin[0].id === 'q' && pin[0].streak === 2 && pin[0].left === 2 && pin[0].daysLeft === 3, '先週まで2週連続で、今週まだの人が出る（あと2回・残り3日）');
-  // おめでとう
+  ok(L.pinchList(st2, ix2, '2026-11-10', 3, '2026-08-01').length === 0, '週の初め（火曜・あと2回で残り6日）は、まだ余裕があるので「ピンチ」に出さない');
+  ok(L.pinchList(st2, ix2, '2026-11-12', 3, '2026-08-01').length === 1, '木曜（あと2回で残り4日・余裕2日）からは出る');
+  // 最近の達成
   const life = { p: [15, '2026-10-05'], q: [50, '2026-04-01'] };
   const st3 = Object.assign({}, st2, { range: { from: '2026-08-01' } });
   const ev = L.feedEvents(st3, ix2, '2026-11-13', 3, life, 14);
