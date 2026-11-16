@@ -3,7 +3,7 @@
   'use strict';
   const L = window.KLogic;
   const API = window.KINTORE_API;
-  const VERSION = '2.19.3';
+  const VERSION = '2.19.4';
   const WD = ['日', '月', '火', '水', '木', '金', '土'];
   const PERM = { admin: '管理者', manager: 'マネージャー', leader: 'FWリーダー', member: '一般部員' };
   const MODE = { leader: 'メニュー参加', self: '自主トレ' };
@@ -2642,6 +2642,7 @@
         const end = cut > top + 40 ? Math.min(lim, cut + pad) : lim;
         hole.style.height = Math.max(0, end - top) / k + 'px';
         hole.classList.add('cut');
+        ty = end + gap; // 吹き出しは枠のすぐ下に
       }
     }
     tip.style.left = tx / k + 'px'; tip.style.top = ty / k + 'px';
