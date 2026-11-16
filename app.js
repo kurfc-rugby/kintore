@@ -3,7 +3,7 @@
   'use strict';
   const L = window.KLogic;
   const API = window.KINTORE_API;
-  const VERSION = '2.19.2';
+  const VERSION = '2.19.3';
   const WD = ['日', '月', '火', '水', '木', '金', '土'];
   const PERM = { admin: '管理者', manager: 'マネージャー', leader: 'FWリーダー', member: '一般部員' };
   const MODE = { leader: 'メニュー参加', self: '自主トレ' };
@@ -2627,14 +2627,18 @@
       const lim = ty - gap;
       if (lim > top + 40 && bot > lim) {
         // 行の途中で切らないように、吹き出しより上で終わる中身の区切りにそろえ、下はぼかす
-        let cut = 0;
-        const ns = TOUR.el.querySelectorAll('*');
-        for (let n = 0; n < ns.length && n < 600; n++) {
-          const rb = ns[n].getBoundingClientRect();
-          // 幅の広い（行にあたる）要素の下端だけを区切りにする
-          if (rb.height < 8 || rb.width < r.width * 0.6 || rb.bottom + pad > lim || rb.bottom <= cut) continue;
-          cut = rb.bottom;
-        }
+        // 区切りの候補：一覧の1件（li・表の行）と、光らせる所のすぐ下の要素。なければ幅の広い要素
+        const pick = (list, wide) => {
+          let c = 0;
+          for (let n = 0; n < list.length && n < 600; n++) {
+            const rb = list[n].getBoundingClientRect();
+            if (rb.height < 8 || (wide && rb.width < r.width * 0.6) || rb.bottom + pad > lim || rb.bottom <= c) continue;
+            c = rb.bottom;
+          }
+          return c;
+        };
+        let cut = pick(TOUR.el.querySelectorAll(':scope > *, li, tr'), false);
+        if (cut <= top + 40) cut = pick(TOUR.el.querySelectorAll('*'), true);
         const end = cut > top + 40 ? Math.min(lim, cut + pad) : lim;
         hole.style.height = Math.max(0, end - top) / k + 'px';
         hole.classList.add('cut');
