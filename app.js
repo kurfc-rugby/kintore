@@ -3,7 +3,7 @@
   'use strict';
   const L = window.KLogic;
   const API = window.KINTORE_API;
-  const VERSION = '2.19.0';
+  const VERSION = '2.19.1';
   const WD = ['日', '月', '火', '水', '木', '金', '土'];
   const PERM = { admin: '管理者', manager: 'マネージャー', leader: 'FWリーダー', member: '一般部員' };
   const MODE = { leader: 'メニュー参加', self: '自主トレ' };
@@ -2497,7 +2497,7 @@
       { r: 'home', sel: '.block.feed', t: 'おめでとう・応援スタンプ', p: '週{g}回の達成や通算回数の節目が出ます。<b>スタンプを押すと応援が届きます</b>（自分の名前を選んでおくと、だれからか伝わります）。' },
       { r: 'rank', prep: () => { S.rankTab = 'list'; }, sel: segOf('[data-act="rank-tab"]'), t: 'ランキングと分析', p: '<b>順位</b>のほかに、<b>分析</b>で FW対BK・ポジション別・達成率の分布が見られます。' },
       { r: 'cal', sel: ['.matrix', '.view-cal .empty'], t: 'カレンダー', p: '日ごとに、だれが筋トレをしたかが一覧で見られます。' },
-      { r: 'menus', prep: () => { S.menuTab = 'upcoming'; }, sel: ['.menus .exbtn', '.menus', '.view-menus .empty'], t: 'メニューとフォーム動画', p: 'これからのメニューです。種目の横の<b>「フォーム」</b>を押すと、アプリの中で正しいフォームの動画が流れます。' },
+      { r: 'menus', prep: () => { S.menuTab = 'upcoming'; }, sel: ['.menus .exbtn', '.menus > *:first-child', '.view-menus .empty'], t: 'メニューとフォーム動画', p: 'これからのメニューです。種目の横の<b>「フォーム」</b>を押すと、アプリの中で正しいフォームの動画が流れます。' },
       { r: 'menus', prep: () => { S.menuTab = 'exercises'; S.exPart = ''; }, sel: '.exparts-bar', t: '種目の動画', p: '「種目の動画」では、登録された種目を<b>部位</b>（胸・背中・脚など）で探せます。' },
       { r: 'menus', prep: () => { S.menuTab = 'exercises'; }, sel: () => { const b = $('.exlib [data-act="ex-open"]'); return b ? b.closest('li') || b : null; }, t: 'やり方とポイント', p: '種目を押すと、<b>フォームの動画</b>と<b>やり方・ポイント</b>が見られます。▶ ならすぐ再生します。' },
       { r: 'home', sel: '.top-help', t: '使い方ガイド', p: 'わからないときはここ。<b>40秒の動画</b>と、立場ごとの使い方があります。この案内ももう一度見られます。' },
@@ -2548,7 +2548,7 @@
     TOUR = { key: key, i: -1, dir: 1, then: opt && opt.then, from: opt && opt.home ? '#home' : location.hash || '#home', el: null,
       saved: { menuTab: S.menuTab, rankTab: S.rankTab, exPart: S.exPart } };
     document.body.classList.add('touring');
-    $('#tour-root').innerHTML = '<div class="tour-bg" data-act="tour-noop"></div><div class="tour-hole" aria-hidden="true"></div><section class="tour-tip" role="dialog" aria-modal="true" aria-live="polite"></section>';
+    $('#tour-root').innerHTML = '<div class="tour-bg" data-act="tour-noop"></div><div class="tour-probe" aria-hidden="true"></div><div class="tour-hole" aria-hidden="true"></div><section class="tour-tip" role="dialog" aria-modal="true" aria-live="polite"></section>';
     window.addEventListener('resize', tourPlace); window.addEventListener('scroll', tourPlace, { passive: true });
     tourGo(0, 1);
   }
@@ -2571,39 +2571,63 @@
     if (!el) { if (i + dir < 0) { tourGo(i + 1, 1); return; } tourGo(i + dir, dir); return; }
     TOUR.el = el;
     const fixed = (() => { for (let n = el; n && n !== document.body; n = n.parentElement) { const p = getComputedStyle(n).position; if (p === 'fixed' || p === 'sticky') return true; } return false; })();
-    if (!fixed) el.scrollIntoView({ block: 'center', behavior: reduceMotion() ? 'auto' : 'smooth' });
     const total = steps.length, sub = (t) => t.replace(/\{g\}/g, goal());
     $('.tour-tip').innerHTML = '<p class="tour-k">' + esc(TOURS[TOUR.key].name) + 'の使い方<span>' + (i + 1) + ' / ' + total + '</span></p>' +
       '<h2>' + esc(sub(st.t)) + '</h2><p>' + sub(st.p) + '</p>' +
       '<div class="tour-acts"><button class="linkbtn" data-act="tour-close">閉じる</button><span></span>' +
       (i > 0 ? '<button class="btn small" data-act="tour-prev">戻る</button>' : '') +
       '<button class="btn small primary" data-act="tour-next" autofocus>' + (i === total - 1 ? '終わる' : '次へ') + '</button></div>';
-    setTimeout(() => { if (TOUR === my) { tourPlace(); $('#tour-root').classList.remove('moving'); const b = $('.tour-tip [autofocus]'); if (b) b.focus({ preventScroll: true }); } }, fixed ? 30 : 380);
+    let wait = 30;
+    if (!fixed) {
+      // 光らせる所と吹き出しが一緒に収まるようにスクロール（収まらない大きさなら、上をそろえる）
+      const b = tourBounds(), r = el.getBoundingClientRect(), th = $('.tour-tip').getBoundingClientRect().height;
+      const room = b.floor - b.head - 20, need = r.height + 12 + 14 + th;
+      const want = need <= room ? b.head + 10 + (room - need) / 2 + 6 : b.head + 16;
+      const dy = r.top - want;
+      if (Math.abs(dy) > 2) { window.scrollBy({ top: dy, behavior: reduceMotion() ? 'auto' : 'smooth' }); wait = reduceMotion() ? 60 : 420; }
+    }
+    setTimeout(() => { if (TOUR === my) { tourPlace(); $('#tour-root').classList.remove('moving'); const b = $('.tour-tip [autofocus]'); if (b) b.focus({ preventScroll: true }); } }, wait);
   }
-  /** 光らせる枠と吹き出しの位置（文字の大きさで body に zoom がかかっていても合うように、実際の倍率を測る） */
+  /** 画面の使える範囲：上の見出し（固定）の下端・下のタブ（固定）の上端と、body の zoom の倍率 */
+  function tourBounds() {
+    const vh = window.innerHeight, probe = $('.tour-probe');
+    const k = (probe && probe.getBoundingClientRect().left / 100) || 1; // 倍率は動かない目印で測る
+    const top = $('.top'), tr = top && getComputedStyle(top).position.match(/sticky|fixed/) ? top.getBoundingClientRect() : null;
+    const nav = $('.nav'), nr = nav ? nav.getBoundingClientRect() : null;
+    return { k: k, vw: window.innerWidth, vh: vh, head: tr && tr.bottom > 0 && tr.bottom < vh / 3 ? tr.bottom : 0, floor: nr && nr.top > vh / 2 && nr.width > nr.height ? nr.top : vh };
+  }
+  /** 光らせる枠と吹き出しの位置（文字の大きさで body に zoom がかかっていても合うように、実際の倍率で割る） */
   function tourPlace() {
     if (!TOUR || !TOUR.el) return;
-    const root = $('#tour-root'), hole = $('.tour-hole'), tip = $('.tour-tip');
-    if (!root || !hole || !tip) return;
+    const hole = $('.tour-hole'), tip = $('.tour-tip');
+    if (!hole || !tip) return;
     if (!TOUR.el.isConnected) { const st = tourSteps(TOUR.key)[TOUR.i]; TOUR.el = st && tourFind(st); if (!TOUR.el) return; }
-    hole.style.left = '100px'; hole.style.top = '0px'; hole.style.width = '10px'; hole.style.height = '10px';
-    const k = (hole.getBoundingClientRect().left / 100) || 1;
-    const vw = window.innerWidth, vh = window.innerHeight, pad = 6;
+    const b = tourBounds(), k = b.k, vw = b.vw, vh = b.vh, pad = 6;
     const r = TOUR.el.getBoundingClientRect();
     const top = Math.max(4, r.top - pad), bot = Math.min(vh - 4, r.bottom + pad);
     const left = Math.max(4, r.left - pad), right = Math.min(vw - 4, r.right + pad);
     hole.style.left = left / k + 'px'; hole.style.top = top / k + 'px';
     hole.style.width = Math.max(0, right - left) / k + 'px'; hole.style.height = Math.max(0, bot - top) / k + 'px';
-    const tw = Math.min(380 * k, vw - 24), th = tip.getBoundingClientRect().height;
-    let tx = Math.min(Math.max(12, (left + right) / 2 - tw / 2), vw - tw - 12);
-    const nav = $('.nav'), navR = nav ? nav.getBoundingClientRect() : null;
-    const floor = navR && navR.top > vh / 2 ? navR.top : vh;
-    let ty;
-    if (bot + 10 + th <= floor - 8) ty = bot + 10;
-    else if (top - 10 - th >= 8) ty = top - 10 - th;
-    else ty = Math.max(8, floor - th - 8);
-    tip.style.width = tw / k + 'px'; tip.style.left = tx / k + 'px'; tip.style.top = ty / k + 'px';
+    const tw = Math.min(380 * k, vw - 24);
+    tip.style.width = tw / k + 'px';
+    const th = tip.getBoundingClientRect().height, gap = 12;
+    // 光らせる所が下のタブの中なら、その上に出す
+    const inNav = TOUR.el.closest('.nav');
+    const floor = inNav ? Math.min(b.floor, top) : b.floor, ceil = b.head + 8;
+    const cx = Math.min(Math.max(12, (left + right) / 2 - tw / 2), vw - tw - 12);
+    let tx = cx, ty;
+    if (!inNav && bot + gap + th <= floor - 8) ty = bot + gap; // 下
+    else if (top - gap - th >= ceil) ty = top - gap - th; // 上
+    else if (vw - right >= tw + gap + 12) { tx = right + gap; ty = Math.min(Math.max(ceil, top), floor - th - 8); } // 右
+    else if (left >= tw + gap + 12) { tx = left - gap - tw; ty = Math.min(Math.max(ceil, top), floor - th - 8); } // 左
+    else {
+      // 画面に収まらない大きさ：吹き出しを下に置き、枠は吹き出しの上までにする
+      ty = Math.max(ceil, floor - th - 8);
+      if (ty - gap > top + 40) hole.style.height = Math.max(0, Math.min(bot, ty - gap) - top) / k + 'px';
+    }
+    tip.style.left = tx / k + 'px'; tip.style.top = ty / k + 'px';
   }
+  if (/^(localhost|127\.0\.0\.1)$/.test(location.hostname)) window.__tourEl = () => TOUR && TOUR.el; // 開発時のテスト用
   function endTour(done) {
     if (!TOUR) return;
     const t = TOUR; TOUR = null;
