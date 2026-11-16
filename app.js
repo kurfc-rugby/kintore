@@ -3,7 +3,7 @@
   'use strict';
   const L = window.KLogic;
   const API = window.KINTORE_API;
-  const VERSION = '2.19.4';
+  const VERSION = '2.19.5';
   const WD = ['日', '月', '火', '水', '木', '金', '土'];
   const PERM = { admin: '管理者', manager: 'マネージャー', leader: 'FWリーダー', member: '一般部員' };
   const MODE = { leader: 'メニュー参加', self: '自主トレ' };
@@ -807,7 +807,7 @@
     return h + '</ul><p class="note">月曜始まりの週ごとに、' + g + '回以上「実施した」なら ■（達成）、足りなければ赤枠、終わっていない週は点線、灰色は免除の週。月曜がその月にある週を、その月に数えます。</p></section>';
   }
 
-  // ---------- 応援スタンプ・おめでとう・ピンチ ----------
+  // ---------- 応援スタンプ・最近の達成・ピンチ ----------
   const STAMPS = [['clap', '👏', 'すごい'], ['fire', '🔥', '燃えてる'], ['muscle', '💪', 'ナイス筋トレ'], ['party', '🎉', 'おめでとう'], ['hundred', '💯', '完璧'],
     ['rugby', '🏉', 'ナイスラン'], ['crown', '👑', '王者'], ['star', '⭐', 'キラリ'], ['cheer', '📣', 'がんばれ']];
   const stampOf = (t, e) => (S.stampMap && S.stampMap[t + '|' + e]) || { t: t, e: e, c: {}, f: [], mine: [] };
@@ -824,7 +824,7 @@
       return '<button class="stamp' + (on ? ' on' : '') + (n ? '' : ' zero') + (ex ? ' extra' : '') + '" data-act="stamp" data-k="' + k[0] + '" aria-pressed="' + on + '" aria-label="' + k[2] + (n ? ' ' + n : '') + '"' + (own ? ' disabled' : '') + '><span aria-hidden="true">' + k[1] + '</span>' + (n ? '<b class="num">' + n + '</b>' : '') + '</button>';
     }).join('');
     return '<div class="stamps' + (opt && opt.small ? ' small' : '') + (open ? ' open' : '') + '" data-t="' + esc(target) + '" data-e="' + esc(event) + '">' + btns +
-      (extra && !own ? '<button class="stamp more' + (extra === STAMPS.length && !open ? ' first' : '') + '" data-act="stamp-more" aria-label="' + (open ? 'スタンプを閉じる' : '応援スタンプを押す') + '" aria-expanded="' + !!open + '"><span aria-hidden="true">' + (open ? '−' : '＋') + '</span>' + (extra === STAMPS.length && !open ? '<small>おめでとう</small>' : '') + '</button>' : '') + '</div>';
+      (extra && !own ? '<button class="stamp more' + (extra === STAMPS.length && !open ? ' first' : '') + '" data-act="stamp-more" aria-label="' + (open ? 'スタンプを閉じる' : '応援スタンプを押す') + '" aria-expanded="' + !!open + '"><span aria-hidden="true">' + (open ? '−' : '＋') + '</span>' + (extra === STAMPS.length && !open ? '<small>応援</small>' : '') + '</button>' : '') + '</div>';
   }
   function stampSum(list) {
     const c = {};
@@ -870,7 +870,7 @@
       '<span class="self-t"><small>わたし</small><b>' + esc(m.name) + '</b>' + (ms ? '<span class="self-m">通算<b class="num">' + ms.n + '</b>回 達成！</span>' : '') +
       '<span class="self-s' + (hit ? ' ok' : '') + '">' + state + (streak ? '・' + streak + '週連続' : '') + '</span>' +
       '<span class="self-p">' + vsLastWeek(c, lastWeekSoFar(m, today)) + '</span>' +
-      (sum.total ? '<span class="self-c">' + fromNames(recent) + 'おめでとうが届いています ' + sum.html + '</span>' : '') + '</span>' + icon('next') + '</a>';
+      (sum.total ? '<span class="self-c">' + fromNames(recent) + '応援が届いています ' + sum.html + '</span>' : '') + '</span>' + icon('next') + '</a>';
   }
   /** 最近7日に通算の節目（10・30・50・100回…）を迎えたか。迎えた日と回数 */
   function milestoneOf(m) {
@@ -899,7 +899,7 @@
         : e.kind === 'total' ? '通算<em>' + e.n + '回</em>' : '初めての記録';
       return '<li class="feed-i' + (e.mark || e.kind !== 'goal' ? ' big' : '') + '"><div class="feed-h"><a href="#member/' + e.id + '"><b>' + esc(e.name) + '</b></a><span>' + what + '</span><time>' + mdw(e.date) + '</time></div>' + stampBar(e.id, e.key, { small: true }) + '</li>';
     };
-    let h = '<section class="block feed"><div class="block-h"><h2>おめでとう</h2><span class="count">最近10日</span></div><ul class="feed-list">' + ev.slice(0, FIRST).map(li).join('') + '</ul>';
+    let h = '<section class="block feed"><div class="block-h"><h2>最近の達成</h2><span class="count">最近10日</span></div><ul class="feed-list">' + ev.slice(0, FIRST).map(li).join('') + '</ul>';
     if (ev.length > FIRST) h += '<details class="goal-more"><summary>ほか ' + (ev.length - FIRST) + '件を見る</summary><ul class="feed-list">' + ev.slice(FIRST).map(li).join('') + '</ul></details>';
     return h + '</section>';
   }
@@ -2229,13 +2229,13 @@
       ['install', 'all', 'ホーム画面に追加する', 'アプリのように1タップで開ける', helpInstall()],
       ['self', 'all', '自分の名前を選ぶ', '「わたし」・応援・通知に使う', helpSelf()],
       ['push', 'all', '通知を受け取る', '今週あと○回・応援が届いた', helpPush()],
-      ['home', 'all', 'ホームの見かた', '赤い板・まだの人・声をかけたい人・おめでとう',
+      ['home', 'all', 'ホームの見かた', '赤い板・まだの人・声をかけたい人・最近の達成',
         '<dl class="defs">' +
         '<dt>赤い板</dt><dd>部全体の実施回数と、<b>週' + g + '回の達成率</b>。途中の週・月は、前の週・月の<b>同じ時点まで</b>と比べます。上の「週間／月間」と ' + kbd('‹') + kbd('›') + ' で期間を変えられます</dd>' +
         '<dt>週' + g + '回（マスト）まだの人</dt><dd>今週まだ届いていない人と、あと何回か。週は<b>月曜〜日曜</b>で、日曜までに' + g + '回以上で達成。<b>怪我などで免除の日</b>がある人は、そのぶん必要な回数が減ります（7日とも免除ならその週は対象外）</dd>' +
         '<dt>声をかけたい人</dt><dd>「連続記録がピンチ」は、先週まで週' + g + '回を2週以上続けていて、今週まだ届いていない人。スタッフには「落ちてきている人」（先々週・先週と2週続けて届かなかった人。免除の週がある人と、部で記録を始める前の週は入りません）も出ます</dd>' +
         '<dt>ランキング</dt><dd>上位3人の表彰台（ジャージの背番号が順位）。4位から下は「すべて見る」で</dd>' +
-        '<dt>おめでとう</dt><dd>最近10日に週' + g + '回を達成した人・通算○回になった人。「＋」から<b>応援スタンプ</b>を送ると、その人に「おめでとう」が届きます（ログイン不要。設定で自分の名前を選ぶと、だれからかも伝わります）</dd>' +
+        '<dt>最近の達成</dt><dd>最近10日に週' + g + '回を達成した人・通算○回になった人。「＋応援」から<b>応援スタンプ</b>を送ると、その人に応援が届きます（ログイン不要。設定で自分の名前を選ぶと、だれからかも伝わります）</dd>' +
         '<dt>くわしい分析</dt><dd>FW対BK・ポジション別・達成率の分布は、ランキングの<b>「分析」</b>にあります</dd></dl>'],
       ['rank', 'all', 'ランキング・カレンダー', '並べ替え・FW／BKで絞る・○×の意味',
         '<ul class="dots"><li>上の <b>全体／FW／BK</b> で絞れます</li>' +
@@ -2250,7 +2250,7 @@
         '<li><b>実績</b>：自己ベスト（通算・いちばん長い連続・いちばん多い月／週）、<b>称号のメダル</b>（全20種。押すと取った日と応援）、届いた応援</li>' +
         '<li><b>体</b>：体重のグラフ、目標体重、重さの目安（入力はスタッフ）</li></ul>'],
       ['cheer', 'all', '応援スタンプを送る', '「＋」から9種類。ログインなしでOK',
-        steps(['ホームの<b>「おめでとう」</b>、または部員ページの<b>称号</b>の下のスタンプを押す', '数字が増えれば送れています。<b>もう一度押すと取り消し</b>', '相手が通知をオンにしていれば、1時間以内に「応援が届きました」が届きます']) +
+        steps(['ホームの<b>「最近の達成」</b>の「＋応援」、または部員ページの<b>称号</b>の下のスタンプを押す', '数字が増えれば送れています。<b>もう一度押すと取り消し</b>', '相手が通知をオンにしていれば、1時間以内に「応援が届きました」が届きます']) +
         tip('自分の名前を選んでおくと「○○さんから」と伝わります。自分あてのスタンプは押せません。')],
       ['v29', 'all', '新しくなったところ（v2.9）', 'MVP・FW対BK・自主トレのおすすめ・要望',
         '<ul class="dots"><li>ランキングに<b>先週のMVP</b>。ランキングの「分析」に<b>FW対BK</b>（1人あたりの回数で比べる）と<b>達成率の分布</b></li>' +
@@ -2494,7 +2494,7 @@
       { r: 'home', sel: '.block.goal', t: 'まだの人', p: '今週まだ週{g}回に届いていない人です。名前を押すと、その人のページが開きます。' },
       { r: 'home', sel: '.block.voice', t: '声をかけたい人', p: '連続達成がピンチの人や、最近ペースが落ちている人です。声をかけるきっかけにしてください。' },
       { r: 'home', sel: ['.view-home .podium', '.view-home .rlist'], t: 'ランキング', p: 'この期間の実施回数の上位です。「すべて見る」で全員の順位が見られます。' },
-      { r: 'home', sel: '.block.feed', t: 'おめでとう・応援スタンプ', p: '週{g}回の達成や通算回数の節目が出ます。<b>スタンプを押すと応援が届きます</b>（自分の名前を選んでおくと、だれからか伝わります）。' },
+      { r: 'home', sel: '.block.feed', t: '最近の達成・応援スタンプ', p: '週{g}回の達成や通算回数の節目が出ます。<b>「＋応援」からスタンプを押すと応援が届きます</b>（自分の名前を選んでおくと、だれからか伝わります）。' },
       { r: 'rank', prep: () => { S.rankTab = 'list'; }, sel: segOf('[data-act="rank-tab"]'), t: 'ランキングと分析', p: '<b>順位</b>のほかに、<b>分析</b>で FW対BK・ポジション別・達成率の分布が見られます。' },
       { r: 'cal', sel: ['.matrix', '.view-cal .empty'], t: 'カレンダー', p: '日ごとに、だれが筋トレをしたかが一覧で見られます。' },
       { r: 'menus', prep: () => { S.menuTab = 'upcoming'; }, sel: ['.menus .exbtn', '.menus > *:first-child', '.view-menus .empty'], t: 'メニューとフォーム動画', p: 'これからのメニューです。種目の横の<b>「フォーム」</b>を押すと、アプリの中で正しいフォームの動画が流れます。' },

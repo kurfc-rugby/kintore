@@ -90,7 +90,7 @@ const ok = (c, label) => { if (c) { pass++; console.log('  ✓ ' + label); } els
 
   console.log('■ 応援・自己ベスト・見やすさ');
   await go('#home');
-  ok(await count('.feed .feed-i') >= 1, 'ホームに「おめでとう」（最近の達成）が出る');
+  ok(await count('.feed .feed-i') >= 1, 'ホームに「最近の達成」が出る');
   const st0 = page.locator('.feed .stamps').first();
   ok(await st0.locator('.stamp:visible:not(.more)').count() < 9, 'スタンプは、押されたものだけを見せる（ふだんは9種類を並べない）');
   await st0.locator('.stamp.more').click(); await page.waitForTimeout(200);
