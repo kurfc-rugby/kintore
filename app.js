@@ -3,7 +3,7 @@
   'use strict';
   const L = window.KLogic;
   const API = window.KINTORE_API;
-  const VERSION = '2.22.0-t23';
+  const VERSION = '2.22.0-t24';
   const WD = ['日', '月', '火', '水', '木', '金', '土'];
   const PERM = { admin: '管理者', manager: 'マネージャー', leader: 'FWリーダー', member: '一般部員', guest: '見るだけ' };
   const MODE = { leader: 'メニュー参加', self: '自主トレ' };
@@ -3130,7 +3130,7 @@
     hi: { w: 720, h: 960, bps: 2500000, cam: [1280, 960], label: 'ビットレートだけ上げる', spec: '720×960・2.5Mbps' },
     fhd: { w: 1080, h: 1440, bps: 3500000, cam: [1920, 1440], label: '1080p', spec: '1080×1440・3.5Mbps' }
   };
-  const clipQ = () => { const k = isTestSite() ? store.get('clipQ', 'std') : 'std'; return CLIP_Q[k] ? k : 'std'; };
+  const clipQ = () => 'std'; // 見比べた結果、「今のまま」（720×960・1.5Mbps）に決めた（2026-11-18）。ほかは比べたときの記録として残す
   let CW = 720, CH = 960, CU = 2, CLIP_BPS = 1500000, CAM_IDEAL = [1280, 960]; // CU：文字や帯は幅360のつもりで描いて、この倍率で大きくする
   function applyClipQ() { const q = CLIP_Q[clipQ()]; CW = q.w; CH = q.h; CU = CW / 360; CLIP_BPS = q.bps; CAM_IDEAL = q.cam; }
   function pickMime() {
@@ -3545,12 +3545,7 @@
         (tm.skip ? '<p>② 動画：下書きで届いていたので、「送る」のあとは送っていません</p>' :
         '<p>② 動画：スマホで変換 ' + sec(tm.prep) + '、往復 ' + sec(tm.upload) + '＝サーバー ' + sec(b) + '＋通信やGoogleの起動など ' + (b != null ? sec(tm.upload - b) : '—') + '</p><ul>' + srvRows(tm.uploadSrv) + '</ul>') + '</div>';
     };
-    const cur = clipQ();
-    const qsw = '<section class="block"><div class="block-h"><h2>撮る画質</h2><span class="count">テスト環境だけ</span></div>' +
-      '<p class="small muted">切りかえると、次に撮る動画から変わります。撮って見え方と送った時間を比べてください。</p><div class="qsw">' +
-      Object.keys(CLIP_Q).map((k) => '<button class="btn small' + (k === cur ? ' primary' : '') + '" data-act="clip-q" data-q="' + k + '" aria-pressed="' + (k === cur) + '">' +
-        esc(CLIP_Q[k].label) + '<small>' + esc(CLIP_Q[k].spec) + '</small></button>').join('') + '</div></section>';
-    return qsw + '<section class="block"><div class="block-h"><h2>送った時間の内訳</h2><span class="count">テスト環境だけ</span></div>' +
+    return '<section class="block"><div class="block-h"><h2>送った時間の内訳</h2><span class="count">テスト環境だけ</span></div>' +
       (l.length ? l.map(one).join('') : '<p class="empty small">まだありません。動画を送るとここに出ます。</p>') + '</section>';
   }
   /** 送れたあとの画面（自分で送ったとき・Service Worker が送ったとき）
@@ -4265,7 +4260,6 @@
     'cam-retake': () => { dropDraft(CAM.at); CAM.blob = null; const pv = $('#cam-preview'); if (pv) { pv.pause(); pv.hidden = true; } $('#cam-canvas').hidden = false; $('#cam-bottom').innerHTML = camButtons('ready'); camStart(); },
     'cam-send': (el) => busy(el, camSend),
     'clip-retry': (el) => busy(el, () => retryClips(true)),
-    'clip-q': (el) => { const k = el.dataset.q; if (!CLIP_Q[k]) return; store.set('clipQ', k); render(); toast('画質を「' + CLIP_Q[k].label + '」にしました。次に撮る動画から変わります'); },
     'clip-drop': () => { if (!confirm('送れていない動画を捨てますか？（その日の「実施した」は付きません）')) return; store.del('clipQueue'); CLIPQ.clear(); render(); },
     'clips-tab': (el) => { location.hash = el.dataset.v === 'queue' ? '#clips/queue' : '#clips'; },
     'clip-day': (el) => { const d = L.addDays(S.clipDay || S.data.today, +el.dataset.v); if (d > S.data.today) return; S.clipDay = d; vt(render, +el.dataset.v < 0 ? 'prev' : 'next'); },
