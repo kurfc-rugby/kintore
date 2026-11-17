@@ -3,7 +3,7 @@
   'use strict';
   const L = window.KLogic;
   const API = window.KINTORE_API;
-  const VERSION = '2.22.0-t13';
+  const VERSION = '2.22.0-t14';
   const WD = ['日', '月', '火', '水', '木', '金', '土'];
   const PERM = { admin: '管理者', manager: 'マネージャー', leader: 'FWリーダー', member: '一般部員', guest: '見るだけ' };
   const MODE = { leader: 'メニュー参加', self: '自主トレ' };
@@ -1452,8 +1452,7 @@
   const repeatLabel = (t) => (t.repeat && t.repeat.length ? '毎週' + WD_MON.filter((d) => t.repeat.indexOf(d) >= 0).map((d) => WD[d]).join('・') : '');
   function vMenus() {
     const d = S.data, today = d.today;
-    const tabs = [['upcoming', '今日から'], ['past', 'これまで']].concat(can('menu') ? [['templates', '型']] : [], [['exercises', '種目の動画']]);
-    if (S.menuTab === 'templates' && !can('menu')) S.menuTab = 'upcoming';
+    const tabs = [['upcoming', '今日から'], ['past', 'これまで'], ['templates', '型'], ['exercises', '種目の動画']]; // 型は全員が見られる（作る・直すのは管理者・FWリーダー）
     let h = '<div class="fbar"><div class="seg menu-tabs" role="group" aria-label="表示">' +
       tabs.map((t) => '<button data-act="menu-tab" data-v="' + t[0] + '" aria-pressed="' + (S.menuTab === t[0]) + '">' + t[1] + '</button>').join('') + '</div>' +
       (S.menuTab === 'templates' || S.menuTab === 'exercises' ? '' : '<div class="seg small" role="group" aria-label="グループ">' + ['ALL', 'FW', 'BK'].map((g) => '<button data-act="menu-group" data-v="' + g + '" aria-pressed="' + (S.menuGroup === g) + '">' + MGROUP[g] + '</button>').join('') + '</div>') + '</div>';
@@ -1785,9 +1784,11 @@
   function vTemplates() {
     const d = S.data, today = d.today;
     const list = (d.templates || []).slice().sort((a, b) => ((b.repeat.length > 0) - (a.repeat.length > 0)) || (a.title < b.title ? -1 : 1));
-    let h = '<div class="toolbar"><button class="btn primary" data-act="tpl-new">' + icon('plus') + '型を作る</button>' + (can('archive') ? '<a class="btn" href="#archive">これまでのメニュー一覧</a>' : '') + '</div>' +
-      '<p class="note is-top">よく使うメニューを「型」にしておくと、作るときに選ぶだけで入ります。曜日を選ぶと、その曜日のメニューを4週間先まで自動で作ります（先の分は毎日、自動で足されます）。</p>';
-    if (!list.length) return h + emptyState('menu', 'まだ型がありません', 'メニューの「型にする」からも作れます。「自主トレのおすすめ」にした型は、部員みんなのメニュー画面に出ます。');
+    const edit = can('menu');
+    let h = edit ? '<div class="toolbar"><button class="btn primary" data-act="tpl-new">' + icon('plus') + '型を作る</button>' + (can('archive') ? '<a class="btn" href="#archive">これまでのメニュー一覧</a>' : '') + '</div>' +
+      '<p class="note is-top">よく使うメニューを「型」にしておくと、作るときに選ぶだけで入ります。曜日を選ぶと、その曜日のメニューを4週間先まで自動で作ります（先の分は毎日、自動で足されます）。</p>'
+      : '<p class="note is-top">部で使っているメニューの型です。曜日が書いてある型は、その曜日のメニューとして出ます。</p>';
+    if (!list.length) return h + emptyState('menu', 'まだ型がありません', edit ? 'メニューの「型にする」からも作れます。「自主トレのおすすめ」にした型は、部員みんなのメニュー画面に出ます。' : 'FWリーダーが型を作ると、ここに出ます。');
     return h + '<ul class="menus">' + list.map((t) => {
       const next = d.menus.filter((w) => w.templateId === t.id && w.date >= today).sort((a, b) => (a.date < b.date ? -1 : 1))[0];
       return '<li><button class="menu-card g-' + t.group + '" data-act="tpl-open" data-id="' + t.id + '"><span class="menu-top">' + targetChip(t) + '<b>' + esc(t.title) + '</b>' + vtagHtml(t) + '</span>' +
@@ -1805,8 +1806,8 @@
       (t.detail ? '<h3>回数・セット数・重量</h3><p class="pre">' + nl2br(t.detail) + '</p>' : '') +
       (t.note ? '<h3>備考</h3><p class="pre">' + nl2br(t.note) + '</p>' : '') +
       '<p class="note">作成：' + esc(nameOf(t.createdBy)) + '</p>' +
-      '<div class="actions wrap"><button class="btn" data-act="tpl-use" data-id="' + t.id + '">この型でメニューを作る</button></div>' +
-      '<div class="actions"><button class="btn danger" data-act="tpl-del" data-id="' + t.id + '">削除</button><button class="btn primary" data-act="tpl-edit" data-id="' + t.id + '">編集</button></div></div>');
+      (can('menu') ? '<div class="actions wrap"><button class="btn" data-act="tpl-use" data-id="' + t.id + '">この型でメニューを作る</button></div>' +
+      '<div class="actions"><button class="btn danger" data-act="tpl-del" data-id="' + t.id + '">削除</button><button class="btn primary" data-act="tpl-edit" data-id="' + t.id + '">編集</button></div>' : '') + '</div>');
   }
   function openTemplateForm(id, prefill) {
     const t = id ? (S.data.templates || []).find((x) => x.id === id) : null;

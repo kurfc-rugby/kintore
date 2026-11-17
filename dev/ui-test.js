@@ -301,7 +301,7 @@ const ok = (c, label) => { if (c) { pass++; console.log('  ✓ ' + label); } els
   await page.fill('input[name="title"]', '火曜の体幹'); await page.fill('textarea[name="content"]', 'SQ 5×5\nタイヤ押し');
   ok(await count('input[name="video"]') === 0 && /動画あり：スクワット/.test(await text('#ex-hint')) && /動画なし：タイヤ押し/.test(await text('#ex-hint')), '内容を書くと、動画のある種目・ない種目が下に出る（メニューごとの動画の欄は無い）');
   await page.evaluate(() => document.querySelector('.radios.wd label:has(input[value="2"]) span').scrollIntoView({ block: 'center' }));
-  await page.locator('.radios.wd label:has(input[value="2"]) span').click({ force: true });
+  await page.evaluate(() => document.querySelector('.radios.wd input[value="2"]').click()); // 画面の外と判定されて押せないことがあるので、直接押す
   if (!await page.isChecked('.radios.wd input[value="2"]')) await page.check('.radios.wd input[value="2"]', { force: true });
   ok(await page.isChecked('.radios.wd input[value="2"]'), '繰り返す曜日を選べる');
   await page.click('form[data-form="template"] button[type="submit"]'); await page.waitForTimeout(1100);
@@ -558,6 +558,14 @@ const ok = (c, label) => { if (c) { pass++; console.log('  ✓ ' + label); } els
     const intro0 = await p3.locator('.intro').count();
     await p3.waitForSelector('.board'); await p3.waitForTimeout(1500);
     ok(intro0 === 1 && await p3.locator('.intro').count() === 0, '起動すると校章と段柄の演出が出て、1秒ほどで消える');
+    // 型は全員が見られる（作る・直すボタンは出ない）
+    await p3.evaluate(() => { location.hash = '#menus'; }); await p3.waitForTimeout(500);
+    await p3.click('[data-act="menu-tab"][data-v="templates"]'); await p3.waitForTimeout(400);
+    ok(await p3.locator('.menu-card').count() >= 1 && await p3.locator('[data-act="tpl-new"]').count() === 0, '一般部員にも「型」のタブが出て、型の一覧が見られる（「型を作る」は出ない）');
+    await p3.locator('.menu-card').first().click(); await p3.waitForSelector('.sheet .detail');
+    ok(await p3.locator('.sheet [data-act="tpl-edit"], .sheet [data-act="tpl-del"], .sheet [data-act="tpl-use"]').count() === 0 && /トレーニング内容/.test(await p3.locator('.sheet').innerText()), '型の中身は見られるが、編集・削除・「この型でメニューを作る」は出ない');
+    await p3.keyboard.press('Escape'); await p3.waitForTimeout(300);
+    await p3.evaluate(() => { location.hash = ''; }); await p3.waitForTimeout(500);
     await p3.reload(); await p3.waitForSelector('.board');
     ok(await p3.locator('.intro').count() === 0, '起動の演出は1回の起動で1度だけ（読み込み直しでは出ない）');
     await p3.waitForTimeout(300);
