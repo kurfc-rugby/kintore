@@ -6,7 +6,7 @@
  *  通知（push）… 中身は来ないので、サーバー（pushInbox）に取りに行って表示する
  *  動画（Background Sync・Android）… 画面を閉じても、端末にしまった動画をサーバーに送る
  * 版を上げるときは VERSION と、index.html の ?v= を一緒に変える。 */
-const VERSION = '2.22.0-t4';
+const VERSION = '2.22.0-t5';
 try { importScripts('config.js?v=' + VERSION); } catch (e) { /* 読めなくても画面はしまっておいたもので動く */ }
 // テスト環境（KINTORE_STORE = 'kintoreTest'）は、本番としまう場所の名前を分ける（同じ github.io の中なので）
 const CPREFIX = (self.KINTORE_STORE || 'kintore') + '-';
@@ -141,11 +141,25 @@ async function sendClips() {
   let retry = false;
   for (const it of items) {
     if (!(await clipTx(db, 'readonly', (st) => st.get(it.at)))) continue; // 画面が先に送った
+    const post = async (body) => {
+      try {
+        const r = await fetch(self.KINTORE_API, { method: 'POST', redirect: 'follow', body: JSON.stringify(Object.assign({ device: it.device || '', token: it.token || '', mime: it.mime, thumb: it.thumb || '', recordedAt: it.at, code: it.code }, body)) });
+        return await r.json();
+      } catch (e) { return null; }
+    };
     let j = null;
-    try {
-      const r = await fetch(self.KINTORE_API, { method: 'POST', redirect: 'follow', body: JSON.stringify({ op: 'clipUpload', device: it.device || '', token: it.token || '', mime: it.mime, data: bufToB64(it.buf), thumb: it.thumb || '', recordedAt: it.at, code: it.code }) });
-      j = await r.json();
-    } catch (e) { j = null; }
+    // 1. 小さいデータだけ先に送る → すぐ「実施した」
+    if (!it.started) {
+      j = await post({ op: 'clipStart' });
+      if (j && j.error === 'unknown_op') { it.started = true; j = null; } // サーバーが古い：動画といっしょに1回で送る
+      else if (j && j.ok) {
+        it.started = true;
+        await clipTx(db, 'readwrite', (st) => st.put(it));
+        await clipTell({ clip: 'started', at: it.at, thumb: it.thumb, r: j }, null);
+      }
+    }
+    // 2. 動画を送る
+    if (it.started) j = await post({ op: 'clipUpload', data: bufToB64(it.buf) });
     if (j && j.ok) {
       await clipTx(db, 'readwrite', (st) => st.delete(it.at));
       const day = it.at.slice(5, 7).replace(/^0/, '') + '/' + it.at.slice(8, 10).replace(/^0/, '');

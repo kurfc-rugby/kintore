@@ -156,13 +156,44 @@ r = api({ op: 'clipApprove', token: MG, id: r.clip.id });
 ok(r.ok && r.recorded && r.records.some((x) => x[0] === id['森 健太'] && x[2] === 1), 'スタッフが確認すると「実施した」になる');
 ok(api({ op: 'state', token: MG }).clipQueue === 0, '確認待ちがなくなる');
 
+section('2段階：先に「実施した」、動画はあとから');
+const at3 = jst(1);
+const IS = id['石川 大地'];
+r = api({ op: 'clipStart', token: ISHI, mime: 'video/mp4', thumb, recordedAt: at3, code });
+ok(r.ok && r.clip.nv === 1 && r.records.some((x) => x[0] === IS && x[1] === today && x[2] === 1), 'まず小さいデータ（時刻・今日の数字・サムネイル）だけで「実施した」になる');
+const c3 = r.clip.id;
+ok(api({ op: 'clipStart', token: ISHI, mime: 'video/mp4', thumb, recordedAt: at3, code }).again, '送り直しても二重にならない');
+ok(api({ op: 'clipStart', token: ISHI, mime: 'video/mp4', thumb, recordedAt: at3, code: code + 1 }).error === 'bad_code', '先に送るときも今日の数字を確かめる');
+ok(api({ op: 'clipVideo', token: G, id: c3 }).error === 'not_yet', '動画が届くまでは「まだ届いていません」');
+ok(api({ op: 'state', token: MORI2 }).clips.find((c) => c.id === c3).nv === 1, '一覧には「動画待ち」と分かる印がつく');
+const nfiles = Object.keys(gas.drive.files).length;
+r = api({ op: 'clipUpload', token: ISHI, mime: 'video/mp4', data: vid, thumb, recordedAt: at3, code });
+ok(r.ok && r.attached && r.clip.id === c3 && r.clip.nv === 0 && Object.keys(gas.drive.files).length === nfiles + 1, 'あとから送った動画が同じ行につく（行は増えない）');
+ok(api({ op: 'clipVideo', token: G, id: c3 }).data === vid, '届いたら見られる');
+ok(api({ op: 'clipUpload', token: ISHI, mime: 'video/mp4', data: vid, thumb, recordedAt: at3, code }).again && Object.keys(gas.drive.files).length === nfiles + 1, '動画を送り直しても二重にならない');
+
+section('動画が24時間届かないと取り消す');
+gas.shiftDays(1);
+const d4 = gas.run('today_'), at4 = jst(1), code4 = gas.run('withReq', (f) => f.clipCode_(d4));
+r = api({ op: 'clipStart', token: ISHI, mime: 'video/mp4', thumb, recordedAt: at4, code: code4 });
+ok(r.ok && r.records.some((x) => x[0] === IS && x[1] === d4 && x[2] === 1), '次の日も先に「実施した」');
+const c4 = r.clip.id;
+ok(gas.run('withReq', (f) => f.expireClips_()) === 0, '24時間たつまでは取り消さない');
+gas.shiftDays(1); gas.clock.offset += 3 * 3600000; // 27時間後
+ok(gas.run('withReq', (f) => f.expireClips_()) === 1, '24時間（＋余裕）たっても動画が届かないと取り消す');
+st = api({ op: 'state', token: ISHI });
+ok(st.clips.find((c) => c.id === c4).st === 'canceled' && /届きませんでした/.test(st.clips.find((c) => c.id === c4).why), '本人には「動画が24時間以内に届きませんでした」と出る');
+ok(!gas.sheet('実施記録').data.some((row) => row.indexOf(IS) >= 0 && row.indexOf(d4) >= 0), 'その日の「実施した」も外れる');
+ok(api({ op: 'clipUpload', token: ISHI, mime: 'video/mp4', data: vid, thumb, recordedAt: at4, code: code4 }).error === 'too_late', 'あとから動画が来ても受け付けない');
+gas.clock.offset -= 3 * 3600000; gas.shiftDays(-2);
+
 section('1か月で消える');
-gas.shiftDays(31);
+gas.shiftDays(33);
 gas.run('withReq', (f) => f.purgeClips_());
 ok(Object.values(gas.drive.files).every((f) => f.trashed), 'ドライブの動画はゴミ箱へ');
 ok(api({ op: 'clipVideo', token: G, id: clip1 }).error, '消えた動画は見られない');
 ok(gas.sheet('動画のサムネイル').data.length === 1, 'サムネイルも消える');
-gas.shiftDays(-31);
+gas.shiftDays(-33);
 
 section('テスト環境の守り');
 ok(api({ op: 'saveMember', token: A, member: { id: id['森 健太'], name: '森 健太', grade: '2年' } }).error === 'test_env', 'テスト環境からは会計アプリの名簿を書き換えられない');

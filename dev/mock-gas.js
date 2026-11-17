@@ -194,7 +194,7 @@ function create(opts) {
   if (opts.withLibrary !== false) sandbox.KurfcRoster = KurfcRoster;
   vm.createContext(sandbox);
   const code = fs.readFileSync(path.join(__dirname, '..', 'gas', 'Code.gs'), 'utf8');
-  vm.runInContext(code + '\n;this.__fn = {handle_, setup, registerAdmin_, doPost, doGet, onOpen, menuRegisterAdmin, pinHash_, today_, pushHourly, setupPush, ecSign_, utf8_, pruneStamps_: function (d) { REQ_ = { tables: {}, ss: null, roster: null }; try { pruneStamps_(d); } finally { REQ_ = null; } }, menuBackupNow, menuRestoreBackup, withReq: function (f) { REQ_ = { tables: {}, ss: null, roster: null }; try { return f({ setupTestEnv, purgeClips_, clipCode_, backupNow_, restoreBackup_, archiveLogs_, weeklyBackup_, backupBook_, readBackupTab_, goalHist_, weekGoalAt_ }); } finally { REQ_ = null; } }};', sandbox, { filename: 'Code.gs' });
+  vm.runInContext(code + '\n;this.__fn = {handle_, setup, registerAdmin_, doPost, doGet, onOpen, menuRegisterAdmin, pinHash_, today_, pushHourly, setupPush, ecSign_, utf8_, pruneStamps_: function (d) { REQ_ = { tables: {}, ss: null, roster: null }; try { pruneStamps_(d); } finally { REQ_ = null; } }, menuBackupNow, menuRestoreBackup, withReq: function (f) { REQ_ = { tables: {}, ss: null, roster: null }; try { return f({ setupTestEnv, purgeClips_, expireClips_, clipCode_, backupNow_, restoreBackup_, archiveLogs_, weeklyBackup_, backupBook_, readBackupTab_, goalHist_, weekGoalAt_ }); } finally { REQ_ = null; } }};', sandbox, { filename: 'Code.gs' });
   const fn = sandbox.__fn;
 
   const api = {

@@ -3,7 +3,7 @@
   'use strict';
   const L = window.KLogic;
   const API = window.KINTORE_API;
-  const VERSION = '2.22.0-t4';
+  const VERSION = '2.22.0-t5';
   const WD = ['日', '月', '火', '水', '木', '金', '土'];
   const PERM = { admin: '管理者', manager: 'マネージャー', leader: 'FWリーダー', member: '一般部員', guest: '見るだけ' };
   const MODE = { leader: 'メニュー参加', self: '自主トレ' };
@@ -3110,11 +3110,11 @@
   }
   function isTestSite() { return (window.KINTORE_STORE || '') === 'kintoreTest'; }
 
-  // ---- 撮る（アプリの中のカメラだけ。音なし3秒。日時と今日の数字を動画に入れる） ----
+  // ---- 撮る（アプリの中のカメラだけ。音なし2秒。日時と今日の数字を動画に入れる） ----
   const CAM = { stream: null, facing: 'environment', raf: 0, rec: null, blob: null, url: '', thumb: '', at: '', mime: '', busy: false };
-  const CLIP_SEC = 3, CW = 720, CH = 960; // 縦3:横4。スマホのカメラ（4:3）をほぼ切らずに使える
+  const CLIP_SEC = 2, CW = 720, CH = 960; // 縦3:横4。スマホのカメラ（4:3）をほぼ切らずに使える
   const CU = CW / 360; // 文字や帯は幅360のつもりで描いて、この倍率で大きくする
-  const CLIP_BPS = 1500000; // 3秒でおよそ0.5MB
+  const CLIP_BPS = 1500000; // 2秒でおよそ0.35MB
   function pickMime() {
     if (typeof MediaRecorder === 'undefined') return '';
     const list = ['video/mp4;codecs=avc1', 'video/mp4', 'video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm'];
@@ -3322,23 +3322,32 @@
     } finally { CAM.sending = false; }
     camClose();
     if (await bgSync()) {
-      S.clipSending = true; render();
+      S.bgSync = true; S.clipSending = true; render();
       toast('送っています。アプリを閉じても、電波があれば送ります');
       // 1分たっても Service Worker から返事が無ければ、画面から送る
       setTimeout(() => { if (S.clipSending && !clipRetrying && qList().length) { S.clipSending = false; retryClips(); } }, 60000);
     } else {
-      toast('送っています。「送りました」と出るまで、アプリは閉じないでください（ほかの画面は見ていて大丈夫です）');
+      toast('送っています…');
       retryClips();
     }
   }
-  /** 送れたあとの画面（自分で送ったとき・Service Worker が送ったとき） */
-  function clipSentUI(item, r) {
+  /** 送れたあとの画面（自分で送ったとき・Service Worker が送ったとき）
+   *  stage：start（先に送った小さいデータが届いた＝「実施した」）／ video（動画も届いた） */
+  function clipSentUI(item, r, stage) {
     if (r.records) { replaceDay(item.at.slice(0, 10), r.records); setData(S.data); }
     const list = S.data.clips || (S.data.clips = []);
-    if (r.clip && !list.some((c) => c.id === r.clip.id)) list.unshift(r.clip);
+    if (r.clip) {
+      const i = list.findIndex((c) => c.id === r.clip.id);
+      if (i >= 0) list[i] = Object.assign({}, list[i], r.clip); else list.unshift(r.clip);
+      clipUpdated(r.clip);
+    }
     S.clipCache = {};
     if (r.clip && item.thumb) { S.clipThumb = S.clipThumb || {}; S.clipThumb[r.clip.id] = item.thumb; }
-    toast(r.pending ? '送りました。取り消された日なので、スタッフが確認するまで待ちになります' : '送りました。' + (item.at.slice(0, 10) === S.data.today ? '今日' : mdw(item.at.slice(0, 10))) + 'は「実施した」になりました');
+    const day = item.at.slice(0, 10) === S.data.today ? '今日' : mdw(item.at.slice(0, 10));
+    if (stage === 'video') { toast('動画も送り終わりました'); return; }
+    if (r.again && stage === 'start') return;
+    toast(r.pending ? '届きました。取り消された日なので、スタッフが確認するまで待ちになります' :
+      day + 'は「実施した」になりました。' + (S.bgSync ? '動画はこのまま送ります' : '動画を送り終わるまで、アプリは閉じないでください'));
   }
   // Service Worker からの知らせ（送れた・送れない動画だった・電波待ち）
   if ('serviceWorker' in navigator) {
@@ -3346,7 +3355,8 @@
       const d = e.data || {};
       if (!d.clip || !S.data) return;
       qSet(qList().filter((x) => x.at !== d.at));
-      if (d.clip === 'sent') clipSentUI({ at: d.at, thumb: d.thumb }, d.r || {});
+      if (d.clip === 'started') { clipSentUI({ at: d.at, thumb: d.thumb }, d.r || {}, 'start'); render(); return; }
+      if (d.clip === 'sent') clipSentUI({ at: d.at, thumb: d.thumb }, d.r || {}, 'video');
       else if (d.clip === 'dropped') toast(d.message || '送れない動画でした', 'err');
       else if (d.clip === 'wait') { qSet(qList().concat(qList().some((x) => x.at === d.at) ? [] : [{ at: d.at }])); }
       S.clipSending = false;
@@ -3356,9 +3366,22 @@
   /** 1本送る。結果：sent / queued（電波が悪い・ログインが切れた → あとで送り直す）/ dropped（送れない動画） */
   async function sendClip(item) {
     try {
+      // 1. 小さいデータだけ先に送る → すぐ「実施した」
+      let one = false; // サーバーが古くて先に送れないときは、動画といっしょに1回で送る
+      if (!item.started) {
+        let r0 = null;
+        try { r0 = await api('clipStart', { mime: item.mime, thumb: item.thumb, recordedAt: item.at, code: item.code }); } catch (e) { if (e.code !== 'unknown_op') throw e; one = true; }
+        if (r0) {
+          item.started = true;
+          await CLIPQ.put(item);
+          clipSentUI(item, r0, 'start');
+          render();
+        }
+      }
+      // 2. 動画を送る
       const data = await blobToB64(new Blob([item.buf], { type: item.mime }));
       const r = await api('clipUpload', { mime: item.mime, data: data, thumb: item.thumb, recordedAt: item.at, code: item.code });
-      clipSentUI(item, r);
+      clipSentUI(item, r, one ? 'start' : 'video');
       return 'sent';
     } catch (e) {
       if (/^(bad_|too_|not_|forbidden)/.test(String(e.code || ''))) { toast(e.message, 'err'); return 'dropped'; }
@@ -3412,7 +3435,8 @@
   function clipCard(c, opt) {
     const th = S.clipThumb[c.id];
     const staff = !!(me() && can('anyStaff'));
-    const tag = c.st === 'pending' ? '<span class="clip-tag wait">確認待ち</span>' : c.st === 'canceled' ? '<span class="clip-tag no">取り消し</span>' : (staff && c.nf ? '<span class="clip-tag flag">気になる ' + c.nf + '</span>' : '');
+    const tag = c.st === 'pending' ? '<span class="clip-tag wait">確認待ち</span>' : c.st === 'canceled' ? '<span class="clip-tag no">取り消し</span>' :
+      c.nv ? '<span class="clip-tag wait">動画を送信中</span>' : (staff && c.nf ? '<span class="clip-tag flag">気になる ' + c.nf + '</span>' : '');
     return '<button class="clip-card" data-act="clip-open" data-id="' + esc(c.id) + '">' +
       '<span class="clip-th">' + (th ? '<img src="data:image/jpeg;base64,' + th + '" alt="" loading="lazy">' : '<span class="clip-ph" aria-hidden="true">' + icon('cam') + '</span>') + tag + '</span>' +
       '<span class="clip-meta">' + (opt && opt.noName ? '' : '<b>' + esc(memberName(c.m)) + '</b>') + '<small>' + (opt && opt.date ? mdw(c.d) + ' ' : '') + esc((c.at || '').slice(11, 16)) + '</small></span></button>';
@@ -3455,7 +3479,7 @@
     const held = !mine && !wait && qList().some((x) => x.at.slice(0, 10) === today);
     const q = can('anyStaff') && S.data.clipQueue ? '<a class="banner warn" href="#clips/queue">' + icon('alert') + '<span>確認が要る動画が' + S.data.clipQueue + '本あります</span></a>' : '';
     return q + '<section class="block home-clips"><div class="block-h"><h2>今日の動画</h2><a class="more" href="#clips">すべて見る</a></div>' +
-      (mePlayer() ? (mine ? '<p class="clip-done">' + icon('check') + '今日の1本は出しました</p>' : wait ? '<p class="clip-done wait">確認待ちです。スタッフが確認すると「実施した」になります</p>' : held ? '<p class="clip-done wait">' + (S.clipSending ? '<span class="spin"></span>今日の1本を送っています…' : '今日の1本はまだ送れていません。電波のよい所で「送る」を押してください') + '</p>' : '<button class="btn primary wide cam-cta" data-act="cam-open">' + icon('cam') + '今日の1本を撮る（3秒）</button>') : '') +
+      (mePlayer() ? (mine ? '<p class="clip-done">' + icon('check') + '今日の1本は出しました' + (qList().some((x) => x.at.slice(0, 10) === today) ? '<small>' + (S.clipSending ? '<span class="spin"></span>動画を送っています…' : '動画はまだ送れていません') + '</small>' : '') + '</p>' : wait ? '<p class="clip-done wait">確認待ちです。スタッフが確認すると「実施した」になります</p>' : held ? '<p class="clip-done wait">' + (S.clipSending ? '<span class="spin"></span>今日の1本を送っています…' : '今日の1本はまだ送れていません。電波のよい所で「送る」を押してください') + '</p>' : '<button class="btn primary wide cam-cta" data-act="cam-open">' + icon('cam') + '今日の1本を撮る（' + CLIP_SEC + '秒）</button>') : '') +
       (Array.isArray(list) && list.length ? '<div class="clip-strip">' + list.slice(0, 12).map((c) => clipCard(c)).join('') + '</div>' : Array.isArray(list) ? '<p class="empty small">まだだれも出していません。</p>' : '') + '</section>';
   }
   /** 部員ページの動画（1か月） */
@@ -3494,6 +3518,11 @@
       '<p class="hint"><a href="#member/' + encodeURIComponent(c.m) + '">' + esc(name) + ' さんのページへ</a></p>');
     try {
       let url = S.clipUrl[c.id];
+      if (!url && c.nv && own) {
+        // まだ送っている途中の自分の動画は、スマホにしまってあるものを見せる
+        const it = await CLIPQ.get(c.at);
+        if (it && it.buf) url = S.clipUrl[c.id] = URL.createObjectURL(new Blob([it.buf], { type: it.mime }));
+      }
       if (!url) {
         const r = await api('clipVideo', { id: c.id });
         const bin = atob(r.data), u = new Uint8Array(bin.length);

@@ -151,6 +151,7 @@ function handle_(req) {
     ensureSchema_();
     syncRoster_();
     maintFromRequest_();
+    if (setlogOn_()) expireClipsMaybe_();
     const ctx = { req: req, me: null, view: false };
     resolveSession_(ctx);
     const op = String(req.op || '');
@@ -162,6 +163,7 @@ function handle_(req) {
     switch (op) {
       case 'ping': return { ok: true, version: APP_VERSION, today: today_() };
       case 'register': return opRegister_(ctx);
+      case 'clipStart': return opClipStart_(ctx);
       case 'clipUpload': return opClipUpload_(ctx);
       case 'clips': return opClips_(ctx);
       case 'clipVideo': return opClipVideo_(ctx);
@@ -3369,7 +3371,7 @@ function clipCode_(date) {
 function clipWire_(c, me) {
   const staff = !!(me && STAFF[me.perm]);
   const flags = clipFlags_(c);
-  return { id: c.id, m: c.memberId, d: c.date, at: c.recordedAt, st: c.status, gone: !!c.deletedAt,
+  return { id: c.id, m: c.memberId, d: c.date, at: c.recordedAt, st: c.status, gone: !!c.deletedAt, nv: !c.fileId && !c.deletedAt ? 1 : 0,
     nf: staff ? flags.length : undefined, mine: !!(me && flags.indexOf(me.id) >= 0), why: (staff || (me && me.id === c.memberId)) ? (c.reason || '') : '' };
 }
 function clipFlags_(c) { try { const a = JSON.parse(c.flags || '[]'); return Array.isArray(a) ? a : []; } catch (x) { return []; } }
@@ -3389,10 +3391,12 @@ function clipState_(ctx, today) {
   return out;
 }
 /** 動画を受け取る：撮った日を自動で「実施した」にする（取り消された日に撮り直したものは確認待ち） */
-function opClipUpload_(ctx) {
-  // どこに時間がかかったか（実行数の画面の「ログ」で見られる）
-  const T = { start: Date.now() - ((REQ_ && REQ_.t0) || Date.now()) }, t1 = Date.now();
-  const me = requireRole_(ctx, ['admin', 'manager', 'leader', 'member']);
+/** 動画の出し方（2段階）
+ *  1. clipStart：撮った時刻・今日の数字・サムネイルだけ送る → すぐ「実施した」（動画は「届くのを待っている」状態）
+ *  2. clipUpload：動画を送る → 1の行に動画をつける
+ *  24時間たっても動画が届かなければ、取り消して「実施した」も外す（expireClips_）。
+ *  1をしないで2だけ送ってきたとき（古い画面）は、2で両方やる。 */
+function clipCheck_(ctx, me) {
   if (!setlogOn_()) throw err_('forbidden', 'この操作はできません。');
   const m = memberById_(me.id);
   if (!m || !m.player) throw err_('not_player', '動画を出せるのは選手だけです。');
@@ -3400,57 +3404,131 @@ function opClipUpload_(ctx) {
   if (!CLIP_MIMES[mime]) throw err_('bad_type', 'この形式の動画は送れません。');
   const at = String(ctx.req.recordedAt || '');
   if (!/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(at)) throw err_('bad_time', '撮った時刻が正しくありません。');
-  const now = now_();
   if (at > nowPlusMin_(10)) throw err_('bad_time', 'スマホの時計がずれています。時刻を合わせてから撮り直してください。');
   if (at < nowPlusMin_(-CLIP_LATE_HOURS * 60)) throw err_('too_late', '撮ってから24時間以上たった動画は送れません。');
   const date = at.slice(0, 10);
   if (Number(ctx.req.code) !== clipCode_(date)) throw err_('bad_code', 'アプリの中のカメラで撮った動画だけ送れます。');
   if (!inRoster_(m, date)) throw err_('not_in_roster', 'この日は記録の対象ではありません。');
+  return { m: m, mime: mime, at: at, date: date };
+}
+function clipThumbArg_(ctx) {
+  const thumb = String(ctx.req.thumb || '');
+  if (thumb.length > 40000 || !/^[A-Za-z0-9+/=]*$/.test(thumb)) throw err_('bad_thumb', 'サムネイルが正しくありません。');
+  return thumb;
+}
+const findClip_ = function (memberId, at) { return table_('clips').rows.filter(function (c) { return c.memberId === memberId && c.recordedAt === at; })[0] || null; };
+/** 行を足して「実施した」にする（ロックの中で呼ぶ）。file が無ければ動画待ち */
+function clipAddRow_(me, k, thumb, file, bytes) {
+  const t = table_('clips');
+  const canceledDay = t.rows.some(function (c) { return c.memberId === me.id && c.date === k.date && c.status === 'canceled'; });
+  const now = now_();
+  const c = { id: 'C' + Utilities.getUuid().replace(/-/g, '').slice(0, 12), memberId: me.id, date: k.date, recordedAt: k.at, uploadedAt: file ? now : '', fileId: file ? file.getId() : '',
+    mime: k.mime, size: bytes ? String(bytes.length) : '', code: String(clipCode_(k.date)), status: canceledDay ? 'pending' : 'ok', flags: '[]', canceledBy: '', canceledAt: '', reason: '', checkedBy: '', deletedAt: '' };
+  insert_('clips', [c]);
+  insert_('clipThumbs', [{ id: c.id, thumb: thumb }]);
+  let recorded = false;
+  if (!canceledDay) { const r = saveDay_(me, k.date, [{ memberId: me.id, done: true }]); recorded = r.saved + r.updated > 0 || r.unchanged > 0; }
+  log_(me, '動画を出した', k.m.name + ' ' + k.date + (canceledDay ? '（確認待ち）' : ''));
+  return { ok: true, clip: clipWire_(c, me), recorded: recorded, pending: canceledDay, records: recordsWire_(k.date, k.date) };
+}
+function clipTimesSave_(T) {
+  console.log('clip ' + JSON.stringify(T));
+  if (!isTestEnv_()) return; // テスト環境だけ：直近20回の内訳をしまう（ほかの人の実行のログは画面で見られないため）。clipTimes() で見る
+  try {
+    const props = PropertiesService.getScriptProperties();
+    let l = []; try { l = JSON.parse(props.getProperty('CLIP_TIMES') || '[]'); } catch (x) { l = []; }
+    T.at = now_(); l.push(T); props.setProperty('CLIP_TIMES', JSON.stringify(l.slice(-20)));
+  } catch (x) { /* noop */ }
+}
+function opClipStart_(ctx) {
+  const T = { op: 'start', start: Date.now() - ((REQ_ && REQ_.t0) || Date.now()) }, t1 = Date.now();
+  const me = requireRole_(ctx, ['admin', 'manager', 'leader', 'member']);
+  const k = clipCheck_(ctx, me);
+  const thumb = clipThumbArg_(ctx);
+  const dup = findClip_(me.id, k.at);
+  if (dup) return { ok: true, clip: clipWire_(dup, me), again: true, records: recordsWire_(k.date, k.date) };
+  T.check = Date.now() - t1; T.drive = 0;
+  const t3 = Date.now();
+  const res = withLock_(function () {
+    const d2 = findClip_(me.id, k.at);
+    if (d2) return { ok: true, clip: clipWire_(d2, me), again: true, records: recordsWire_(k.date, k.date) };
+    return clipAddRow_(me, k, thumb, null, null);
+  }, { keepRoster: true });
+  T.save = Date.now() - t3;
+  clipTimesSave_(T);
+  return res;
+}
+function opClipUpload_(ctx) {
+  // どこに時間がかかったか
+  const T = { op: 'upload', start: Date.now() - ((REQ_ && REQ_.t0) || Date.now()) }, t1 = Date.now();
+  const me = requireRole_(ctx, ['admin', 'manager', 'leader', 'member']);
+  const k = clipCheck_(ctx, me);
   let bytes;
   try { bytes = Utilities.base64Decode(String(ctx.req.data || '')); } catch (x) { throw err_('bad_data', '動画を読み取れませんでした。'); }
   if (!bytes.length || bytes.length > CLIP_MAX_BYTES) throw err_('too_big', '動画が大きすぎます（2MBまで）。');
-  const thumb = String(ctx.req.thumb || '');
-  if (thumb.length > 40000 || !/^[A-Za-z0-9+/=]*$/.test(thumb)) throw err_('bad_thumb', 'サムネイルが正しくありません。');
   // 同じ動画を送り直したとき（電波が切れて返事が届かなかったなど）は、前のものを返す
-  const dup = table_('clips').rows.filter(function (c) { return c.memberId === me.id && c.recordedAt === at; })[0];
-  if (dup) return { ok: true, clip: clipWire_(dup, me), again: true };
+  const dup = findClip_(me.id, k.at);
+  if (dup && dup.fileId) return { ok: true, clip: clipWire_(dup, me), again: true };
+  if (dup && dup.deletedAt) throw err_('too_late', 'この動画は受け付けが終わりました。');
+  const thumb = dup ? '' : clipThumbArg_(ctx);
   T.check = Date.now() - t1;
   const t2 = Date.now();
-  const file = clipFolder_().createFile(Utilities.newBlob(bytes, mime, me.id + '_' + at.replace(/[^0-9]/g, '') + '.' + CLIP_MIMES[mime]));
+  const file = clipFolder_().createFile(Utilities.newBlob(bytes, k.mime, me.id + '_' + k.at.replace(/[^0-9]/g, '') + '.' + CLIP_MIMES[k.mime]));
   T.drive = Date.now() - t2;
   const t3 = Date.now();
   const res = withLock_(function () {
-    let tt = Date.now(); const lap = function (k) { const n = Date.now(); T[k] = n - tt; tt = n; };
-    lap('wait');
-    const t = table_('clips');
-    const dup2 = t.rows.filter(function (c) { return c.memberId === me.id && c.recordedAt === at; })[0];
-    if (dup2) { try { file.setTrashed(true); } catch (x) { /* noop */ } return { ok: true, clip: clipWire_(dup2, me), again: true }; }
-    const canceledDay = t.rows.some(function (c) { return c.memberId === me.id && c.date === date && c.status === 'canceled'; });
-    const c = { id: 'C' + Utilities.getUuid().replace(/-/g, '').slice(0, 12), memberId: me.id, date: date, recordedAt: at, uploadedAt: now, fileId: file.getId(),
-      mime: mime, size: String(bytes.length), code: String(clipCode_(date)), status: canceledDay ? 'pending' : 'ok', flags: '[]', canceledBy: '', canceledAt: '', reason: '', checkedBy: '', deletedAt: '' };
-    lap('read');
-    insert_('clips', [c]);
-    insert_('clipThumbs', [{ id: c.id, thumb: thumb }]);
-    lap('ins');
-    let recorded = false;
-    if (!canceledDay) { const r = saveDay_(me, date, [{ memberId: me.id, done: true }]); recorded = r.saved + r.updated > 0 || r.unchanged > 0; }
-    lap('day');
-    log_(me, '動画を出した', m.name + ' ' + date + (canceledDay ? '（確認待ち）' : ''));
-    const out = { ok: true, clip: clipWire_(c, me), recorded: recorded, pending: canceledDay, records: recordsWire_(date, date) };
-    lap('log');
-    return out;
+    const c = findClip_(me.id, k.at);
+    if (c && c.fileId) { try { file.setTrashed(true); } catch (x) { /* noop */ } return { ok: true, clip: clipWire_(c, me), again: true }; }
+    if (c) {
+      // 先に「実施した」にしてある行に、動画をつける
+      c.fileId = file.getId(); c.mime = k.mime; c.size = String(bytes.length); c.uploadedAt = now_();
+      update_('clips', c);
+      return { ok: true, clip: clipWire_(c, me), attached: true };
+    }
+    return clipAddRow_(me, k, thumb, file, bytes);
   }, { keepRoster: true });
   T.save = Date.now() - t3; T.kb = Math.round(bytes.length / 1024);
-  console.log('clipUpload ' + JSON.stringify(T));
-  // テスト環境だけ：直近20回の内訳をしまっておく（ほかの人の実行のログは画面で見られないため）。clipTimes() で見る
-  if (isTestEnv_()) {
-    try {
-      const props = PropertiesService.getScriptProperties();
-      let l = []; try { l = JSON.parse(props.getProperty('CLIP_TIMES') || '[]'); } catch (x) { l = []; }
-      T.at = now; l.push(T); props.setProperty('CLIP_TIMES', JSON.stringify(l.slice(-20)));
-    } catch (x) { /* noop */ }
-  }
+  clipTimesSave_(T);
   return res;
+}
+/** 動画が届かないまま24時間たった行を取り消す（その日のほかの動画が無ければ「実施した」も外す）。10分に1回まで */
+function expireClipsMaybe_() {
+  try {
+    const c = CacheService.getScriptCache();
+    if (c.get('k:clipexp')) return;
+    c.put('k:clipexp', '1', 600);
+    expireClips_();
+  } catch (x) { console.error(x); }
+}
+function expireClips_() {
+  const limit = nowPlusMin_(-(CLIP_LATE_HOURS + 1) * 60); // 送り直しの時間（24時間）＋少しの余裕
+  const late = function (c) { return !c.fileId && !c.deletedAt && c.status !== 'canceled' && c.recordedAt < limit; };
+  if (!table_('clips').rows.some(late)) return 0;
+  const sys = { id: 'system', name: '自動', perm: 'admin' };
+  const done = withLock_(function () {
+    const now = now_(), out = [];
+    const all = table_('clips').rows;
+    all.filter(late).forEach(function (c) {
+      c.status = 'canceled'; c.canceledBy = 'system'; c.canceledAt = now; c.reason = '動画が24時間以内に届きませんでした';
+      update_('clips', c);
+      const others = all.some(function (x) { return x.id !== c.id && x.memberId === c.memberId && x.date === c.date && x.status === 'ok'; });
+      if (!others) {
+        const r = table_('records').rows.filter(function (x) { return x.memberId === c.memberId && x.date === c.date; })[0];
+        if (r) { insert_('trash', [trashRow_(r, sys, now)]); remove_('records', r); }
+      }
+      const m = memberById_(c.memberId);
+      log_(sys, '動画が届かず取り消した', (m ? m.name : c.memberId) + ' ' + c.date);
+      out.push(c);
+    });
+    return out;
+  }, { keepRoster: true });
+  done.forEach(function (c) {
+    try {
+      const rows = table_('push').rows.filter(function (r) { return r.staffId === c.memberId || r.memberId === c.memberId; });
+      sendPush_(rows, function () { return { title: '動画が届かなかったので取り消しました', body: c.date.slice(5).replace('-', '/') + ' の「実施した」を外しました。撮り直すと、確認待ちになります。', url: './#clips', tag: 'clipexp' }; });
+    } catch (x) { console.error(x); }
+  });
+  return done.length;
 }
 /** エディタから実行：動画を送ったときの時間の内訳（ミリ秒）。start=受け取ってから動画の処理まで（ログイン確認など）、check=確認、drive=ドライブに保存、save=記録 */
 function clipTimes() {
@@ -3511,6 +3589,7 @@ function opClipVideo_(ctx) {
   if (!c) throw err_('not_found', 'その動画は見つかりません。');
   if (c.status === 'canceled' && !STAFF[me.perm] && c.memberId !== me.id) throw err_('not_found', 'その動画は見つかりません。');
   if (c.deletedAt) throw err_('gone', '1か月たったので、この動画は消えました。');
+  if (!c.fileId) throw err_('not_yet', 'この動画はまだ届いていません（撮った人のスマホから送っているところです）。');
   let blob;
   try { blob = DriveApp.getFileById(c.fileId).getBlob(); } catch (x) { throw err_('gone', 'この動画は見つかりませんでした。'); }
   return { ok: true, id: c.id, mime: c.mime, data: Utilities.base64Encode(blob.getBytes()) };

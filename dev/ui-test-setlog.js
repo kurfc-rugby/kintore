@@ -46,6 +46,7 @@ const shot = async (p, name) => { if (SHOT) { require('fs').mkdirSync(SHOT, { re
   await shot(p, '03-home');
 
   console.log('■ 撮る');
+  ok(/2秒/.test(await p.locator('.home-clips .cam-cta').innerText()), '「今日の1本を撮る（2秒）」');
   await p.click('.home-clips .cam-cta'); await p.waitForSelector('.cam'); await p.waitForTimeout(1500);
   const drawn = await p.evaluate(() => { const c = document.getElementById('cam-canvas'); const d = c.getContext('2d').getImageData(10, 300, 1, 1).data; return d[0] + d[1] + d[2]; });
   ok(drawn > 0, 'カメラの映像が画面に出る');
@@ -54,7 +55,7 @@ const shot = async (p, name) => { if (SHOT) { require('fs').mkdirSync(SHOT, { re
   ok(await p.locator('.cam.rec').count() === 1, '押すと撮りはじめる（赤い枠）');
   await p.waitForSelector('[data-act="cam-send"]', { timeout: 8000 });
   const pv = await p.evaluate(() => { const v = document.getElementById('cam-preview'); return { hidden: v.hidden, src: !!v.src }; });
-  ok(!pv.hidden && pv.src, '3秒で止まり、撮った動画をくり返し見せる');
+  ok(!pv.hidden && pv.src, '2秒で止まり、撮った動画をくり返し見せる');
   await shot(p, '05-preview');
   const cv = await p.evaluate(() => { const c = document.getElementById('cam-canvas'); return c.width + 'x' + c.height; });
   ok(cv === '720x960', '撮る画面は縦3:横4・720x960（' + cv + '）');
@@ -84,6 +85,17 @@ const shot = async (p, name) => { if (SHOT) { require('fs').mkdirSync(SHOT, { re
   await shot(b.p, '08-player');
   await b.p.click('[data-act="clip-flag"]'); await b.p.waitForTimeout(1200);
   ok(/気になるを取り消す/.test(await b.p.locator('.sheet').innerText()), '「気になる」を押せる');
+
+  console.log('■ サーバーが古い（先に送れない）ときは1回で送る');
+  await b.p.route('**/exec', async (r) => { const body = r.request().postData() || ''; if (body.includes('"op":"clipStart"')) await r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: false, error: 'unknown_op', message: '不明な操作です。' }) }); else await r.continue(); });
+  await b.p.goto(BASE); await b.p.waitForSelector('.board'); await b.p.waitForTimeout(800);
+  await b.p.click('.home-clips .cam-cta'); await b.p.waitForSelector('.cam'); await b.p.waitForTimeout(1200);
+  await b.p.click('[data-act="cam-shoot"]'); await b.p.waitForSelector('[data-act="cam-send"]', { timeout: 8000 });
+  await b.p.click('[data-act="cam-send"]'); await b.p.waitForSelector('.cam', { state: 'detached', timeout: 5000 });
+  await b.p.waitForFunction(() => !localStorage.getItem('kintoreTest.clipQueue'), null, { timeout: 15000 }).catch(() => {});
+  await b.p.waitForTimeout(800);
+  ok(/今日の1本は出しました/.test(await b.p.locator('.home-clips').innerText()), '古いサーバーでも動画といっしょに送れて「出しました」');
+  await b.p.unroute('**/exec');
 
   console.log('■ Android（Chrome）：送ってすぐ閉じても送る');
   await b.p.evaluate(() => localStorage.setItem('kintoreTest.swdev', '1')); // 開発用サーバーでも Service Worker を使う
