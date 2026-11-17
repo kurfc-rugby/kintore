@@ -3431,7 +3431,21 @@ function opClipUpload_(ctx) {
   });
   T.save = Date.now() - t3; T.kb = Math.round(bytes.length / 1024);
   console.log('clipUpload ' + JSON.stringify(T));
+  // テスト環境だけ：直近20回の内訳をしまっておく（ほかの人の実行のログは画面で見られないため）。clipTimes() で見る
+  if (isTestEnv_()) {
+    try {
+      const props = PropertiesService.getScriptProperties();
+      let l = []; try { l = JSON.parse(props.getProperty('CLIP_TIMES') || '[]'); } catch (x) { l = []; }
+      T.at = now; l.push(T); props.setProperty('CLIP_TIMES', JSON.stringify(l.slice(-20)));
+    } catch (x) { /* noop */ }
+  }
   return res;
+}
+/** エディタから実行：動画を送ったときの時間の内訳（ミリ秒）。start=受け取ってから動画の処理まで（ログイン確認など）、check=確認、drive=ドライブに保存、save=記録 */
+function clipTimes() {
+  const l = JSON.parse(PropertiesService.getScriptProperties().getProperty('CLIP_TIMES') || '[]');
+  l.forEach(function (t) { console.log(t.at + '  合計 ' + (t.start + t.check + t.drive + t.save) + 'ms  start ' + t.start + '  check ' + t.check + '  drive ' + t.drive + '  save ' + t.save + '  ' + t.kb + 'KB'); });
+  return l;
 }
 function clipFolder_() {
   const props = PropertiesService.getScriptProperties();
