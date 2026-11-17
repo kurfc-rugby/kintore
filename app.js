@@ -3,7 +3,7 @@
   'use strict';
   const L = window.KLogic;
   const API = window.KINTORE_API;
-  const VERSION = '2.22.0-t25';
+  const VERSION = '2.22.0-t26';
   const WD = ['日', '月', '火', '水', '木', '金', '土'];
   const PERM = { admin: '管理者', manager: 'マネージャー', leader: 'FWリーダー', member: '一般部員', guest: '見るだけ' };
   const MODE = { leader: 'メニュー参加', self: '自主トレ' };
@@ -3074,7 +3074,7 @@
     if (th) wrap.scrollLeft = Math.max(0, th.offsetLeft - wrap.clientWidth + th.offsetWidth + 48);
   }
 
-  // ======================= setlog（v3・テスト環境だけ）：全員ログイン・アプリの中で撮る3秒の動画 =======================
+  // ======================= setlog（v3・テスト環境だけ）：全員ログイン・アプリの中で撮る2秒の動画 =======================
   const gated = () => !!(S.data && (S.data.locked || S.data.needLogin));
   const loginAll = () => !!(S.data && (S.data.loginAll || S.data.needLogin));
   const mePlayer = () => { const m = me(); if (!m || !S.data.members) return null; const x = S.data.members.find((y) => y.id === m.id); return x && x.player && x.active ? x : null; };
@@ -3159,7 +3159,7 @@
   }
   function camHtml() {
     return '<div class="cam" role="dialog" aria-modal="true" aria-label="動画を撮る">' +
-      '<div class="cam-top"><button class="cam-x" data-act="cam-close" aria-label="閉じる">×</button><b>今日の1本（' + CLIP_SEC + '秒・音なし）</b>' +
+      '<div class="cam-top"><button class="cam-x" data-act="cam-close" aria-label="閉じる">×</button><b>今日の1本<small>（' + CLIP_SEC + '秒・音なし）</small></b>' +
       '<button class="cam-flip" data-act="cam-flip" aria-label="カメラを切りかえる">' + icon('reload') + '</button></div>' +
       '<div class="cam-stage"><canvas id="cam-canvas" width="' + CW + '" height="' + CH + '"></canvas><video id="cam-preview" class="cam-preview" playsinline muted loop hidden></video>' +
       '<div class="cam-ring" aria-hidden="true"></div><p class="cam-msg" id="cam-msg"></p></div>' +
@@ -3444,6 +3444,11 @@
       box.insertAdjacentHTML('beforeend', '<button class="btn cam-meter-btn" data-act="cam-meter-close">閉じる</button>');
       return;
     }
+    // 裏で送る係の「送れた」知らせを受け取り損ねても止まらないよう、しばらくしたら端末にまだあるか見る（無ければ送れている）
+    if (M.bg && !t.done && now - (t.press || now) > 8000 && now - (M.peek || 0) > 3000) {
+      M.peek = now;
+      CLIPQ.get(M.at).then((x) => { if (!x && CAM.meter === M) { tlMark(M.at, 'done'); camMeterTick(); } });
+    }
     const press = t.press || now;
     const viaDraft = M.drafting && S.draftRes[M.at] !== 'fail';
     const vStart = viaDraft ? (t.dSend || press) : (t.started || press);
@@ -3604,7 +3609,7 @@
       }
       if (S.draftTimes[item.at]) TM.draft = S.draftTimes[item.at];
       // 下書きで動画がもう届いていれば、送らなくてよい
-      let have = !!(item.startClip && item.startClip.nv === 0);
+      let have = !!(item.startClip && item.startClip.nv === 0) || item.draftRes === 'have' || S.draftRes[item.at] === 'have';
       if (!have && S.drafts[item.at]) { have = await S.drafts[item.at]; if (S.draftTimes[item.at]) TM.draft = S.draftTimes[item.at]; }
       if (have) {
         TM.skip = true; TM.kb = Math.round(item.buf.byteLength / 1024);
@@ -3647,6 +3652,7 @@
         for (const q of qList()) {
           const item = await CLIPQ.get(q.at); // Service Worker が先に送っていたら、もう無い
           const r = item ? await sendClip(item) : 'gone';
+          if (r === 'gone') tlMark(q.at, 'done'); // 裏の係（Service Worker）がもう送っていた（知らせを受け取り損ねても、メーターを終える）
           if (r === 'queued') { left = true; tlMark(q.at, 'queued'); break; }
           await CLIPQ.del(q.at);
           qSet(qList().filter((x) => x.at !== q.at));

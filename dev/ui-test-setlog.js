@@ -262,6 +262,30 @@ const shot = async (p, name) => { if (SHOT) { require('fs').mkdirSync(SHOT, { re
   ok(await g.p.locator('.board').count() === 1 && await g.p.locator('.nav .shoot').count() === 0, '見るだけの人はホームを見られる（「撮る」は出ない）');
   await g.c.close();
 
+  console.log('■ いろいろな画面の大きさ（映像がボタンに重ならない）');
+  for (const [w, h, lab] of [[360, 560, '縦が短いスマホ'], [844, 390, '横向き'], [768, 1024, 'タブレット']]) {
+    const c2 = await browser.newContext({ viewport: { width: w, height: h }, deviceScaleFactor: 1, isMobile: w < 700, hasTouch: true, reducedMotion: 'reduce', permissions: ['camera'] });
+    await c2.route(/fonts\.(googleapis|gstatic)\.com/, (r) => r.abort());
+    await c2.addInitScript(() => { localStorage.setItem('kintoreTest.guided', '1'); });
+    const q = await c2.newPage(); q.on('pageerror', (e) => errors.push(e.message));
+    await q.goto(BASE); await q.waitForSelector('.login-gate');
+    await pick(q, '森 健太');
+    await q.fill('form[data-form="mlogin"] input[name="pin"]', 'mori-pin-1');
+    await q.click('form[data-form="mlogin"] button[type="submit"]'); await q.waitForSelector('.board'); await q.waitForTimeout(600);
+    await q.click('.nav .shoot'); await q.waitForSelector('.cam'); await q.waitForTimeout(900);
+    const lay = await q.evaluate(() => {
+      const r = (s) => document.querySelector(s).getBoundingClientRect();
+      const cv = r('#cam-canvas'), top = r('.cam-top'), bt = r('.cam-shoot'), hint = r('.cam-hint');
+      return { gapTop: cv.top - top.bottom, gapBottom: Math.min(bt.top, hint.top) - cv.bottom, ratio: cv.width / cv.height, inside: cv.left >= 0 && cv.right <= innerWidth };
+    });
+    ok(lay.gapTop >= 0 && lay.gapBottom >= 0 && Math.abs(lay.ratio - 0.75) < 0.02 && lay.inside, lab + '（' + w + '×' + h + '）：映像は3:4のまま、上の帯と下のボタン・案内に重ならない（上' + Math.round(lay.gapTop) + 'px・下' + Math.round(lay.gapBottom) + 'px）');
+    await q.click('[data-act="cam-shoot"]', { timeout: 3000 }).then(() => ok(true, lab + '：「撮る」を押せる')).catch(() => ok(false, lab + '：「撮る」を押せる'));
+    await q.waitForSelector('[data-act="cam-send"]', { timeout: 8000 }).catch(() => {});
+    const lay2 = await q.evaluate(() => { const v = document.getElementById('cam-preview').getBoundingClientRect(), b = document.querySelector('.cam-actions').getBoundingClientRect(); return b.top - v.bottom; });
+    ok(lay2 >= 0, lab + '：撮った動画を見せている間も、「撮り直す」「送る」に重ならない');
+    await c2.close();
+  }
+
   ok(errors.length === 0, '画面のエラーなし' + (errors.length ? '：' + errors.join(' / ') : ''));
   console.log('\n合格 ' + pass + ' / 不合格 ' + fail);
   if (fail) console.log('不合格：\n- ' + failed.join('\n- '));
