@@ -69,6 +69,11 @@ const shot = async (p, name) => { if (SHOT) { require('fs').mkdirSync(SHOT, { re
   ok(await p.locator('.cam').count() === 0 && /今日の1本は出しました/.test(await p.locator('.home-clips').innerText()), '送ると閉じて「今日の1本は出しました」');
   ok(await p.locator('.home-clips .clip-card').count() >= 1, 'ホームの今日の動画に出る');
   await shot(p, '06-home-after');
+  await p.evaluate(() => { location.hash = '#settings'; }); await p.waitForTimeout(600);
+  const tb = await p.locator('.times').first().innerText().catch(() => '');
+  ok(/往復/.test(tb) && /ドライブに保存/.test(tb) && /名簿の確認/.test(tb), '設定に「送った時間の内訳」（テスト環境だけ）');
+  await shot(p, '06b-times');
+  await p.evaluate(() => { location.hash = ''; }); await p.waitForTimeout(500);
 
   console.log('■ 別の部員が見る・気になる');
   const b = await mk();

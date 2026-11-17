@@ -148,12 +148,13 @@ function handle_(req) {
   REQ_ = { tables: {}, ss: null, roster: null, t0: Date.now() };
   try {
     if (!req || typeof req !== 'object') throw err_('bad_request', '送信内容が正しくありません。');
-    ensureSchema_();
-    syncRoster_();
-    maintFromRequest_();
-    if (setlogOn_()) expireClipsMaybe_();
+    const P = REQ_.pre = {}; let pt = Date.now(); const plap = function (k) { const n = Date.now(); P[k] = n - pt; pt = n; };
+    ensureSchema_(); plap('schema');
+    syncRoster_(); plap('roster');
+    maintFromRequest_(); plap('maint');
+    if (setlogOn_()) { expireClipsMaybe_(); plap('expire'); }
     const ctx = { req: req, me: null, view: false };
-    resolveSession_(ctx);
+    resolveSession_(ctx); plap('session');
     const op = String(req.op || '');
     if (setlogOn_() && !ctx.me && !LOGIN_FREE[String(req.op || '')]) throw err_('auth', 'ログインしてから使ってください。');
     const open = { ping: 1, state: 1, login: 1, register: 1, logout: 1, viewLogin: 1, changePin: 1, memberHistory: 1, stamp: 1, pinRequest: 1, pushRegister: 1, pushUnregister: 1, pushTest: 1, pushInbox: 1, pushMove: 1, clientError: 1, feedback: 1 };
@@ -3432,6 +3433,7 @@ function clipAddRow_(me, k, thumb, file, bytes) {
   return { ok: true, clip: clipWire_(c, me), recorded: recorded, pending: canceledDay, records: recordsWire_(k.date, k.date) };
 }
 function clipTimesSave_(T) {
+  if (REQ_ && REQ_.pre) T.pre = REQ_.pre;
   console.log('clip ' + JSON.stringify(T));
   if (!isTestEnv_()) return; // テスト環境だけ：直近20回の内訳をしまう（ほかの人の実行のログは画面で見られないため）。clipTimes() で見る
   try {
@@ -3456,6 +3458,7 @@ function opClipStart_(ctx) {
   }, { keepRoster: true });
   T.save = Date.now() - t3;
   clipTimesSave_(T);
+  if (isTestEnv_()) res.t = T;
   return res;
 }
 function opClipUpload_(ctx) {
@@ -3489,6 +3492,7 @@ function opClipUpload_(ctx) {
   }, { keepRoster: true });
   T.save = Date.now() - t3; T.kb = Math.round(bytes.length / 1024);
   clipTimesSave_(T);
+  if (isTestEnv_()) res.t = T;
   return res;
 }
 /** 動画が届かないまま24時間たった行を取り消す（その日のほかの動画が無ければ「実施した」も外す）。10分に1回まで */
@@ -3533,7 +3537,7 @@ function expireClips_() {
 /** エディタから実行：動画を送ったときの時間の内訳（ミリ秒）。start=受け取ってから動画の処理まで（ログイン確認など）、check=確認、drive=ドライブに保存、save=記録 */
 function clipTimes() {
   const l = JSON.parse(PropertiesService.getScriptProperties().getProperty('CLIP_TIMES') || '[]');
-  l.forEach(function (t) { const k = Object.keys(t).filter(function (x) { return x !== 'at'; }); console.log(t.at + '  合計 ' + (t.start + t.check + t.drive + t.save) + 'ms  ' + k.map(function (x) { return x + ' ' + t[x]; }).join('  ')); });
+  l.forEach(function (t) { const k = Object.keys(t).filter(function (x) { return x !== 'at'; }); console.log(t.at + '  合計 ' + (t.start + t.check + t.drive + t.save) + 'ms  ' + k.map(function (x) { return x + ' ' + (typeof t[x] === 'object' ? JSON.stringify(t[x]) : t[x]); }).join('  ')); });
   return l;
 }
 /** サムネイルを、要る分の行だけ読む（シートは大きいので、まず動画IDの列だけ読んで行を探す） */

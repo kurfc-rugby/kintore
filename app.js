@@ -3,7 +3,7 @@
   'use strict';
   const L = window.KLogic;
   const API = window.KINTORE_API;
-  const VERSION = '2.22.0-t6';
+  const VERSION = '2.22.0-t7';
   const WD = ['日', '月', '火', '水', '木', '金', '土'];
   const PERM = { admin: '管理者', manager: 'マネージャー', leader: 'FWリーダー', member: '一般部員', guest: '見るだけ' };
   const MODE = { leader: 'メニュー参加', self: '自主トレ' };
@@ -2129,6 +2129,8 @@
       [['light', 'ライト'], ['dark', 'ダーク'], ['auto', 'スマホに合わせる']].map((x) => '<button data-act="pref-theme" data-v="' + x[0] + '" aria-pressed="' + (PREF.theme === x[0]) + '">' + x[1] + '</button>').join('') + '</div></div>' +
       '<div class="prefrow"><span>文字の大きさ</span><div class="seg small" role="group" aria-label="文字の大きさ">' +
       SIZES.map((x) => '<button data-act="pref-size" data-v="' + x[0] + '" aria-pressed="' + (PREF.size === x[0]) + '">' + x[1] + '</button>').join('') + '</div></div></section>';
+    // （テスト環境だけ）送った時間の内訳
+    h += timesBlock();
     // 2. 通知・ホーム画面のアプリ
     h += pushBlock() + (isStandalone() ? '' : installBlock());
     // 3. ログイン（スタッフ。全員ログインのときは全員）
@@ -3359,6 +3361,31 @@
     S.clipCache = {};
     loadState().catch(() => {});
   }
+  /** テスト環境だけ：送った時間の内訳を5回分しまっておいて、設定の画面に出す */
+  function saveTimes(tm) { if (!isTestSite()) return; store.set('clipTimes', [tm].concat(store.get('clipTimes', [])).slice(0, 5)); }
+  function timesBlock() {
+    if (!isTestSite() || !loginAll()) return '';
+    const l = store.get('clipTimes', []);
+    const sec = (ms) => (ms == null ? '—' : (ms / 1000).toFixed(1) + '秒');
+    const srvSum = (t) => t ? (t.start || 0) + (t.check || 0) + (t.drive || 0) + (t.save || 0) : null;
+    const PRE = { schema: '準備', roster: '名簿の確認', maint: '毎日の片づけ', expire: '届かない動画の確認', session: 'ログインの確認' };
+    const IN = { wait: '順番待ち', read: '一覧を読む', ins: '動画の行を足す', day: '「実施した」を書く', log: '操作の記録' };
+    const srvRows = (t) => {
+      if (!t) return '<li class="muted">サーバーの内訳なし（サーバーが古い版）</li>';
+      const pre = t.pre ? Object.keys(t.pre).map((k) => '<li>　' + esc(PRE[k] || k) + ' ' + sec(t.pre[k]) + '</li>').join('') : '';
+      const inl = ['wait', 'read', 'ins', 'day', 'log'].filter((k) => t[k] != null).map((k) => '<li>　' + esc(IN[k]) + ' ' + sec(t[k]) + '</li>').join('');
+      return '<li>受け付け（ログイン確認など）' + sec(t.start) + '</li>' + pre + '<li>中身の確認 ' + sec(t.check) + '</li>' +
+        (t.drive ? '<li>ドライブに保存 ' + sec(t.drive) + '</li>' : '') + '<li>記録の書き込み ' + sec(t.save) + '</li>' + inl;
+    };
+    const one = (tm) => {
+      const a = srvSum(tm.startSrv), b = srvSum(tm.uploadSrv);
+      return '<div class="times"><b>' + esc((tm.at || '').slice(5, 16).replace('-', '/')) + '（' + esc(tm.by || '') + 'から・' + (tm.kb || '?') + 'KB）</b>' +
+        (tm.start != null ? '<p>① 先に送る（「実施した」）：往復 ' + sec(tm.start) + '＝サーバー ' + sec(a) + '＋通信やGoogleの起動など ' + (a != null ? sec(tm.start - a) : '—') + '</p><ul>' + srvRows(tm.startSrv) + '</ul>' : '') +
+        '<p>② 動画：スマホで変換 ' + sec(tm.prep) + '、往復 ' + sec(tm.upload) + '＝サーバー ' + sec(b) + '＋通信やGoogleの起動など ' + (b != null ? sec(tm.upload - b) : '—') + '</p><ul>' + srvRows(tm.uploadSrv) + '</ul></div>';
+    };
+    return '<section class="block"><div class="block-h"><h2>送った時間の内訳</h2><span class="count">テスト環境だけ</span></div>' +
+      (l.length ? l.map(one).join('') : '<p class="empty small">まだありません。動画を送るとここに出ます。</p>') + '</section>';
+  }
   /** 送れたあとの画面（自分で送ったとき・Service Worker が送ったとき）
    *  stage：start（先に送った小さいデータが届いた＝「実施した」）／ video（動画も届いた） */
   function clipSentUI(item, r, stage) {
@@ -3385,7 +3412,7 @@
       if (!d.clip || !S.data) return;
       qSet(qList().filter((x) => x.at !== d.at));
       if (d.clip === 'started') { clipSentUI({ at: d.at, thumb: d.thumb }, d.r || {}, 'start'); render(); return; }
-      if (d.clip === 'sent') clipSentUI({ at: d.at, thumb: d.thumb }, d.r || {}, 'video');
+      if (d.clip === 'sent') { if (d.tm) saveTimes(d.tm); clipSentUI({ at: d.at, thumb: d.thumb }, d.r || {}, 'video'); }
       else if (d.clip === 'dropped') { toast(d.message || '送れない動画でした', 'err'); unmarkLocal(d.at); }
       else if (d.clip === 'wait') { qSet(qList().concat(qList().some((x) => x.at === d.at) ? [] : [{ at: d.at }])); }
       S.clipSending = false;
@@ -3397,9 +3424,12 @@
     try {
       // 1. 小さいデータだけ先に送る → すぐ「実施した」
       let one = false; // サーバーが古くて先に送れないときは、動画といっしょに1回で送る
+      const TM = { at: item.at, by: '画面' };
       if (!item.started) {
         let r0 = null;
+        const s0 = Date.now();
         try { r0 = await api('clipStart', { mime: item.mime, thumb: item.thumb, recordedAt: item.at, code: item.code }); } catch (e) { if (e.code !== 'unknown_op') throw e; one = true; }
+        TM.start = Date.now() - s0; if (r0 && r0.t) TM.startSrv = r0.t;
         if (r0) {
           item.started = true;
           await CLIPQ.put(item);
@@ -3408,8 +3438,13 @@
         }
       }
       // 2. 動画を送る
+      const s1 = Date.now();
       const data = await blobToB64(new Blob([item.buf], { type: item.mime }));
+      TM.prep = Date.now() - s1;
+      const s2 = Date.now();
       const r = await api('clipUpload', { mime: item.mime, data: data, thumb: item.thumb, recordedAt: item.at, code: item.code });
+      TM.upload = Date.now() - s2; if (r.t) TM.uploadSrv = r.t; TM.kb = Math.round(item.buf.byteLength / 1024);
+      saveTimes(TM);
       clipSentUI(item, r, one ? 'start' : 'video');
       return 'sent';
     } catch (e) {

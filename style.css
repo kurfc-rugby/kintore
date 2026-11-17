@@ -1501,3 +1501,9 @@ body.cam-open { overflow: hidden; }
 .clip-done.wait { color: #7a5200; }
 .clip-pbar { justify-content: center; }
 .clip-pbar .pnav { margin: 0 auto; }
+
+/* テスト環境：送った時間の内訳 */
+.times { padding: 10px 0; border-top: 1px solid var(--line); font-size: .86rem; }
+.times:first-of-type { border-top: 0; }
+.times p { margin: 6px 0 2px; }
+.times ul { margin: 0; padding-left: 1.2em; color: var(--muted, #555); }
