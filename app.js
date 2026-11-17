@@ -3,7 +3,7 @@
   'use strict';
   const L = window.KLogic;
   const API = window.KINTORE_API;
-  const VERSION = '2.21.0';
+  const VERSION = '2.22.0-t2';
   const WD = ['日', '月', '火', '水', '木', '金', '土'];
   const PERM = { admin: '管理者', manager: 'マネージャー', leader: 'FWリーダー', member: '一般部員', guest: '見るだけ' };
   const MODE = { leader: 'メニュー参加', self: '自主トレ' };
@@ -3112,7 +3112,9 @@
 
   // ---- 撮る（アプリの中のカメラだけ。音なし3秒。日時と今日の数字を動画に入れる） ----
   const CAM = { stream: null, facing: 'environment', raf: 0, rec: null, blob: null, url: '', thumb: '', at: '', mime: '', busy: false };
-  const CLIP_SEC = 3, CW = 360, CH = 640;
+  const CLIP_SEC = 3, CW = 720, CH = 960; // 縦3:横4。スマホのカメラ（4:3）をほぼ切らずに使える
+  const CU = CW / 360; // 文字や帯は幅360のつもりで描いて、この倍率で大きくする
+  const CLIP_BPS = 1500000; // 3秒でおよそ0.5MB
   function pickMime() {
     if (typeof MediaRecorder === 'undefined') return '';
     const list = ['video/mp4;codecs=avc1', 'video/mp4', 'video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm'];
@@ -3143,18 +3145,24 @@
     if (stage === 'ready') return '<p class="cam-hint">押すと' + CLIP_SEC + '秒撮ります。日時と今日の数字は自動で入ります</p><button class="cam-shoot" data-act="cam-shoot" aria-label="撮る"><span></span></button>';
     if (stage === 'rec') return '<p class="cam-hint">撮っています…</p><button class="cam-shoot on" disabled aria-label="撮っています"><span></span></button>';
     if (stage === 'done') return '<div class="cam-actions"><button class="btn" data-act="cam-retake">撮り直す</button><button class="btn primary" data-act="cam-send">送る</button></div>';
-    if (stage === 'send') return '<p class="cam-hint"><span class="spin"></span>送っています…</p>';
     return '';
   }
   async function camStart() {
     camStopStream();
     const v = $('#cam-v');
     try {
-      CAM.stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: CAM.facing, width: { ideal: 720 }, height: { ideal: 1280 } }, audio: false });
+      // 4:3 で頼むと、センターの全体を使うので画角が広くなる（16:9 だと上下が切られて近く見える）
+      CAM.stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: CAM.facing, width: { ideal: 1280 }, height: { ideal: 960 } }, audio: false });
     } catch (e) {
       camMsg('カメラを使えませんでした。ブラウザの設定でカメラを許可してください。');
       return;
     }
+    // ズームできる端末は、いちばん引いた状態にする
+    try {
+      const tr = CAM.stream.getVideoTracks()[0], caps = tr.getCapabilities ? tr.getCapabilities() : {};
+      const cur = (tr.getSettings && tr.getSettings().zoom) || 1;
+      if (caps.zoom && caps.zoom.min < cur) await tr.applyConstraints({ advanced: [{ zoom: caps.zoom.min }] });
+    } catch (e) { /* できない端末はそのまま */ }
     v.srcObject = CAM.stream;
     try { await v.play(); } catch (e) { /* 自動で始まらない端末もある */ }
     camDraw();
@@ -3177,17 +3185,20 @@
         g.drawImage(v, (CW - w) / 2, (CH - h) / 2, w, h);
         g.restore();
       }
-      // 日時と今日の数字（動画に入る）
+      // 日時と今日の数字（動画に入る）。幅360・高さ CH/CU のつもりで描く
+      const W = 360, H = CH / CU;
+      g.save(); g.setTransform(CU, 0, 0, CU, 0, 0);
       const t = jstStamp(), lab = (+t.slice(5, 7)) + '/' + (+t.slice(8, 10)) + '(' + WD[L.dow(t.slice(0, 10))] + ') ' + t.slice(11, 16);
-      g.fillStyle = 'rgba(0,0,0,.55)'; g.fillRect(0, CH - 64, CW, 64);
-      g.fillStyle = '#fff'; g.font = '700 20px system-ui, sans-serif'; g.textBaseline = 'middle';
-      g.fillText(lab, 14, CH - 32);
+      g.fillStyle = 'rgba(0,0,0,.55)'; g.fillRect(0, H - 56, W, 56);
+      g.fillStyle = '#fff'; g.font = '700 19px system-ui, sans-serif'; g.textBaseline = 'middle';
+      g.fillText(lab, 12, H - 28);
       const ct = '今日の数字 ' + code;
-      g.font = '800 22px system-ui, sans-serif';
+      g.font = '800 20px system-ui, sans-serif';
       const tw = g.measureText(ct).width;
-      g.fillStyle = '#8c1d2f'; g.fillRect(CW - tw - 28, CH - 50, tw + 18, 36);
-      g.fillStyle = '#fff'; g.fillText(ct, CW - tw - 19, CH - 32);
-      g.font = '700 13px system-ui, sans-serif'; g.fillStyle = 'rgba(255,255,255,.9)'; g.fillText('KURFC', 14, 22);
+      g.fillStyle = '#8c1d2f'; g.fillRect(W - tw - 26, H - 45, tw + 16, 34);
+      g.fillStyle = '#fff'; g.fillText(ct, W - tw - 18, H - 28);
+      g.font = '700 13px system-ui, sans-serif'; g.fillStyle = 'rgba(255,255,255,.9)'; g.fillText('KURFC', 12, 20);
+      g.restore();
       CAM.raf = requestAnimationFrame(step);
     };
     step();
@@ -3211,7 +3222,7 @@
     let stream;
     try { stream = c.captureStream(30); } catch (e) { stream = CAM.stream; } // 描いた画面を撮れない端末は、カメラをそのまま撮る
     let rec;
-    try { rec = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 900000 }); } catch (e) { rec = new MediaRecorder(stream); }
+    try { rec = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: CLIP_BPS }); } catch (e) { rec = new MediaRecorder(stream); }
     const chunks = [];
     CAM.mime = (rec.mimeType || mime || 'video/webm').split(';')[0];
     CAM.at = jstStamp();
@@ -3236,67 +3247,101 @@
     // 真ん中あたりの絵をサムネイルにする
     setTimeout(() => {
       try {
-        const t = document.createElement('canvas'); t.width = 180; t.height = 320;
-        t.getContext('2d').drawImage(c, 0, 0, 180, 320);
+        const t = document.createElement('canvas'); t.width = 240; t.height = 320;
+        t.getContext('2d').drawImage(c, 0, 0, 240, 320);
         CAM.thumb = t.toDataURL('image/jpeg', 0.6).split(',')[1] || '';
       } catch (e) { CAM.thumb = ''; }
     }, CLIP_SEC * 500);
     setTimeout(() => { if (rec.state === 'recording') rec.stop(); }, CLIP_SEC * 1000);
   }
   const blobToB64 = (blob) => new Promise((ok, ng) => { const r = new FileReader(); r.onload = () => ok(String(r.result).split(',')[1] || ''); r.onerror = ng; r.readAsDataURL(blob); });
+  /** 送る前の動画を端末にしまっておく場所（IndexedDB）。localStorage は本番と共用で小さいので使わない。
+   *  一覧（撮った時刻だけ）は localStorage の clipQueue、中身はここ */
+  const CLIPQ = {
+    db: null, mem: {},
+    open() {
+      if (this.db) return Promise.resolve(this.db);
+      return new Promise((ok) => {
+        try {
+          const r = indexedDB.open(SP + 'clips', 1);
+          r.onupgradeneeded = () => r.result.createObjectStore('q', { keyPath: 'at' });
+          r.onsuccess = () => { this.db = r.result; ok(this.db); };
+          r.onerror = () => ok(null);
+        } catch (e) { ok(null); }
+      });
+    },
+    async run(mode, fn) {
+      const db = await this.open();
+      if (!db) return fn(null);
+      return new Promise((ok) => {
+        try {
+          const tx = db.transaction('q', mode), st = tx.objectStore('q');
+          const r = fn(st);
+          tx.oncomplete = () => ok(r && 'result' in r ? r.result : undefined);
+          tx.onerror = tx.onabort = () => ok(undefined);
+        } catch (e) { ok(undefined); }
+      });
+    },
+    async put(item) { this.mem[item.at] = item; await this.run('readwrite', (st) => st && st.put(item)); },
+    async get(at) { return this.mem[at] || await this.run('readonly', (st) => st && st.get(at)) || null; },
+    async del(at) { delete this.mem[at]; await this.run('readwrite', (st) => st && st.delete(at)); },
+    async clear() { this.mem = {}; await this.run('readwrite', (st) => st && st.clear()); }
+  };
+  const qList = () => store.get('clipQueue', []).filter((x) => x && x.at);
+  const qSet = (l) => { if (l.length) store.set('clipQueue', l); else store.del('clipQueue'); };
+  /** 「送る」：端末にしまってすぐ閉じる。送るのは裏でやる（待たなくていい） */
   async function camSend() {
-    if (!CAM.blob) return;
-    $('#cam-bottom').innerHTML = camButtons('send');
-    const item = { at: CAM.at, mime: CAM.mime, data: await blobToB64(CAM.blob), thumb: CAM.thumb, code: S.data.clipCode };
-    const res = await sendClip(item, true);
-    if (res === 'sent' || res === 'queued') camClose();
-    else $('#cam-bottom').innerHTML = camButtons('done');
-  }
-  /** 動画を送る。電波のせいで送れなかったら端末に残して、あとで送り直す */
-  async function sendClip(item, fresh) {
+    if (!CAM.blob || CAM.sending) return;
+    CAM.sending = true;
     try {
-      const r = await api('clipUpload', { mime: item.mime, data: item.data, thumb: item.thumb, recordedAt: item.at, code: item.code });
+      const item = { at: CAM.at, mime: CAM.mime, buf: await CAM.blob.arrayBuffer(), thumb: CAM.thumb, code: S.data.clipCode };
+      await CLIPQ.put(item);
+      qSet(qList().filter((x) => x.at !== item.at).concat([{ at: item.at }]).slice(-3));
+    } finally { CAM.sending = false; }
+    camClose();
+    toast('送っています。待たずに使っていて大丈夫です');
+    retryClips();
+  }
+  /** 1本送る。結果：sent / queued（電波が悪い・ログインが切れた → あとで送り直す）/ dropped（送れない動画） */
+  async function sendClip(item) {
+    try {
+      const data = await blobToB64(new Blob([item.buf], { type: item.mime }));
+      const r = await api('clipUpload', { mime: item.mime, data: data, thumb: item.thumb, recordedAt: item.at, code: item.code });
       if (r.records) { replaceDay(item.at.slice(0, 10), r.records); setData(S.data); }
       const list = S.data.clips || (S.data.clips = []);
       if (!list.some((c) => c.id === r.clip.id)) list.unshift(r.clip);
       S.clipCache = {};
       S.clipThumb = S.clipThumb || {}; S.clipThumb[r.clip.id] = item.thumb;
-      render();
       toast(r.pending ? '送りました。取り消された日なので、スタッフが確認するまで待ちになります' : '送りました。' + (item.at.slice(0, 10) === S.data.today ? '今日' : mdw(item.at.slice(0, 10))) + 'は「実施した」になりました');
       return 'sent';
     } catch (e) {
-      if (e.code === 'network' || e.code === 'timeout') {
-        if (fresh) {
-          const q = store.get('clipQueue', []).filter((x) => x.at !== item.at);
-          q.push(item);
-          store.set('clipQueue', q.slice(-3));
-          render();
-          toast('電波が弱くて送れませんでした。つながったら自動で送ります', 'err');
-        }
-        return 'queued';
-      }
-      toast(e.message, 'err');
-      return 'error';
+      if (/^(bad_|too_|not_|forbidden)/.test(String(e.code || ''))) { toast(e.message, 'err'); return 'dropped'; }
+      return 'queued';
     }
   }
-  /** 送れていない動画を送り直す（開いたとき・つながったとき） */
+  /** しまってある動画を順に送る（送ったとき・開いたとき・つながったとき） */
   let clipRetrying = false;
-  async function retryClips() {
-    if (clipRetrying || !S.data || !S.data.me || !navigator.onLine) return;
-    const q = store.get('clipQueue', []);
-    if (!q.length) return;
-    clipRetrying = true;
+  async function retryClips(byHand) {
+    if (clipRetrying || !S.data || !S.data.me) return;
+    if (!qList().length) return;
+    if (!navigator.onLine) { if (byHand) toast('電波がありません。つながったら自動で送ります', 'err'); return; }
+    clipRetrying = true; S.clipSending = true; render();
+    let left = false;
     try {
-      for (const item of q) {
-        const r = await sendClip(item, false);
-        if (r === 'queued') break;
-        store.set('clipQueue', store.get('clipQueue', []).filter((x) => x.at !== item.at));
+      for (const q of qList()) {
+        const item = await CLIPQ.get(q.at);
+        const r = item ? await sendClip(item) : 'dropped';
+        if (r === 'queued') { left = true; break; }
+        await CLIPQ.del(q.at);
+        qSet(qList().filter((x) => x.at !== q.at));
       }
-    } finally { clipRetrying = false; render(); }
+    } finally { clipRetrying = false; S.clipSending = false; render(); }
+    if (left) toast('電波が弱くて送れませんでした。つながったら自動で送ります', 'err');
   }
   function queueBanner() {
-    const q = store.get('clipQueue', []);
+    const q = qList();
     if (!q.length || !S.data || !S.data.me) return '';
+    if (S.clipSending) return '<div class="banner" role="status"><span class="spin"></span><span>動画を送っています…</span></div>';
     return '<div class="banner warn" role="status">' + icon('alert') + '<span>送れていない動画が' + q.length + '本あります</span>' +
       '<button class="btn small primary" data-act="clip-retry">送る</button><button class="btn small" data-act="clip-drop">捨てる</button></div>';
   }
@@ -3359,9 +3404,10 @@
     if (list === undefined) setTimeout(() => loadClips('d:' + today, { from: today, to: today }), 0);
     const own = me() ? (S.data.clips || []).filter((c) => c.m === me().id && c.d === today && c.st !== 'canceled') : [];
     const mine = own.some((c) => c.st === 'ok'), wait = !mine && own.length > 0;
+    const held = !mine && !wait && qList().some((x) => x.at.slice(0, 10) === today);
     const q = can('anyStaff') && S.data.clipQueue ? '<a class="banner warn" href="#clips/queue">' + icon('alert') + '<span>確認が要る動画が' + S.data.clipQueue + '本あります</span></a>' : '';
     return q + '<section class="block home-clips"><div class="block-h"><h2>今日の動画</h2><a class="more" href="#clips">すべて見る</a></div>' +
-      (mePlayer() ? (mine ? '<p class="clip-done">' + icon('check') + '今日の1本は出しました</p>' : wait ? '<p class="clip-done wait">確認待ちです。スタッフが確認すると「実施した」になります</p>' : '<button class="btn primary wide cam-cta" data-act="cam-open">' + icon('cam') + '今日の1本を撮る（3秒）</button>') : '') +
+      (mePlayer() ? (mine ? '<p class="clip-done">' + icon('check') + '今日の1本は出しました</p>' : wait ? '<p class="clip-done wait">確認待ちです。スタッフが確認すると「実施した」になります</p>' : held ? '<p class="clip-done wait">' + (S.clipSending ? '<span class="spin"></span>今日の1本を送っています…' : '今日の1本はまだ送れていません。電波のよい所で「送る」を押してください') + '</p>' : '<button class="btn primary wide cam-cta" data-act="cam-open">' + icon('cam') + '今日の1本を撮る（3秒）</button>') : '') +
       (Array.isArray(list) && list.length ? '<div class="clip-strip">' + list.slice(0, 12).map((c) => clipCard(c)).join('') + '</div>' : Array.isArray(list) ? '<p class="empty small">まだだれも出していません。</p>' : '') + '</section>';
   }
   /** 部員ページの動画（1か月） */
@@ -3576,7 +3622,7 @@
       try { await api('logout', {}); } catch (e) { /* 通信できなくても端末側は消す */ }
       const all = loginAll();
       S.token = ''; store.del('token'); pendingOldPin = '';
-      if (all) { store.del('state2'); store.del('clipQueue'); S.clipCache = {}; S.clipThumb = {}; S.clipUrl = {}; }
+      if (all) { store.del('state2'); store.del('clipQueue'); CLIPQ.clear(); S.clipCache = {}; S.clipThumb = {}; S.clipUrl = {}; }
       closeSheet(); await loadState(); render(); toast('ログアウトしました');
     },
     'pin-change': () => openPinChange(false),
@@ -3847,8 +3893,8 @@
     'cam-shoot': () => camShoot(),
     'cam-retake': () => { CAM.blob = null; const pv = $('#cam-preview'); if (pv) { pv.pause(); pv.hidden = true; } $('#cam-canvas').hidden = false; $('#cam-bottom').innerHTML = camButtons('ready'); camStart(); },
     'cam-send': (el) => busy(el, camSend),
-    'clip-retry': (el) => busy(el, retryClips),
-    'clip-drop': () => { if (!confirm('送れていない動画を捨てますか？（その日の「実施した」は付きません）')) return; store.del('clipQueue'); render(); },
+    'clip-retry': (el) => busy(el, () => retryClips(true)),
+    'clip-drop': () => { if (!confirm('送れていない動画を捨てますか？（その日の「実施した」は付きません）')) return; store.del('clipQueue'); CLIPQ.clear(); render(); },
     'clips-tab': (el) => { location.hash = el.dataset.v === 'queue' ? '#clips/queue' : '#clips'; },
     'clip-day': (el) => { const d = L.addDays(S.clipDay || S.data.today, +el.dataset.v); if (d > S.data.today) return; S.clipDay = d; vt(render, +el.dataset.v < 0 ? 'prev' : 'next'); },
     'clip-open': (el) => openClip(el.dataset.id),
@@ -4329,6 +4375,6 @@
     render();
     if (S.data && !gated() && !store.get('guided', 0)) openGuide(0);
     else if (S.data && !gated()) setTimeout(maybeRoleTour, 1200);
-    if (S.data && S.data.loginAll) { retryClips(); window.addEventListener('online', retryClips); }
+    if (S.data && S.data.loginAll) { retryClips(); window.addEventListener('online', () => retryClips()); }
   })();
 })();

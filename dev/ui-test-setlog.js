@@ -56,7 +56,13 @@ const shot = async (p, name) => { if (SHOT) { require('fs').mkdirSync(SHOT, { re
   const pv = await p.evaluate(() => { const v = document.getElementById('cam-preview'); return { hidden: v.hidden, src: !!v.src }; });
   ok(!pv.hidden && pv.src, '3秒で止まり、撮った動画をくり返し見せる');
   await shot(p, '05-preview');
+  const cv = await p.evaluate(() => { const c = document.getElementById('cam-canvas'); return c.width + 'x' + c.height; });
+  ok(cv === '720x960', '撮る画面は縦3:横4・720x960（' + cv + '）');
+  const t0 = Date.now();
   await p.click('[data-act="cam-send"]'); await p.waitForSelector('.cam', { state: 'detached', timeout: 15000 }).catch(() => {});
+  ok(Date.now() - t0 < 1500, '「送る」を押すとすぐ閉じる（送るのは裏で）');
+  ok(/送っています/.test(await p.locator('#main').innerText()), '送っている間は「送っています」と出る');
+  await p.waitForFunction(() => !localStorage.getItem('kintoreTest.clipQueue'), null, { timeout: 15000 }).catch(() => {});
   await p.waitForTimeout(800);
   ok(await p.locator('.cam').count() === 0 && /今日の1本は出しました/.test(await p.locator('.home-clips').innerText()), '送ると閉じて「今日の1本は出しました」');
   ok(await p.locator('.home-clips .clip-card').count() >= 1, 'ホームの今日の動画に出る');
@@ -116,6 +122,7 @@ const shot = async (p, name) => { if (SHOT) { require('fs').mkdirSync(SHOT, { re
     await p.click('[data-act="cam-send"]'); await p.waitForTimeout(1500);
     ok(await p.evaluate(() => JSON.parse(localStorage.getItem('kintoreTest.clipQueue') || '[]').length) === 1, '送れなかった動画は端末に残る');
     ok(/送れていない動画が1本/.test(await p.locator('#main').innerText()), '「送れていない動画が1本あります」');
+    ok(await p.evaluate(() => new Promise((ok) => { const r = indexedDB.open('kintoreTest.clips'); r.onsuccess = () => { const q = r.result.transaction('q').objectStore('q').count(); q.onsuccess = () => ok(q.result); }; r.onerror = () => ok(-1); })) === 1, '動画の中身は端末（IndexedDB）にしまってある');
     await p.unroute('**/exec');
     await p.click('[data-act="clip-retry"]'); await p.waitForTimeout(2500);
     ok(await p.evaluate(() => JSON.parse(localStorage.getItem('kintoreTest.clipQueue') || '[]').length) === 0, 'つながったら送れる');

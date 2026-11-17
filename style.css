@@ -1453,7 +1453,7 @@ body.cam-open { overflow: hidden; }
 .cam-x, .cam-flip { width: 44px; height: 44px; border: 0; border-radius: 50%; background: rgba(255,255,255,.14); color: #fff; font-size: 24px; line-height: 1; display: grid; place-items: center; }
 .cam-flip .ic { width: 22px; height: 22px; }
 .cam-stage { position: relative; flex: 1; min-height: 0; display: grid; place-items: center; padding: 6px 12px; }
-.cam-stage canvas, .cam-stage video { max-width: 100%; max-height: 100%; aspect-ratio: 9 / 16; height: 100%; object-fit: contain; border-radius: 14px; background: #111; }
+.cam-stage canvas, .cam-stage video { width: auto; height: auto; max-width: 100%; max-height: 100%; aspect-ratio: 3 / 4; object-fit: contain; border-radius: 14px; background: #111; }
 .cam-msg { position: absolute; left: 24px; right: 24px; top: 40%; text-align: center; font-weight: 700; }
 .cam-msg:empty { display: none; }
 .cam-ring { position: absolute; inset: 6px 12px; border-radius: 14px; pointer-events: none; box-shadow: inset 0 0 0 0 transparent; }
@@ -1475,7 +1475,7 @@ body.cam-open { overflow: hidden; }
 .clip-strip { display: grid; grid-auto-flow: column; grid-auto-columns: 92px; gap: 10px; overflow-x: auto; padding-bottom: 4px; scroll-snap-type: x proximity; }
 .clip-strip .clip-card { scroll-snap-align: start; }
 .clip-card { display: flex; flex-direction: column; gap: 4px; padding: 0; border: 0; background: none; text-align: left; color: var(--ink); font: inherit; min-width: 0; }
-.clip-th { position: relative; display: block; aspect-ratio: 9 / 16; border-radius: 10px; overflow: hidden; background: var(--ground); box-shadow: inset 0 0 0 1px var(--line); }
+.clip-th { position: relative; display: block; aspect-ratio: 3 / 4; border-radius: 10px; overflow: hidden; background: var(--ground); box-shadow: inset 0 0 0 1px var(--line); }
 .clip-th img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .clip-ph { position: absolute; inset: 0; display: grid; place-items: center; color: var(--sub); }
 .clip-tag { position: absolute; left: 4px; bottom: 4px; padding: 2px 6px; border-radius: 6px; font-size: 11px; font-weight: 800; background: #fff; color: var(--ink); }
@@ -1489,7 +1489,7 @@ body.cam-open { overflow: hidden; }
 .home-clips .cam-cta .ic, .toolbar .btn .ic { width: 18px; height: 18px; }
 .clip-done { display: flex; align-items: center; gap: 6px; margin: 0 0 12px; font-weight: 700; color: var(--ok, #1f7a4d); }
 .clip-done .ic { width: 18px; height: 18px; }
-.clip-player { position: relative; display: grid; place-items: center; margin: 0 auto 12px; width: min(100%, 300px); aspect-ratio: 9 / 16; border-radius: 14px; overflow: hidden; background: #111; }
+.clip-player { position: relative; display: grid; place-items: center; margin: 0 auto 12px; width: min(100%, 360px); aspect-ratio: 3 / 4; border-radius: 14px; overflow: hidden; background: #111; }
 .clip-player video { width: 100%; height: 100%; object-fit: cover; }
 .clip-load { position: absolute; inset: auto 0 12px; margin: 0; text-align: center; color: #fff; font-size: 13px; display: flex; gap: 6px; justify-content: center; align-items: center; }
 .clip-load[hidden] { display: none; }

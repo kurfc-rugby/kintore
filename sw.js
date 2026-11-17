@@ -5,7 +5,7 @@
  *  サーバー（script.google.com）への通信 … 触らない（いつもネット）
  *  通知（push）… 中身は来ないので、サーバー（pushInbox）に取りに行って表示する
  * 版を上げるときは VERSION と、index.html の ?v= を一緒に変える。 */
-const VERSION = '2.21.0';
+const VERSION = '2.22.0-t2';
 try { importScripts('config.js?v=' + VERSION); } catch (e) { /* 読めなくても画面はしまっておいたもので動く */ }
 // テスト環境（KINTORE_STORE = 'kintoreTest'）は、本番としまう場所の名前を分ける（同じ github.io の中なので）
 const CPREFIX = (self.KINTORE_STORE || 'kintore') + '-';
