@@ -3,7 +3,7 @@
   'use strict';
   const L = window.KLogic;
   const API = window.KINTORE_API;
-  const VERSION = '2.22.0-t3';
+  const VERSION = '2.22.0-t4';
   const WD = ['日', '月', '火', '水', '木', '金', '土'];
   const PERM = { admin: '管理者', manager: 'マネージャー', leader: 'FWリーダー', member: '一般部員', guest: '見るだけ' };
   const MODE = { leader: 'メニュー参加', self: '自主トレ' };
@@ -3247,9 +3247,9 @@
     // 真ん中あたりの絵をサムネイルにする
     setTimeout(() => {
       try {
-        const t = document.createElement('canvas'); t.width = 240; t.height = 320;
-        t.getContext('2d').drawImage(c, 0, 0, 240, 320);
-        CAM.thumb = t.toDataURL('image/jpeg', 0.6).split(',')[1] || '';
+        const t = document.createElement('canvas'); t.width = 180; t.height = 240; // 一覧は小さく出すので、これで足りる（軽いほど一覧が早い）
+        t.getContext('2d').drawImage(c, 0, 0, 180, 240);
+        CAM.thumb = t.toDataURL('image/jpeg', 0.62).split(',')[1] || '';
       } catch (e) { CAM.thumb = ''; }
     }, CLIP_SEC * 500);
     setTimeout(() => { if (rec.state === 'recording') rec.stop(); }, CLIP_SEC * 1000);

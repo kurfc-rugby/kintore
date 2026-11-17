@@ -335,7 +335,7 @@ function rowArray_(t, o) {
   return arr;
 }
 /** 足すだけの表（操作の記録）。シート全体を読まずに、最後の行のあとへ書く */
-const APPEND_ONLY = { logs: 1 };
+const APPEND_ONLY = { logs: 1, clipThumbs: 1 }; // 書き足すだけのシート（全部を読まずに最後に足す）
 function insert_(tkey, objs) {
   if (!objs.length) return;
   if (APPEND_ONLY[tkey] && !(REQ_ && REQ_.tables[tkey])) { append_(tkey, objs); return; }
@@ -392,7 +392,8 @@ function removeMany_(tkey, list) {
   list.slice().sort(function (a, b) { return b._r - a._r; }).forEach(function (o) { remove_(tkey, o); });
 }
 
-function withLock_(fn) {
+function withLock_(fn, opt) {
+  const keep = !!(opt && opt.keepRoster); // 名簿（会計アプリ）を読み直さない（直前に確かめた名簿で足りるとき。読み直すと数秒かかる）
   const lock = LockService.getScriptLock();
   try {
     lock.waitLock(25000);
@@ -400,13 +401,16 @@ function withLock_(fn) {
     throw err_('busy', 'いま混み合っています。少し待ってもう一度試してください。');
   }
   try {
-    if (REQ_) { REQ_.tables = {}; REQ_.roster = null; REQ_.members = null; REQ_.rinfo = null; REQ_.fresh = true; REQ_.goalHist = null; }
+    if (REQ_) {
+      REQ_.tables = {}; REQ_.goalHist = null;
+      if (!keep) { REQ_.roster = null; REQ_.members = null; REQ_.rinfo = null; REQ_.fresh = true; }
+    }
     const res = fn();
     SpreadsheetApp.flush();
     bumpDataVersion_();
     return res;
   } finally {
-    if (REQ_) { REQ_.roster = null; REQ_.members = null; REQ_.fresh = false; REQ_.goalHist = null; }
+    if (REQ_) { if (!keep) { REQ_.roster = null; REQ_.members = null; } REQ_.fresh = false; REQ_.goalHist = null; }
     lock.releaseLock();
   }
 }
@@ -3416,19 +3420,26 @@ function opClipUpload_(ctx) {
   T.drive = Date.now() - t2;
   const t3 = Date.now();
   const res = withLock_(function () {
+    let tt = Date.now(); const lap = function (k) { const n = Date.now(); T[k] = n - tt; tt = n; };
+    lap('wait');
     const t = table_('clips');
     const dup2 = t.rows.filter(function (c) { return c.memberId === me.id && c.recordedAt === at; })[0];
     if (dup2) { try { file.setTrashed(true); } catch (x) { /* noop */ } return { ok: true, clip: clipWire_(dup2, me), again: true }; }
     const canceledDay = t.rows.some(function (c) { return c.memberId === me.id && c.date === date && c.status === 'canceled'; });
     const c = { id: 'C' + Utilities.getUuid().replace(/-/g, '').slice(0, 12), memberId: me.id, date: date, recordedAt: at, uploadedAt: now, fileId: file.getId(),
       mime: mime, size: String(bytes.length), code: String(clipCode_(date)), status: canceledDay ? 'pending' : 'ok', flags: '[]', canceledBy: '', canceledAt: '', reason: '', checkedBy: '', deletedAt: '' };
+    lap('read');
     insert_('clips', [c]);
     insert_('clipThumbs', [{ id: c.id, thumb: thumb }]);
+    lap('ins');
     let recorded = false;
     if (!canceledDay) { const r = saveDay_(me, date, [{ memberId: me.id, done: true }]); recorded = r.saved + r.updated > 0 || r.unchanged > 0; }
+    lap('day');
     log_(me, '動画を出した', m.name + ' ' + date + (canceledDay ? '（確認待ち）' : ''));
-    return { ok: true, clip: clipWire_(c, me), recorded: recorded, pending: canceledDay, records: recordsWire_(date, date) };
-  });
+    const out = { ok: true, clip: clipWire_(c, me), recorded: recorded, pending: canceledDay, records: recordsWire_(date, date) };
+    lap('log');
+    return out;
+  }, { keepRoster: true });
   T.save = Date.now() - t3; T.kb = Math.round(bytes.length / 1024);
   console.log('clipUpload ' + JSON.stringify(T));
   // テスト環境だけ：直近20回の内訳をしまっておく（ほかの人の実行のログは画面で見られないため）。clipTimes() で見る
@@ -3444,8 +3455,29 @@ function opClipUpload_(ctx) {
 /** エディタから実行：動画を送ったときの時間の内訳（ミリ秒）。start=受け取ってから動画の処理まで（ログイン確認など）、check=確認、drive=ドライブに保存、save=記録 */
 function clipTimes() {
   const l = JSON.parse(PropertiesService.getScriptProperties().getProperty('CLIP_TIMES') || '[]');
-  l.forEach(function (t) { console.log(t.at + '  合計 ' + (t.start + t.check + t.drive + t.save) + 'ms  start ' + t.start + '  check ' + t.check + '  drive ' + t.drive + '  save ' + t.save + '  ' + t.kb + 'KB'); });
+  l.forEach(function (t) { const k = Object.keys(t).filter(function (x) { return x !== 'at'; }); console.log(t.at + '  合計 ' + (t.start + t.check + t.drive + t.save) + 'ms  ' + k.map(function (x) { return x + ' ' + t[x]; }).join('  ')); });
   return l;
+}
+/** サムネイルを、要る分の行だけ読む（シートは大きいので、まず動画IDの列だけ読んで行を探す） */
+function clipThumbsFor_(ids) {
+  const out = {};
+  if (!Object.keys(ids).length) return out;
+  if (REQ_ && REQ_.tables.clipThumbs) { REQ_.tables.clipThumbs.rows.forEach(function (t) { if (ids[t.id]) out[t.id] = t.thumb; }); return out; }
+  const sheet = ss_().getSheetByName(DEF.clipThumbs.name);
+  if (!sheet) return out;
+  const last = sheet.getLastRow();
+  if (last < 2) return out;
+  const width = Math.max(sheet.getLastColumn(), 2);
+  const head = sheet.getRange(1, 1, 1, width).getValues()[0].map(function (h) { return String(h).trim(); });
+  const ci = head.indexOf(DEF.clipThumbs.cols[0][1]), ct = head.indexOf(DEF.clipThumbs.cols[1][1]);
+  if (ci < 0 || ct < 0) return out;
+  const idCol = sheet.getRange(2, ci + 1, last - 1, 1).getValues();
+  let lo = 0, hi = -1;
+  idCol.forEach(function (r, i) { if (ids[String(r[0])]) { if (hi < 0) lo = i; hi = i; } });
+  if (hi < 0) return out;
+  const vals = sheet.getRange(2 + lo, 1, hi - lo + 1, width).getValues();
+  vals.forEach(function (r) { const id = String(r[ci]); if (ids[id]) out[id] = String(r[ct]); });
+  return out;
 }
 function clipFolder_() {
   const props = PropertiesService.getScriptProperties();
@@ -3470,8 +3502,7 @@ function opClips_(ctx) {
   list = list.sort(function (a, b) { return a.recordedAt < b.recordedAt ? 1 : -1; }).slice(0, 200);
   const ids = {};
   list.forEach(function (c) { ids[c.id] = 1; });
-  const th = {};
-  table_('clipThumbs').rows.forEach(function (t) { if (ids[t.id]) th[t.id] = t.thumb; });
+  const th = clipThumbsFor_(ids);
   return { ok: true, from: from, to: to, clips: list.map(function (c) { const w = clipWire_(c, me); w.th = c.deletedAt ? '' : (th[c.id] || ''); return w; }) };
 }
 function opClipVideo_(ctx) {
