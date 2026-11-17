@@ -3,7 +3,7 @@
   'use strict';
   const L = window.KLogic;
   const API = window.KINTORE_API;
-  const VERSION = '2.22.0-t12';
+  const VERSION = '2.22.0-t13';
   const WD = ['日', '月', '火', '水', '木', '金', '土'];
   const PERM = { admin: '管理者', manager: 'マネージャー', leader: 'FWリーダー', member: '一般部員', guest: '見るだけ' };
   const MODE = { leader: 'メニュー参加', self: '自主トレ' };
@@ -3285,9 +3285,17 @@
         const r = await api('clipDraft', { mime: mime, data: data, thumb: thumb, recordedAt: at, code: code });
         tlMark(at, 'dDone');
         S.draftTimes[at] = { ms: Date.now() - t0, t: r.t || null, kb: Math.round(blob.size / 1024) };
+        noteDraft(at, r.attached || r.again ? 'have' : 'draft');
         return true;
-      } catch (e) { tlMark(at, 'dFail'); return false; }
+      } catch (e) { tlMark(at, 'dFail'); noteDraft(at, 'fail'); return false; }
     })();
+  }
+  /** 下書きの結果を、しまってある動画（裏で送る係も見る）に書いておく。have＝動画は出した行についた／draft＝下書きの行ができた／fail＝送れなかった */
+  S.draftRes = {};
+  async function noteDraft(at, res) {
+    S.draftRes[at] = res;
+    const it = await CLIPQ.get(at);
+    if (it) { it.draftRes = res; await CLIPQ.put(it); }
   }
   function dropDraft(at) {
     const p = at && S.drafts[at];
@@ -3359,7 +3367,7 @@
     let item;
     try {
       // token・device も入れておく（Service Worker が画面なしで送るときに使う）
-      item = { at: CAM.at, mime: CAM.mime, buf: await CAM.blob.arrayBuffer(), thumb: CAM.thumb, code: S.data.clipCode, token: S.token || '', device: DEVICE, drafting: !!S.drafts[CAM.at] };
+      item = { at: CAM.at, mime: CAM.mime, buf: await CAM.blob.arrayBuffer(), thumb: CAM.thumb, code: S.data.clipCode, token: S.token || '', device: DEVICE, drafting: !!S.drafts[CAM.at], draftRes: S.draftRes[CAM.at] || '' };
       await CLIPQ.put(item);
       qSet(qList().filter((x) => x.at !== item.at).concat([{ at: item.at }]).slice(-3));
     } finally { CAM.sending = false; }
