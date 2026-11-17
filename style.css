@@ -1430,3 +1430,73 @@ html[data-size="l"] .seg.small button, html[data-size="xl"] .seg.small button { 
 .banner.draft { flex-wrap: wrap; }
 .banner.draft span { flex: 1 1 60%; }
 .banner.draft .btn { flex: none; }
+
+/* ---------- setlog（テスト環境）：ログイン・撮る・動画 ---------- */
+.login-gate { justify-content: flex-start; padding-top: max(48px, 10vh); }
+.login-gate .seg { width: 100%; max-width: 320px; }
+.login-gate .seg button { flex: 1; }
+.login-gate .login-name { width: 100%; max-width: 320px; text-align: left; }
+.login-gate .hint { max-width: 320px; font-size: 13px; }
+.login-gate .lead-line { max-width: 320px; text-align: left; }
+.test-tag { margin: -8px 0 0; padding: 2px 10px; border-radius: 99px; background: #fff4d6; color: #7a5200; font-size: 12px; font-weight: 800; }
+.nav .shoot { flex: 1; min-width: 0; height: var(--nav-h); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; font: inherit; font-size: 10px; font-weight: 700;
+  color: var(--enji); background: none; border: 0; padding: 0; position: relative; }
+.nav .shoot .ic { background: var(--enji-bg); color: #fff; border-radius: 50%; width: 32px; height: 32px; padding: 7px; margin-top: -4px; box-shadow: 0 0 0 3px var(--paper), 0 0 0 4px var(--line); }
+@media (min-width: 960px) {
+  .nav .shoot { flex: none; flex-direction: row; justify-content: flex-start; gap: 12px; height: 46px; padding: 0 12px; font-size: 14px; border-radius: 8px; }
+  .nav .shoot .ic { width: 22px; height: 22px; padding: 4px; margin: 0; box-shadow: none; }
+}
+/* 撮影画面（全画面） */
+body.cam-open { overflow: hidden; }
+.cam { position: fixed; inset: 0; z-index: 90; display: flex; flex-direction: column; background: #000; color: #fff; padding: var(--safe-t) 0 var(--safe-b); }
+.cam-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; height: 52px; padding: 0 8px; font-size: 15px; }
+.cam-x, .cam-flip { width: 44px; height: 44px; border: 0; border-radius: 50%; background: rgba(255,255,255,.14); color: #fff; font-size: 24px; line-height: 1; display: grid; place-items: center; }
+.cam-flip .ic { width: 22px; height: 22px; }
+.cam-stage { position: relative; flex: 1; min-height: 0; display: grid; place-items: center; padding: 6px 12px; }
+.cam-stage canvas, .cam-stage video { max-width: 100%; max-height: 100%; aspect-ratio: 9 / 16; height: 100%; object-fit: contain; border-radius: 14px; background: #111; }
+.cam-msg { position: absolute; left: 24px; right: 24px; top: 40%; text-align: center; font-weight: 700; }
+.cam-msg:empty { display: none; }
+.cam-ring { position: absolute; inset: 6px 12px; border-radius: 14px; pointer-events: none; box-shadow: inset 0 0 0 0 transparent; }
+.cam.rec .cam-ring { box-shadow: inset 0 0 0 4px #e5484d; }
+.cam-bottom { min-height: 136px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; padding: 8px 16px 14px; }
+.cam-hint { margin: 0; font-size: 13px; color: rgba(255,255,255,.82); text-align: center; display: flex; align-items: center; gap: 8px; }
+.cam-shoot { width: 76px; height: 76px; border-radius: 50%; border: 4px solid #fff; background: transparent; display: grid; place-items: center; padding: 0; }
+.cam-shoot span { width: 58px; height: 58px; border-radius: 50%; background: #e5484d; transition: transform .2s ease, border-radius .2s ease; }
+.cam-shoot.on span { transform: scale(.55); border-radius: 10px; }
+@media (prefers-reduced-motion: no-preference) {
+  .cam.rec .cam-ring { animation: cam-pulse 1s ease-in-out infinite; }
+}
+@keyframes cam-pulse { 50% { box-shadow: inset 0 0 0 7px #e5484d; } }
+.cam-actions { display: flex; gap: 12px; width: 100%; max-width: 360px; }
+.cam-actions .btn { flex: 1; min-height: 52px; font-size: 16px; }
+.cam .btn:not(.primary) { background: rgba(255,255,255,.14); color: #fff; border-color: transparent; }
+/* 動画の一覧 */
+.clip-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); gap: 10px; }
+.clip-strip { display: grid; grid-auto-flow: column; grid-auto-columns: 92px; gap: 10px; overflow-x: auto; padding-bottom: 4px; scroll-snap-type: x proximity; }
+.clip-strip .clip-card { scroll-snap-align: start; }
+.clip-card { display: flex; flex-direction: column; gap: 4px; padding: 0; border: 0; background: none; text-align: left; color: var(--ink); font: inherit; min-width: 0; }
+.clip-th { position: relative; display: block; aspect-ratio: 9 / 16; border-radius: 10px; overflow: hidden; background: var(--ground); box-shadow: inset 0 0 0 1px var(--line); }
+.clip-th img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.clip-ph { position: absolute; inset: 0; display: grid; place-items: center; color: var(--sub); }
+.clip-tag { position: absolute; left: 4px; bottom: 4px; padding: 2px 6px; border-radius: 6px; font-size: 11px; font-weight: 800; background: #fff; color: var(--ink); }
+.clip-tag.wait { background: #fff4d6; color: #7a5200; }
+.clip-tag.no { background: #fde8e8; color: #9b1c1c; }
+.clip-tag.flag { background: #fde8e8; color: #9b1c1c; }
+.clip-meta { display: flex; flex-direction: column; min-width: 0; font-size: 13px; line-height: 1.3; }
+.clip-meta b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.clip-meta small { color: var(--sub); font-size: 12px; }
+.home-clips .cam-cta { margin-bottom: 12px; min-height: 48px; }
+.home-clips .cam-cta .ic, .toolbar .btn .ic { width: 18px; height: 18px; }
+.clip-done { display: flex; align-items: center; gap: 6px; margin: 0 0 12px; font-weight: 700; color: var(--ok, #1f7a4d); }
+.clip-done .ic { width: 18px; height: 18px; }
+.clip-player { position: relative; display: grid; place-items: center; margin: 0 auto 12px; width: min(100%, 300px); aspect-ratio: 9 / 16; border-radius: 14px; overflow: hidden; background: #111; }
+.clip-player video { width: 100%; height: 100%; object-fit: cover; }
+.clip-load { position: absolute; inset: auto 0 12px; margin: 0; text-align: center; color: #fff; font-size: 13px; display: flex; gap: 6px; justify-content: center; align-items: center; }
+.clip-load[hidden] { display: none; }
+.clip-acts { justify-content: center; margin-top: 12px; }
+.clip-cancel { margin-top: 12px; }
+.note.err { color: #9b1c1c; }
+.btn.danger { color: #9b1c1c; border-color: #f0c4c4; }
+.clip-done.wait { color: #7a5200; }
+.clip-pbar { justify-content: center; }
+.clip-pbar .pnav { margin: 0 auto; }

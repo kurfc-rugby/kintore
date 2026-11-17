@@ -108,6 +108,7 @@ function create(opts) {
     return { get: (k) => (k in c ? c[k] : null), put: (k, v) => { size(v); c[k] = String(v); }, remove: (k) => { delete c[k]; },
       putAll: (o) => { Object.keys(o).forEach((k) => { size(o[k]); c[k] = String(o[k]); }); },
       getAll: (keys) => { const o = {}; keys.forEach((k) => { if (k in c) o[k] = c[k]; }); return o; },
+      removeAll: (keys) => { keys.forEach((k) => delete c[k]); },
       clear: () => { Object.keys(c).forEach((k) => delete c[k]); }, _all: c };
   }
   function lockStore(name) {
@@ -126,7 +127,7 @@ function create(opts) {
     computeDigest: (alg, s) => Array.from(crypto.createHash('sha256').update(typeof s === 'string' ? Buffer.from(s, 'utf8') : Buffer.from(s.map((b) => b & 255))).digest()).map((b) => (b > 127 ? b - 256 : b)),
     computeHmacSha256Signature: (v, k) => Array.from(crypto.createHmac('sha256', Buffer.from(k.map((b) => b & 255))).update(Buffer.from(v.map((b) => b & 255))).digest()).map((b) => (b > 127 ? b - 256 : b)),
     getUuid: () => crypto.randomUUID(),
-    newBlob: (data, type) => mkBlob(typeof data === 'string' ? Buffer.from(data, 'utf8') : Buffer.from(data.map((b) => b & 255)), type),
+    newBlob: (data, type, name) => { const b = mkBlob(typeof data === 'string' ? Buffer.from(data, 'utf8') : Buffer.from(data.map((x) => x & 255)), type); b.getName = () => name || ''; return b; },
     gzip: (b) => mkBlob(zlib.gzipSync(b._buf), 'application/x-gzip'),
     ungzip: (b) => mkBlob(zlib.gunzipSync(b._buf), ''),
     base64Encode: (bytes) => Buffer.from(bytes.map((b) => b & 255)).toString('base64'),
@@ -142,6 +143,7 @@ function create(opts) {
     }
   };
   let bookN = 0;
+  const drive = { files: {}, folders: {} };
   const SpreadsheetApp = {
     getActiveSpreadsheet: () => ss,
     create: (name) => { const b = new Spreadsheet('MOCK_BOOK_' + (++bookN)); b.name = name; books[b.id] = b; return b; },
@@ -170,6 +172,16 @@ function create(opts) {
   const quiet = { log: console.log, warn: console.warn, error: process.env.DEBUG ? console.error : () => {} };
   const sandbox = {
     console: quiet, Date: FakeDate, JSON, Math, Object, Array, String, Number, parseInt, parseFloat, isNaN, Error, RegExp, BigInt, isFinite,
+    DriveApp: (() => {
+      let n = 0;
+      const mkFile = (blob, folder) => { const id = 'FILE_' + (++n); const f = { id, blob, folder, trashed: false, getId: () => id, getBlob: () => blob, setTrashed: (v) => { f.trashed = !!v; } }; drive.files[id] = f; return f; };
+      const mkFolder = (name) => { const id = 'FOLDER_' + (++n); const f = { id, name, getId: () => id, createFile: (blob) => mkFile(blob, id) }; drive.folders[id] = f; return f; };
+      return {
+        createFolder: (name) => mkFolder(name),
+        getFolderById: (id) => { const f = drive.folders[id]; if (!f) throw new Error('no folder'); return f; },
+        getFileById: (id) => { const f = drive.files[id]; if (!f || f.trashed) throw new Error('no file'); return f; }
+      };
+    })(),
     UrlFetchApp: { fetchAll: (reqs) => reqs.map((r) => { push.sent.push(r); const code = push.respond(r); return { getResponseCode: () => code }; }) },
     ScriptApp: { getProjectTriggers: () => push.triggers.slice(), deleteTrigger: (t) => { push.triggers = push.triggers.filter((x) => x !== t); },
       newTrigger: (fn) => { const b = { timeBased: () => b, everyHours: () => b, create: () => { const t = { getHandlerFunction: () => fn }; push.triggers.push(t); return t; } }; return b; } },
@@ -182,7 +194,7 @@ function create(opts) {
   if (opts.withLibrary !== false) sandbox.KurfcRoster = KurfcRoster;
   vm.createContext(sandbox);
   const code = fs.readFileSync(path.join(__dirname, '..', 'gas', 'Code.gs'), 'utf8');
-  vm.runInContext(code + '\n;this.__fn = {handle_, setup, registerAdmin_, doPost, doGet, onOpen, menuRegisterAdmin, pinHash_, today_, pushHourly, setupPush, ecSign_, utf8_, pruneStamps_: function (d) { REQ_ = { tables: {}, ss: null, roster: null }; try { pruneStamps_(d); } finally { REQ_ = null; } }, menuBackupNow, menuRestoreBackup, withReq: function (f) { REQ_ = { tables: {}, ss: null, roster: null }; try { return f({ backupNow_, restoreBackup_, archiveLogs_, weeklyBackup_, backupBook_, readBackupTab_, goalHist_, weekGoalAt_ }); } finally { REQ_ = null; } }};', sandbox, { filename: 'Code.gs' });
+  vm.runInContext(code + '\n;this.__fn = {handle_, setup, registerAdmin_, doPost, doGet, onOpen, menuRegisterAdmin, pinHash_, today_, pushHourly, setupPush, ecSign_, utf8_, pruneStamps_: function (d) { REQ_ = { tables: {}, ss: null, roster: null }; try { pruneStamps_(d); } finally { REQ_ = null; } }, menuBackupNow, menuRestoreBackup, withReq: function (f) { REQ_ = { tables: {}, ss: null, roster: null }; try { return f({ setupTestEnv, purgeClips_, clipCode_, backupNow_, restoreBackup_, archiveLogs_, weeklyBackup_, backupBook_, readBackupTab_, goalHist_, weekGoalAt_ }); } finally { REQ_ = null; } }};', sandbox, { filename: 'Code.gs' });
   const fn = sandbox.__fn;
 
   const api = {
@@ -192,6 +204,7 @@ function create(opts) {
     sheet: (name) => ss.getSheetByName(name),
     masterSheet: () => master.getSheetByName('部員'),
     /** 会計アプリが名簿を書き換えたことにする（会計アプリは KurfcRoster.touch() を呼ぶ） */
+    drive,
     accountingEdit: (fnEdit) => { fnEdit(master.getSheetByName('部員')); KurfcRoster.touch(); cache.remove('k:roster'); },
     /** 10分たったことにする（覚えておいた名簿・作り置きを忘れる） */
     forget: () => cache.clear(),

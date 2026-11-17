@@ -11,7 +11,7 @@
  * 詳しくは 04_ドキュメント/筋トレ管理アプリ_使い方と引き継ぎ.md
  */
 const APP_VERSION = '2.21.0';
-const SCHEMA_VERSION = '9';
+const SCHEMA_VERSION = '10';
 const TZ = 'Asia/Tokyo';
 const SESSION_DAYS = 90;
 const VIEW_SESSION_DAYS = 180;
@@ -73,6 +73,16 @@ const DEF = {
   push: { name: '通知の宛先', cols: [
     ['id', 'ID'], ['endpoint', '宛先'], ['memberId', '部員ID（本人が選んだ名前）'], ['staffId', 'ログインした人のID'], ['kinds', '受け取る通知'],
     ['device', '端末'], ['createdAt', '登録日時'], ['updatedAt', '更新日時'], ['okAt', '最後に届いた日時'], ['failCount', '失敗回数']] },
+  // setlog（v3 テスト）：部員がアプリの中で撮った3秒の動画。動画はドライブ、サムネイルは別のシート
+  clips: { name: '動画', cols: [
+    ['id', '動画ID'], ['memberId', '部員ID'], ['date', '日付'], ['recordedAt', '撮影日時'], ['uploadedAt', '送信日時'], ['fileId', 'ファイルID'],
+    ['mime', '形式'], ['size', '大きさ'], ['code', '今日の数字'], ['status', '状態'], ['flags', '気になる（部員ID）'],
+    ['canceledBy', '取り消した人ID'], ['canceledAt', '取り消し日時'], ['reason', '取り消しの理由'], ['checkedBy', '確認した人ID'], ['deletedAt', '削除日時']] },
+  clipThumbs: { name: '動画のサムネイル', cols: [['id', '動画ID'], ['thumb', 'サムネイル（JPEG）']] },
+  // 部員名簿にいない「見るだけ」の人（監督・コーチ・OB など）
+  guests: { name: '見るだけの人', cols: [
+    ['id', 'ID'], ['name', '名前'], ['note', 'メモ'], ['pinHash', '暗証番号ハッシュ'], ['pinSalt', 'ソルト'], ['mustChange', '要変更'],
+    ['failCount', '失敗回数'], ['lockUntil', 'ロック解除'], ['createdAt', '作成日時'], ['createdBy', '作成者ID'], ['deletedAt', '削除日時']] },
   feedback: { name: '要望・不具合', cols: [
     ['id', 'ID'], ['kind', '種類'], ['text', '内容'], ['fromId', '送った部員ID'], ['page', '画面'], ['version', '版'], ['device', '端末'], ['at', '日時'],
     ['doneBy', '対応した人ID'], ['doneAt', '対応日時']] },
@@ -91,10 +101,11 @@ const DATE_COLS = { start: 1, left: 1, effDate: 1, date: 1, from: 1, to: 1, repe
 
 const ENC = {
   mode: { leader: 'リーダーメニュー', self: '自主トレ' },
-  perm: { admin: '管理者', manager: 'マネージャー', leader: 'FWリーダー', member: '一般部員' },
+  perm: { admin: '管理者', manager: 'マネージャー', leader: 'FWリーダー', member: '一般部員', guest: '見るだけ' },
   status: { done: '実施した', not: '実施していない' },
   mgroup: { FW: 'FW', BK: 'BK', ALL: '全体' },
   fbkind: { idea: '要望', bug: '不具合', other: 'その他' },
+  clipst: { ok: '実施した', pending: '確認待ち', canceled: '取り消し' },
   bool: { '1': 'はい', '0': 'いいえ' }
 };
 const FIELD_ENC = {
@@ -104,7 +115,9 @@ const FIELD_ENC = {
   records: { status: 'status', target: 'bool' },
   templates: { group: 'mgroup', selfRec: 'bool' },
   feedback: { kind: 'fbkind' },
-  trash: { status: 'status', target: 'bool' }
+  trash: { status: 'status', target: 'bool' },
+  clips: { status: 'clipst' },
+  guests: { mustChange: 'bool' }
 };
 const STAFF = { admin: 1, manager: 1, leader: 1 };
 
@@ -141,12 +154,23 @@ function handle_(req) {
     const ctx = { req: req, me: null, view: false };
     resolveSession_(ctx);
     const op = String(req.op || '');
-    const open = { ping: 1, state: 1, login: 1, logout: 1, viewLogin: 1, changePin: 1, memberHistory: 1, stamp: 1, pinRequest: 1, pushRegister: 1, pushUnregister: 1, pushTest: 1, pushInbox: 1, pushMove: 1, clientError: 1, feedback: 1 };
+    if (setlogOn_() && !ctx.me && !LOGIN_FREE[String(req.op || '')]) throw err_('auth', 'ログインしてから使ってください。');
+    const open = { ping: 1, state: 1, login: 1, register: 1, logout: 1, viewLogin: 1, changePin: 1, memberHistory: 1, stamp: 1, pinRequest: 1, pushRegister: 1, pushUnregister: 1, pushTest: 1, pushInbox: 1, pushMove: 1, clientError: 1, feedback: 1 };
     if (!open[op] && ctx.me && ctx.me.mustChange) {
       throw err_('must_change_pin', '先に暗証番号を変更してください。');
     }
     switch (op) {
       case 'ping': return { ok: true, version: APP_VERSION, today: today_() };
+      case 'register': return opRegister_(ctx);
+      case 'clipUpload': return opClipUpload_(ctx);
+      case 'clips': return opClips_(ctx);
+      case 'clipVideo': return opClipVideo_(ctx);
+      case 'clipFlag': return opClipFlag_(ctx);
+      case 'clipCancel': return opClipCancel_(ctx);
+      case 'clipApprove': return opClipApprove_(ctx);
+      case 'unregister': return opUnregister_(ctx);
+      case 'guestSave': return opGuestSave_(ctx);
+      case 'guestDelete': return opGuestDelete_(ctx);
       case 'state': return opState_(ctx);
       case 'viewLogin': return opViewLogin_(ctx);
       case 'login': return opLogin_(ctx);
@@ -469,8 +493,8 @@ function rosterChanged_() {
   try { CacheService.getScriptCache().remove('k:roster'); } catch (x) { /* noop */ }
   if (REQ_) REQ_.rinfo = null; // このリクエストの中の一覧（REQ_.roster）は今までどおり。読み直すときは REQ_.roster = null にする
 }
-function rosterAdd_(people) { const r = rosterLib_().add(people); rosterChanged_(); return r; }
-function rosterUpdate_(id, patch) { const r = rosterLib_().update(id, patch); rosterChanged_(); return r; }
+function rosterAdd_(people) { noRosterWriteInTest_(); const r = rosterLib_().add(people); rosterChanged_(); return r; }
+function rosterUpdate_(id, patch) { noRosterWriteInTest_(); const r = rosterLib_().update(id, patch); rosterChanged_(); return r; }
 function roster_() {
   if (REQ_ && REQ_.roster) return REQ_.roster;
   const list = rosterInfo_().list;
@@ -735,7 +759,7 @@ function meOf_(m) {
   return { id: m.id, name: m.name, perm: m.perm, mustChange: !!(m.set && m.set.mustChange === '1') };
 }
 function canLogin_(m) {
-  return !!(m && m.active && !m.gone && STAFF[m.perm] && m.set && m.set.pinHash);
+  return !!(m && m.active && !m.gone && (STAFF[m.perm] || setlogOn_()) && m.set && m.set.pinHash);
 }
 
 function resolveSession_(ctx) {
@@ -745,8 +769,14 @@ function resolveSession_(ctx) {
     const h = sha256Hex_(req.token);
     const s = table_('sessions').rows.filter(function (r) { return r.tokenHash === h && r.kind === 'staff'; })[0];
     if (s && s.expiresAt > now) {
-      const m = memberById_(s.memberId);
-      if (canLogin_(m)) { ctx.me = meOf_(m); ctx.session = s; }
+      if (isGuestId_(s.memberId)) {
+        const g = guestById_(s.memberId);
+        if (g) { ctx.me = guestMe_(g); ctx.session = s; }
+      } else {
+        const m = memberById_(s.memberId);
+        if (canLogin_(m)) { ctx.me = meOf_(m); ctx.session = s; }
+      }
+      if (ctx.me && setlogOn_()) extendSession_(s);
     }
   }
   if (req.viewToken && typeof req.viewToken === 'string') {
@@ -779,6 +809,7 @@ function killSessions_(memberId, keepHash) {
 function opLogin_(ctx) {
   const id = String(ctx.req.memberId || '');
   const pin = String(ctx.req.pin == null ? '' : ctx.req.pin);
+  if (isGuestId_(id)) return guestLogin_(ctx, id, pin);
   return withLock_(function () {
     const m = memberById_(id);
     const bad = err_('login_failed', '名前か暗証番号が違います。');
@@ -800,7 +831,7 @@ function opLogin_(ctx) {
     update_('people', s);
     removeMany_('sessions', table_('sessions').rows.filter(function (r) { return r.expiresAt <= now; }));
     const token = randomHex_();
-    insert_('sessions', [{ tokenHash: sha256Hex_(token), memberId: m.id, kind: 'staff', createdAt: now, expiresAt: nowPlusMin_(SESSION_DAYS * 1440), device: deviceLabel_(ctx.req.deviceName) }]);
+    insert_('sessions', [{ tokenHash: sha256Hex_(token), memberId: m.id, kind: 'staff', createdAt: now, expiresAt: nowPlusMin_(sessionDays_() * 1440), device: deviceLabel_(ctx.req.deviceName) }]);
     const me = meOf_(m);
     log_(me, 'ログイン', '');
     return { ok: true, token: token, me: me };
@@ -817,7 +848,8 @@ function opLogout_(ctx) {
 }
 
 function opChangePin_(ctx) {
-  const me = requireRole_(ctx, ['admin', 'manager', 'leader']);
+  const me = requireRole_(ctx, ['admin', 'manager', 'leader', 'member', 'guest']);
+  if (me.perm === 'guest') return guestChangePin_(ctx, me);
   const oldPin = String(ctx.req.oldPin == null ? '' : ctx.req.oldPin);
   const newPin = String(ctx.req.newPin == null ? '' : ctx.req.newPin);
   checkPinFormat_(newPin);
@@ -969,19 +1001,30 @@ function recordsWire_(from, to) {
 const STATE_TTL = 600;
 function opState_(ctx) {
   const today = today_();
-  const pub = !ctx.me && !ctx.req.from && !ctx.req.to;
-  if (pub) {
-    const key = 'st:' + today + ':' + dataVersion_() + ':' + rosterInfo_().sig;
-    let p = null;
-    const hit = cacheGetBig_(key);
-    if (hit) { try { p = JSON.parse(hit); } catch (x) { p = null; } }
-    if (!p) {
-      p = buildState_(ctx, today, true);
-      cachePutBig_(key, JSON.stringify(p), STATE_TTL);
-    }
-    return finishPublic_(p, ctx);
+  if (setlogOn_() && !ctx.me) return loginList_(today);
+  const dflt = !ctx.req.from && !ctx.req.to;
+  // ログインした一般部員・見るだけの人は、見る人と同じ作り置きを使う（スタッフだけは毎回作る）
+  if (ctx.me && !STAFF[ctx.me.perm] && dflt) {
+    const r = pubState_({ req: ctx.req, me: null, view: true }, today);
+    r.me = ctx.me;
+    if (setlogOn_()) Object.assign(r, clipState_(ctx, today));
+    return r;
   }
-  return buildState_(ctx, today, false).base;
+  if (!ctx.me && dflt) return pubState_(ctx, today);
+  const st = buildState_(ctx, today, false).base;
+  if (setlogOn_() && ctx.me) Object.assign(st, clipState_(ctx, today));
+  return st;
+}
+function pubState_(ctx, today) {
+  const key = 'st:' + today + ':' + dataVersion_() + ':' + rosterInfo_().sig;
+  let p = null;
+  const hit = cacheGetBig_(key);
+  if (hit) { try { p = JSON.parse(hit); } catch (x) { p = null; } }
+  if (!p) {
+    p = buildState_(ctx, today, true);
+    cachePutBig_(key, JSON.stringify(p), STATE_TTL);
+  }
+  return finishPublic_(p, ctx);
 }
 /** 作り置きから、この人への返事を作る */
 function finishPublic_(p, ctx) {
@@ -1757,6 +1800,7 @@ function backupInfo_() {
 function hourJST_() { return +now_().slice(11, 13); }
 /** 1時間ごとの処理から呼ぶ。前のバックアップから7日たったら、深夜（3〜5時）に取る。8日以上あいたら時間に関係なく取る */
 function weeklyBackup_() {
+  if (isTestEnv_()) return null; // テスト環境ではバックアップを取らない（本番のバックアップと混ざらないように）
   const today = today_(), last = PropertiesService.getScriptProperties().getProperty('BACKUP_LAST') || '';
   if (last && last > addDays_(today, -BACKUP_EVERY_DAYS)) return null;
   const h = hourJST_();
@@ -1943,6 +1987,7 @@ function archiveLogs_() {
 }
 
 function dailyMaint_() {
+  if (setlogOn_()) { try { purgeClips_(); } catch (x) { console.error(x); } }
   const today = today_();
   if (setting_('maintOn') === today) return;
   withLock_(function () {
@@ -2309,7 +2354,7 @@ function opStamp_(ctx) {
   requireView_(ctx);
   const req = ctx.req;
   const target = String(req.target || ''), event = String(req.event || ''), kind = String(req.kind || '');
-  const device = String(req.device || ''), fromId = String(req.from || '');
+  const device = String(req.device || ''), fromId = setlogOn_() && ctx.me && ctx.me.perm !== 'guest' ? ctx.me.id : String(req.from || '');
   if (!STAMP_KINDS[kind]) throw err_('bad_stamp', 'そのスタンプは使えません。');
   if (!/^[a-z]:[0-9A-Za-z:\-]{1,40}$/.test(event)) throw err_('bad_stamp', '応援する内容が正しくありません。');
   if (!/^[0-9a-f]{16,40}$/.test(device)) throw err_('bad_stamp', 'この端末からは送れません。画面を開き直してください。');
@@ -3129,4 +3174,399 @@ function opImportExercises_(ctx) {
     if (rows.length) { insert_('exercises', rows); log_(me, '種目の動画をまとめて登録', rows.length + '件' + (skipped ? '（' + skipped + '件は登録ずみなどで飛ばした）' : '')); }
     return { ok: true, added: rows.length, skipped: skipped, exercises: exercisesWire_() };
   });
+}
+
+// ---------------------------------------------------------------------------
+// setlog（v3・テスト環境だけ）：部員全員のログイン、アプリの中で撮る3秒の動画、自動の「実施した」
+//   スクリプトのプロパティ SETLOG=1 のときだけ動く。本番（SETLOG なし）は今までどおり
+// ---------------------------------------------------------------------------
+const LONG_SESSION_DAYS = 180;       // 開くたびに、この日数だけのばす
+const CLIP_KEEP_DAYS = 30;           // 動画は1か月で消す
+const CLIP_MAX_BYTES = 2 * 1024 * 1024;
+const CLIP_LATE_HOURS = 24;          // 撮ってから24時間以内に届いたものだけ
+const CLIP_MIMES = { 'video/mp4': 'mp4', 'video/webm': 'webm', 'video/quicktime': 'mov' };
+const LOGIN_FREE = { ping: 1, state: 1, login: 1, register: 1, logout: 1, pinRequest: 1, clientError: 1, pushInbox: 1, pushMove: 1, pushUnregister: 1 };
+
+function setlogOn_() { return PropertiesService.getScriptProperties().getProperty('SETLOG') === '1'; }
+function isTestEnv_() { return PropertiesService.getScriptProperties().getProperty('ENV') === 'test'; }
+function noRosterWriteInTest_() {
+  if (isTestEnv_()) throw err_('test_env', 'テスト環境では部員名簿（会計アプリ）は変えられません。');
+}
+function sessionDays_() { return setlogOn_() ? LONG_SESSION_DAYS : SESSION_DAYS; }
+/** 開くたびに期限をのばす（1日に1回だけ書く。ロックも作り置きの印も使わない） */
+function extendSession_(s) {
+  const want = nowPlusMin_(LONG_SESSION_DAYS * 1440);
+  if (s.expiresAt >= nowPlusMin_((LONG_SESSION_DAYS - 1) * 1440)) return;
+  try {
+    const t = table_('sessions');
+    if (!s._r) return;
+    t.sheet.getRange(s._r, t.col.expiresAt + 1).setValue(want);
+    s.expiresAt = want;
+  } catch (x) { console.error(x); }
+}
+
+// ---- ログインの画面に出す名前の一覧（ログインしていない人に返すのはこれだけ） ----
+function loginList_(today) {
+  const people = members_().filter(function (m) { return m.active && !m.gone && (!m.player || inRoster_(m, today) || STAFF[m.perm]); })
+    .map(function (m) { return { id: m.id, name: m.name, grade: m.grade || '', group: m.group || '', staff: !!STAFF[m.perm], reg: !!(m.set && m.set.pinHash) }; });
+  const guests = table_('guests').rows.filter(function (g) { return !g.deletedAt; }).map(function (g) { return { id: g.id, name: g.name }; });
+  return { ok: true, version: APP_VERSION, today: today, me: null, needLogin: true, people: people, guests: guests };
+}
+
+// ---- 部員が自分で登録する（名前を選んで暗証番号を決める） ----
+function opRegister_(ctx) {
+  if (!setlogOn_()) throw err_('forbidden', 'この操作はできません。');
+  const id = String(ctx.req.memberId || '');
+  const pin = String(ctx.req.pin == null ? '' : ctx.req.pin);
+  checkPinFormat_(pin);
+  const cache = CacheService.getScriptCache();
+  const n = parseInt(cache.get('regCount') || '0', 10);
+  if (n >= 60) throw err_('too_many', '登録が続いたため、しばらく登録できません。1時間ほど待ってください。');
+  return withLock_(function () {
+    const m = memberById_(id);
+    if (!m || !m.active || m.gone) throw err_('not_found', 'その名前は見つかりません。');
+    if (STAFF[m.perm]) throw err_('staff', 'スタッフ（管理者・マネージャー・FWリーダー）は、管理者からもらった暗証番号でログインしてください。');
+    if (m.set && m.set.pinHash) throw err_('already', 'この名前はもう登録されています。自分で登録していなければ、管理者に「登録を消して」と伝えてください。');
+    const s = peopleRow_(m);
+    s.pinSalt = randomHex_().slice(0, 32);
+    s.pinHash = pinHash_(s.pinSalt, pin);
+    s.mustChange = '0'; s.failCount = '0'; s.lockUntil = ''; s.updatedAt = now_();
+    update_('people', s);
+    const token = randomHex_(), now = now_();
+    insert_('sessions', [{ tokenHash: sha256Hex_(token), memberId: m.id, kind: 'staff', createdAt: now, expiresAt: nowPlusMin_(LONG_SESSION_DAYS * 1440), device: deviceLabel_(ctx.req.deviceName) }]);
+    const me = meOf_(memberById_(m.id) || m);
+    me.perm = m.perm;
+    log_(me, '部員の登録', m.name + '（' + deviceLabel_(ctx.req.deviceName) + '）');
+    cache.put('regCount', String(n + 1), 3600);
+    notifyAdmins_('部員の登録', m.name + ' さんが登録しました。本人でなければ、設定の「部員の登録」から消してください。', './#settings');
+    return { ok: true, token: token, me: me };
+  });
+}
+/** 管理者：部員の登録を消す（なりすましのとき）。本人はもう一度登録できる */
+function opUnregister_(ctx) {
+  const me = requireRole_(ctx, ['admin']);
+  const id = String(ctx.req.memberId || '');
+  return withLock_(function () {
+    const m = memberById_(id);
+    if (!m) throw err_('not_found', 'その部員は見つかりません。');
+    if (STAFF[m.perm]) throw err_('staff', 'スタッフの暗証番号は「暗証番号を発行」で出し直してください。');
+    const s = peopleRow_(m);
+    s.pinHash = ''; s.pinSalt = ''; s.mustChange = '0'; s.failCount = '0'; s.lockUntil = ''; s.updatedAt = now_();
+    update_('people', s);
+    killSessions_(m.id, '');
+    log_(me, '部員の登録を消した', m.name);
+    return { ok: true };
+  });
+}
+function notifyAdmins_(title, body, url) {
+  try {
+    const admins = {};
+    activeAdmins_().forEach(function (a) { admins[a.id] = 1; });
+    const rows = pushTargets_('pinreq').filter(function (r) { return admins[r.staffId]; });
+    sendPush_(rows, function () { return { title: title, body: body, url: url || './', tag: 'admin' }; });
+  } catch (x) { console.error(x); }
+}
+
+// ---- 見るだけの人（部員名簿にいない人。管理者が作って、仮の暗証番号を渡す） ----
+function isGuestId_(id) { return /^G\d{3,}$/.test(String(id || '')); }
+function guestById_(id) { return table_('guests').rows.filter(function (g) { return g.id === id && !g.deletedAt && g.pinHash; })[0] || null; }
+function guestMe_(g) { return { id: g.id, name: g.name, perm: 'guest', mustChange: g.mustChange === '1' }; }
+function guestLogin_(ctx, id, pin) {
+  return withLock_(function () {
+    const g = table_('guests').rows.filter(function (x) { return x.id === id && !x.deletedAt; })[0];
+    const bad = err_('login_failed', '名前か暗証番号が違います。');
+    if (!g || !g.pinHash) throw bad;
+    const now = now_();
+    if (g.lockUntil && g.lockUntil > now) throw err_('locked', '暗証番号を続けてまちがえたため、' + g.lockUntil.slice(11, 16) + ' までログインできません。');
+    if (pinHash_(g.pinSalt, pin) !== g.pinHash) {
+      const n = (parseInt(g.failCount, 10) || 0) + 1;
+      g.failCount = String(n);
+      if (n % LOCK_EVERY === 0) g.lockUntil = nowPlusMin_(LOCK_MINUTES);
+      update_('guests', g);
+      throw bad;
+    }
+    g.failCount = '0'; g.lockUntil = '';
+    update_('guests', g);
+    const token = randomHex_();
+    insert_('sessions', [{ tokenHash: sha256Hex_(token), memberId: g.id, kind: 'staff', createdAt: now, expiresAt: nowPlusMin_(sessionDays_() * 1440), device: deviceLabel_(ctx.req.deviceName) }]);
+    const me = guestMe_(g);
+    log_(me, 'ログイン', '見るだけ');
+    return { ok: true, token: token, me: me };
+  });
+}
+function guestChangePin_(ctx, me) {
+  const oldPin = String(ctx.req.oldPin == null ? '' : ctx.req.oldPin);
+  const newPin = String(ctx.req.newPin == null ? '' : ctx.req.newPin);
+  checkPinFormat_(newPin);
+  if (oldPin === newPin) throw err_('bad_pin', '今と違う暗証番号にしてください。');
+  return withLock_(function () {
+    const g = guestById_(me.id);
+    if (!g) throw err_('auth', 'ログインが必要です。');
+    if (pinHash_(g.pinSalt, oldPin) !== g.pinHash) throw err_('login_failed', '今の暗証番号が違います。');
+    g.pinSalt = randomHex_().slice(0, 32);
+    g.pinHash = pinHash_(g.pinSalt, newPin);
+    g.mustChange = '0';
+    update_('guests', g);
+    killSessions_(g.id, ctx.session.tokenHash);
+    log_(me, '暗証番号を変更', '');
+    return { ok: true, me: guestMe_(g) };
+  });
+}
+function opGuestSave_(ctx) {
+  const me = requireRole_(ctx, ['admin']);
+  if (!setlogOn_()) throw err_('forbidden', 'この操作はできません。');
+  const name = text_(ctx.req.name, 30, '名前', true);
+  const note = text_(ctx.req.note, 60, 'メモ', false);
+  return withLock_(function () {
+    const t = table_('guests');
+    const id = String(ctx.req.id || '');
+    if (id) {
+      const g = t.rows.filter(function (x) { return x.id === id && !x.deletedAt; })[0];
+      if (!g) throw err_('not_found', 'その人は見つかりません。');
+      g.name = name; g.note = note;
+      let pin = '';
+      if (ctx.req.reissue) { pin = randomPin_(); g.pinSalt = randomHex_().slice(0, 32); g.pinHash = pinHash_(g.pinSalt, pin); g.mustChange = '1'; g.failCount = '0'; g.lockUntil = ''; killSessions_(g.id, ''); }
+      update_('guests', g);
+      log_(me, '見るだけの人を変更', name + (pin ? '（暗証番号を発行）' : ''));
+      return { ok: true, guest: { id: g.id, name: g.name, note: g.note }, tempPin: pin };
+    }
+    let max = 0;
+    t.rows.forEach(function (x) { const n = parseInt(String(x.id).slice(1), 10); if (n > max) max = n; });
+    const pin = randomPin_();
+    const salt = randomHex_().slice(0, 32);
+    const g = { id: 'G' + ('000' + (max + 1)).slice(-3), name: name, note: note, pinHash: pinHash_(salt, pin), pinSalt: salt, mustChange: '1', failCount: '0', lockUntil: '', createdAt: now_(), createdBy: me.id, deletedAt: '' };
+    insert_('guests', [g]);
+    log_(me, '見るだけの人を追加', name);
+    return { ok: true, guest: { id: g.id, name: g.name, note: g.note }, tempPin: pin };
+  });
+}
+function opGuestDelete_(ctx) {
+  const me = requireRole_(ctx, ['admin']);
+  const id = String(ctx.req.id || '');
+  return withLock_(function () {
+    const g = table_('guests').rows.filter(function (x) { return x.id === id && !x.deletedAt; })[0];
+    if (!g) throw err_('not_found', 'その人は見つかりません。');
+    g.deletedAt = now_(); g.pinHash = ''; g.pinSalt = '';
+    update_('guests', g);
+    killSessions_(g.id, '');
+    log_(me, '見るだけの人を削除', g.name);
+    return { ok: true };
+  });
+}
+
+// ---- 動画 ----
+/** その日の「今日の数字」（10〜99。撮影画面と動画に入る） */
+function clipCode_(date) {
+  const props = PropertiesService.getScriptProperties();
+  let sec = props.getProperty('CLIP_SECRET');
+  if (!sec) { sec = randomHex_(); props.setProperty('CLIP_SECRET', sec); }
+  return 10 + parseInt(sha256Hex_(sec + ':' + date).slice(0, 6), 16) % 90;
+}
+function clipWire_(c, me) {
+  const staff = !!(me && STAFF[me.perm]);
+  const flags = clipFlags_(c);
+  return { id: c.id, m: c.memberId, d: c.date, at: c.recordedAt, st: c.status, gone: !!c.deletedAt,
+    nf: staff ? flags.length : undefined, mine: !!(me && flags.indexOf(me.id) >= 0), why: (staff || (me && me.id === c.memberId)) ? (c.reason || '') : '' };
+}
+function clipFlags_(c) { try { const a = JSON.parse(c.flags || '[]'); return Array.isArray(a) ? a : []; } catch (x) { return []; } }
+/** state に足すもの：今日の数字、最近35日の動画（サムネイルなし）、スタッフには確認が要る数 */
+function clipState_(ctx, today) {
+  const from = addDays_(today, -35);
+  const me = ctx.me;
+  const staff = !!(me && STAFF[me.perm]);
+  const list = table_('clips').rows.filter(function (c) { return c.date >= from && (c.status !== 'canceled' || staff || (me && c.memberId === me.id)); });
+  const out = { loginAll: true, clipCode: clipCode_(today), clips: list.map(function (c) { return clipWire_(c, me); }) };
+  if (me && me.perm === 'admin') {
+    out.regs = {};
+    members_().forEach(function (m) { if (m.set && m.set.pinHash && !STAFF[m.perm]) out.regs[m.id] = 1; });
+    out.guests = table_('guests').rows.filter(function (g) { return !g.deletedAt; }).map(function (g) { return { id: g.id, name: g.name, note: g.note }; });
+  }
+  if (staff) out.clipQueue = list.filter(function (c) { return c.status === 'pending' || (c.status === 'ok' && !c.checkedBy && clipFlags_(c).length); }).length;
+  return out;
+}
+/** 動画を受け取る：撮った日を自動で「実施した」にする（取り消された日に撮り直したものは確認待ち） */
+function opClipUpload_(ctx) {
+  const me = requireRole_(ctx, ['admin', 'manager', 'leader', 'member']);
+  if (!setlogOn_()) throw err_('forbidden', 'この操作はできません。');
+  const m = memberById_(me.id);
+  if (!m || !m.player) throw err_('not_player', '動画を出せるのは選手だけです。');
+  const mime = String(ctx.req.mime || '').split(';')[0].trim();
+  if (!CLIP_MIMES[mime]) throw err_('bad_type', 'この形式の動画は送れません。');
+  const at = String(ctx.req.recordedAt || '');
+  if (!/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(at)) throw err_('bad_time', '撮った時刻が正しくありません。');
+  const now = now_();
+  if (at > nowPlusMin_(10)) throw err_('bad_time', 'スマホの時計がずれています。時刻を合わせてから撮り直してください。');
+  if (at < nowPlusMin_(-CLIP_LATE_HOURS * 60)) throw err_('too_late', '撮ってから24時間以上たった動画は送れません。');
+  const date = at.slice(0, 10);
+  if (Number(ctx.req.code) !== clipCode_(date)) throw err_('bad_code', 'アプリの中のカメラで撮った動画だけ送れます。');
+  if (!inRoster_(m, date)) throw err_('not_in_roster', 'この日は記録の対象ではありません。');
+  let bytes;
+  try { bytes = Utilities.base64Decode(String(ctx.req.data || '')); } catch (x) { throw err_('bad_data', '動画を読み取れませんでした。'); }
+  if (!bytes.length || bytes.length > CLIP_MAX_BYTES) throw err_('too_big', '動画が大きすぎます（2MBまで）。');
+  const thumb = String(ctx.req.thumb || '');
+  if (thumb.length > 40000 || !/^[A-Za-z0-9+/=]*$/.test(thumb)) throw err_('bad_thumb', 'サムネイルが正しくありません。');
+  // 同じ動画を送り直したとき（電波が切れて返事が届かなかったなど）は、前のものを返す
+  const dup = table_('clips').rows.filter(function (c) { return c.memberId === me.id && c.recordedAt === at; })[0];
+  if (dup) return { ok: true, clip: clipWire_(dup, me), again: true };
+  const file = clipFolder_().createFile(Utilities.newBlob(bytes, mime, me.id + '_' + at.replace(/[^0-9]/g, '') + '.' + CLIP_MIMES[mime]));
+  return withLock_(function () {
+    const t = table_('clips');
+    const dup2 = t.rows.filter(function (c) { return c.memberId === me.id && c.recordedAt === at; })[0];
+    if (dup2) { try { file.setTrashed(true); } catch (x) { /* noop */ } return { ok: true, clip: clipWire_(dup2, me), again: true }; }
+    const canceledDay = t.rows.some(function (c) { return c.memberId === me.id && c.date === date && c.status === 'canceled'; });
+    const c = { id: 'C' + Utilities.getUuid().replace(/-/g, '').slice(0, 12), memberId: me.id, date: date, recordedAt: at, uploadedAt: now, fileId: file.getId(),
+      mime: mime, size: String(bytes.length), code: String(clipCode_(date)), status: canceledDay ? 'pending' : 'ok', flags: '[]', canceledBy: '', canceledAt: '', reason: '', checkedBy: '', deletedAt: '' };
+    insert_('clips', [c]);
+    insert_('clipThumbs', [{ id: c.id, thumb: thumb }]);
+    let recorded = false;
+    if (!canceledDay) { const r = saveDay_(me, date, [{ memberId: me.id, done: true }]); recorded = r.saved + r.updated > 0 || r.unchanged > 0; }
+    log_(me, '動画を出した', m.name + ' ' + date + (canceledDay ? '（確認待ち）' : ''));
+    return { ok: true, clip: clipWire_(c, me), recorded: recorded, pending: canceledDay, records: recordsWire_(date, date) };
+  });
+}
+function clipFolder_() {
+  const props = PropertiesService.getScriptProperties();
+  const id = props.getProperty('CLIP_FOLDER');
+  if (id) { try { return DriveApp.getFolderById(id); } catch (x) { /* 消された */ } }
+  const f = DriveApp.createFolder('KURFC 筋トレ 動画' + (isTestEnv_() ? '（テスト）' : '') + '（1か月で消えます）');
+  props.setProperty('CLIP_FOLDER', f.getId());
+  return f;
+}
+/** 動画の一覧（サムネイルつき）。from〜to、または memberId */
+function opClips_(ctx) {
+  const me = requireRole_(ctx, ['admin', 'manager', 'leader', 'member', 'guest']);
+  const today = today_();
+  const from = ctx.req.from ? reqDate_(ctx.req.from, '開始日') : addDays_(today, -6);
+  const to = ctx.req.to ? reqDate_(ctx.req.to, '終了日') : today;
+  const staff = !!STAFF[me.perm];
+  const mid = String(ctx.req.memberId || '');
+  let list = table_('clips').rows.filter(function (c) {
+    return c.date >= from && c.date <= to && (!mid || c.memberId === mid) && (c.status !== 'canceled' || staff || c.memberId === me.id);
+  });
+  if (ctx.req.queue && staff) list = list.filter(function (c) { return c.status === 'pending' || (c.status === 'ok' && !c.checkedBy && clipFlags_(c).length); });
+  list = list.sort(function (a, b) { return a.recordedAt < b.recordedAt ? 1 : -1; }).slice(0, 200);
+  const ids = {};
+  list.forEach(function (c) { ids[c.id] = 1; });
+  const th = {};
+  table_('clipThumbs').rows.forEach(function (t) { if (ids[t.id]) th[t.id] = t.thumb; });
+  return { ok: true, from: from, to: to, clips: list.map(function (c) { const w = clipWire_(c, me); w.th = c.deletedAt ? '' : (th[c.id] || ''); return w; }) };
+}
+function opClipVideo_(ctx) {
+  const me = requireRole_(ctx, ['admin', 'manager', 'leader', 'member', 'guest']);
+  const c = table_('clips').rows.filter(function (x) { return x.id === String(ctx.req.id || ''); })[0];
+  if (!c) throw err_('not_found', 'その動画は見つかりません。');
+  if (c.status === 'canceled' && !STAFF[me.perm] && c.memberId !== me.id) throw err_('not_found', 'その動画は見つかりません。');
+  if (c.deletedAt) throw err_('gone', '1か月たったので、この動画は消えました。');
+  let blob;
+  try { blob = DriveApp.getFileById(c.fileId).getBlob(); } catch (x) { throw err_('gone', 'この動画は見つかりませんでした。'); }
+  return { ok: true, id: c.id, mime: c.mime, data: Utilities.base64Encode(blob.getBytes()) };
+}
+/** 部員の「気になる」（押す・やめる）。自分の動画には押せない */
+function opClipFlag_(ctx) {
+  const me = requireRole_(ctx, ['admin', 'manager', 'leader', 'member']);
+  const on = ctx.req.on !== false;
+  return withLock_(function () {
+    const c = table_('clips').rows.filter(function (x) { return x.id === String(ctx.req.id || ''); })[0];
+    if (!c || c.status === 'canceled') throw err_('not_found', 'その動画は見つかりません。');
+    if (c.memberId === me.id) throw err_('own', '自分の動画には押せません。');
+    const f = clipFlags_(c).filter(function (x) { return x !== me.id; });
+    if (on) f.push(me.id);
+    c.flags = JSON.stringify(f);
+    update_('clips', c);
+    if (on && f.length === 1) {
+      const m = memberById_(c.memberId);
+      notifyStaffClip_('「気になる」がつきました', (m ? m.name : '') + ' さんの ' + c.date.slice(5).replace('-', '/') + ' の動画。確認してください。');
+    }
+    return { ok: true, clip: clipWire_(c, me) };
+  });
+}
+function notifyStaffClip_(title, body) {
+  try {
+    const staff = {};
+    members_().forEach(function (m) { if (m.active && !m.gone && (m.perm === 'admin' || m.perm === 'manager' || m.perm === 'leader')) staff[m.id] = 1; });
+    const rows = table_('push').rows.filter(function (r) { return staff[r.staffId]; });
+    sendPush_(rows, function () { return { title: title, body: body, url: './#clips/queue', tag: 'clipq' }; });
+  } catch (x) { console.error(x); }
+}
+/** スタッフ：取り消す。その日の「実施した」を外し、本人に知らせる */
+function opClipCancel_(ctx) {
+  const me = requireRole_(ctx, ['admin', 'manager', 'leader']);
+  const reason = text_(ctx.req.reason, 80, '理由', false);
+  const res = withLock_(function () {
+    const c = table_('clips').rows.filter(function (x) { return x.id === String(ctx.req.id || ''); })[0];
+    if (!c) throw err_('not_found', 'その動画は見つかりません。');
+    if (c.status === 'canceled') return { ok: true, clip: clipWire_(c, me), already: true };
+    const now = now_();
+    c.status = 'canceled'; c.canceledBy = me.id; c.canceledAt = now; c.reason = reason; c.checkedBy = me.id;
+    update_('clips', c);
+    // その日のほかの動画が「実施した」のまま残っていなければ、記録を外す
+    const others = table_('clips').rows.some(function (x) { return x.id !== c.id && x.memberId === c.memberId && x.date === c.date && x.status === 'ok'; });
+    let removed = false;
+    if (!others) {
+      const r = table_('records').rows.filter(function (x) { return x.memberId === c.memberId && x.date === c.date; })[0];
+      if (r) { insert_('trash', [trashRow_(r, me, now)]); remove_('records', r); removed = true; }
+    }
+    const m = memberById_(c.memberId);
+    log_(me, '動画を取り消した', (m ? m.name : c.memberId) + ' ' + c.date + (reason ? '：' + reason : ''));
+    return { ok: true, clip: clipWire_(c, me), removed: removed, memberId: c.memberId, date: c.date, records: recordsWire_(c.date, c.date) };
+  });
+  if (!res.already) {
+    try {
+      const rows = table_('push').rows.filter(function (r) { return r.staffId === res.memberId || r.memberId === res.memberId; });
+      sendPush_(rows, function () { return { title: '動画が取り消されました', body: res.date.slice(5).replace('-', '/') + ' の動画' + (reason ? '（' + reason + '）' : '') + '。撮り直すと、確認待ちになります。', url: './#clips', tag: 'clipcancel' }; });
+    } catch (x) { console.error(x); }
+  }
+  return res;
+}
+/** スタッフ：確認待ち・気になるの動画を「問題なし」にする（確認待ちなら実施したにする） */
+function opClipApprove_(ctx) {
+  const me = requireRole_(ctx, ['admin', 'manager', 'leader']);
+  return withLock_(function () {
+    const c = table_('clips').rows.filter(function (x) { return x.id === String(ctx.req.id || ''); })[0];
+    if (!c || c.status === 'canceled') throw err_('not_found', 'その動画は見つかりません。');
+    c.checkedBy = me.id;
+    let recorded = false;
+    if (c.status === 'pending') {
+      c.status = 'ok';
+      const m = memberById_(c.memberId);
+      const r = saveDay_({ id: me.id, name: me.name, perm: 'admin' }, c.date, [{ memberId: c.memberId, done: true }]);
+      recorded = r.saved + r.updated > 0;
+      log_(me, '動画を確認した', (m ? m.name : '') + ' ' + c.date + '：実施した');
+    }
+    update_('clips', c);
+    return { ok: true, clip: clipWire_(c, me), recorded: recorded, records: recordsWire_(c.date, c.date) };
+  });
+}
+/** 1か月より古い動画をドライブから消す（行は残す） */
+function purgeClips_() {
+  const limit = addDays_(today_(), -CLIP_KEEP_DAYS);
+  const old = table_('clips').rows.filter(function (c) { return !c.deletedAt && c.date < limit; });
+  if (!old.length) return 0;
+  return withLock_(function () {
+    const now = now_();
+    const ids = {};
+    table_('clips').rows.forEach(function (c) {
+      if (c.deletedAt || c.date >= limit) return;
+      try { DriveApp.getFileById(c.fileId).setTrashed(true); } catch (x) { /* もう無い */ }
+      c.deletedAt = now;
+      update_('clips', c);
+      ids[c.id] = 1;
+    });
+    removeMany_('clipThumbs', table_('clipThumbs').rows.filter(function (t) { return ids[t.id]; }));
+    return Object.keys(ids).length;
+  });
+}
+/** テスト環境を用意する（エディタから1回だけ実行。スプレッドシートをコピーしたあと） */
+function setupTestEnv() {
+  const props = PropertiesService.getScriptProperties();
+  props.setProperty('ENV', 'test');
+  props.setProperty('SETLOG', '1');
+  ['BACKUP_ID', 'BACKUP_LAST', 'CLIP_FOLDER', 'DV'].forEach(function (k) { props.deleteProperty(k); });
+  REQ_ = { tables: {}, ss: null, roster: null };
+  try {
+    ensureSchema_();
+    withLock_(function () { removeMany_('sessions', table_('sessions').rows); removeMany_('push', table_('push').rows); });
+  } finally { REQ_ = null; }
+  CacheService.getScriptCache().removeAll(['k:roster', 'k:synced', 'k:maint', 'k:trig']);
+  return 'テスト環境にしました';
 }

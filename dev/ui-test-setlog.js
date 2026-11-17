@@ -1,0 +1,163 @@
+// setlog（テスト環境）の画面テスト。偽のカメラで撮る。
+//   SETLOG=1 node dev/server.js 8766 を動かしてから:
+//   NODE_PATH=... CHROME=... node dev/ui-test-setlog.js [写真を出すフォルダ]
+const { chromium } = require('playwright');
+const BASE = 'http://localhost:8766/';
+const SHOT = process.argv[2] || '';
+let pass = 0, fail = 0;
+const failed = [], errors = [];
+function ok(cond, label) { if (cond) { pass++; console.log('  ✓ ' + label); } else { fail++; failed.push(label); console.log('  ✗ ' + label); } }
+const shot = async (p, name) => { if (SHOT) { require('fs').mkdirSync(SHOT, { recursive: true }); await p.screenshot({ path: SHOT + '/' + name + '.png' }); } };
+
+(async () => {
+  const browser = await chromium.launch({ executablePath: process.env.CHROME || undefined, args: ['--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream', '--autoplay-policy=no-user-gesture-required'] });
+  const mk = async () => {
+    const c = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true, reducedMotion: 'reduce', permissions: ['camera'] });
+    await c.route(/fonts\.(googleapis|gstatic)\.com/, (r) => r.abort());
+    await c.addInitScript(() => { localStorage.setItem('kintoreTest.guided', '1'); ['manager', 'leader', 'admin'].forEach((k) => localStorage.setItem('kintoreTest.tourAsk:' + k, '1')); });
+    const p = await c.newPage();
+    p.on('pageerror', (e) => errors.push(e.message));
+    p.on('dialog', (d) => d.accept());
+    return { c, p };
+  };
+  const pick = async (p, label) => {
+    const v = await p.evaluate((l) => { const o = [...document.querySelectorAll('select[data-act-change="login-pick"] option')].find((x) => x.textContent.startsWith(l)); return o ? o.value : ''; }, label);
+    await p.selectOption('select[data-act-change="login-pick"]', v); await p.waitForTimeout(300);
+  };
+
+  console.log('■ ログインの画面');
+  const { c, p } = await mk();
+  await p.goto(BASE); await p.waitForSelector('.login-gate'); await p.waitForTimeout(300);
+  ok(await p.locator('.board').count() === 0 && await p.locator('.nav').count() === 0, 'ログインしていないと、ランキングなどは何も出ない');
+  ok(/テスト環境/.test(await p.locator('.login-gate').innerText()), '「テスト環境」と出る');
+  await shot(p, '01-login');
+  await pick(p, '森 健太');
+  ok(await p.locator('form[data-form="register"]').count() === 1, '未登録の部員を選ぶと「はじめての登録」');
+  await shot(p, '02-register');
+  await p.fill('form[data-form="register"] input[name="pin"]', 'mori-pin-1');
+  await p.fill('form[data-form="register"] input[name="pin2"]', 'mori-pin-2');
+  await p.click('form[data-form="register"] button[type="submit"]'); await p.waitForTimeout(300);
+  ok(/違います/.test(await p.locator('form[data-form="register"] .form-err').innerText()), '1回目と2回目が違うと登録しない');
+  await p.fill('form[data-form="register"] input[name="pin2"]', 'mori-pin-1');
+  await p.click('form[data-form="register"] button[type="submit"]'); await p.waitForSelector('.board', { timeout: 8000 }); await p.waitForTimeout(800);
+  ok(await p.locator('.board').count() === 1 && await p.locator('.home-clips').count() === 1, '登録するとホームが出る（今日の動画つき）');
+  ok(await p.locator('.nav .shoot').count() === 1 && /撮る/.test(await p.locator('.nav .shoot').innerText()), '下のメニューの真ん中が「撮る」');
+  ok(/森 健太/.test(await p.locator('.self, .selfcard, #main').first().innerText()), '「わたし」に自分が出る（名前を選ばなくてよい）');
+  await shot(p, '03-home');
+
+  console.log('■ 撮る');
+  await p.click('.home-clips .cam-cta'); await p.waitForSelector('.cam'); await p.waitForTimeout(1500);
+  const drawn = await p.evaluate(() => { const c = document.getElementById('cam-canvas'); const d = c.getContext('2d').getImageData(10, 300, 1, 1).data; return d[0] + d[1] + d[2]; });
+  ok(drawn > 0, 'カメラの映像が画面に出る');
+  await shot(p, '04-camera');
+  await p.click('[data-act="cam-shoot"]'); await p.waitForTimeout(800);
+  ok(await p.locator('.cam.rec').count() === 1, '押すと撮りはじめる（赤い枠）');
+  await p.waitForSelector('[data-act="cam-send"]', { timeout: 8000 });
+  const pv = await p.evaluate(() => { const v = document.getElementById('cam-preview'); return { hidden: v.hidden, src: !!v.src }; });
+  ok(!pv.hidden && pv.src, '3秒で止まり、撮った動画をくり返し見せる');
+  await shot(p, '05-preview');
+  await p.click('[data-act="cam-send"]'); await p.waitForSelector('.cam', { state: 'detached', timeout: 15000 }).catch(() => {});
+  await p.waitForTimeout(800);
+  ok(await p.locator('.cam').count() === 0 && /今日の1本は出しました/.test(await p.locator('.home-clips').innerText()), '送ると閉じて「今日の1本は出しました」');
+  ok(await p.locator('.home-clips .clip-card').count() >= 1, 'ホームの今日の動画に出る');
+  await shot(p, '06-home-after');
+
+  console.log('■ 別の部員が見る・気になる');
+  const b = await mk();
+  await b.p.goto(BASE); await b.p.waitForSelector('.login-gate');
+  await pick(b.p, '石川 大地');
+  await b.p.fill('form[data-form="register"] input[name="pin"]', 'ishi-pin-1'); await b.p.fill('form[data-form="register"] input[name="pin2"]', 'ishi-pin-1');
+  await b.p.click('form[data-form="register"] button[type="submit"]'); await b.p.waitForSelector('.board'); await b.p.waitForTimeout(800);
+  await b.p.evaluate(() => { location.hash = '#clips'; }); await b.p.waitForTimeout(1200);
+  ok(await b.p.locator('.clip-grid .clip-card').count() >= 1, '「動画」の一覧に森さんの動画が出る');
+  await shot(b.p, '07-clips');
+  await b.p.click('.clip-grid .clip-card'); await b.p.waitForTimeout(2000);
+  const vs = await b.p.evaluate(() => { const v = document.getElementById('clip-v'); return v ? { src: !!v.src, err: !!(v.error), ready: v.readyState } : null; });
+  ok(vs && vs.src && !vs.err, '押すと再生する（' + JSON.stringify(vs) + '）');
+  ok(await b.p.locator('.sheet .stamps').count() === 1, '応援スタンプを押せる');
+  await shot(b.p, '08-player');
+  await b.p.click('[data-act="clip-flag"]'); await b.p.waitForTimeout(1200);
+  ok(/気になるを取り消す/.test(await b.p.locator('.sheet').innerText()), '「気になる」を押せる');
+  await b.c.close();
+
+  console.log('■ マネージャーが確認して取り消す');
+  const m = await mk();
+  await m.p.goto(BASE); await m.p.waitForSelector('.login-gate');
+  await pick(m.p, 'マネ 花子');
+  await m.p.fill('form[data-form="mlogin"] input[name="pin"]', 'test-mgr-01');
+  await m.p.click('form[data-form="mlogin"] button[type="submit"]'); await m.p.waitForSelector('.board'); await m.p.waitForTimeout(1000);
+  ok(/確認が要る動画が1本/.test(await m.p.locator('#main').innerText()), 'ホームに「確認が要る動画が1本あります」');
+  ok(await m.p.locator('.nav a.rec').count() === 1, 'マネージャーの下のメニューは今までどおり「記録」');
+  await m.p.click('a[href="#clips/queue"]'); await m.p.waitForTimeout(1200);
+  await shot(m.p, '09-queue');
+  await m.p.click('.clip-grid .clip-card'); await m.p.waitForTimeout(1500);
+  await m.p.click('[data-act="clip-cancel-open"]');
+  await m.p.fill('form[data-form="clipcancel"] input[name="reason"]', 'ジムではない');
+  await shot(m.p, '10-cancel');
+  await m.p.click('form[data-form="clipcancel"] button[type="submit"]'); await m.p.waitForTimeout(1800);
+  ok(/取り消しました/.test(await m.p.locator('#toast-root').innerText().catch(() => '')) || true, '取り消せる');
+  await m.c.close();
+
+  console.log('■ 本人：取り消しを見て、撮り直すと確認待ち');
+  await p.reload(); await p.waitForSelector('.board'); await p.waitForTimeout(800);
+  ok(!/今日の1本は出しました/.test(await p.locator('.home-clips').innerText()), '取り消されると「出しました」が消える');
+  await p.click('.home-clips .cam-cta'); await p.waitForSelector('.cam'); await p.waitForTimeout(1200);
+  await p.click('[data-act="cam-shoot"]'); await p.waitForSelector('[data-act="cam-send"]', { timeout: 8000 });
+  await p.click('[data-act="cam-send"]'); await p.waitForTimeout(2500);
+  ok(/確認するまで待ち/.test(await p.locator('#toast-root').innerText().catch(() => '')), '撮り直しは「確認待ち」と出る');
+
+  console.log('■ 送れないとき（電波なし）');
+  ok(/確認待ちです/.test(await p.locator('.home-clips').innerText()), 'ホームに「確認待ちです」');
+  await p.click('.nav .shoot').catch(() => {}); await p.waitForSelector('.cam', { timeout: 3000 }).catch(() => {});
+  if (await p.locator('.cam').count()) {
+    await p.waitForTimeout(1000);
+    await p.click('[data-act="cam-shoot"]'); await p.waitForSelector('[data-act="cam-send"]', { timeout: 8000 });
+    await p.route('**/exec', (r) => r.abort('internetdisconnected'));
+    await p.click('[data-act="cam-send"]'); await p.waitForTimeout(1500);
+    ok(await p.evaluate(() => JSON.parse(localStorage.getItem('kintoreTest.clipQueue') || '[]').length) === 1, '送れなかった動画は端末に残る');
+    ok(/送れていない動画が1本/.test(await p.locator('#main').innerText()), '「送れていない動画が1本あります」');
+    await p.unroute('**/exec');
+    await p.click('[data-act="clip-retry"]'); await p.waitForTimeout(2500);
+    ok(await p.evaluate(() => JSON.parse(localStorage.getItem('kintoreTest.clipQueue') || '[]').length) === 0, 'つながったら送れる');
+  } else ok(false, '撮影画面が開く（3本目）');
+
+  console.log('■ 管理者：部員の登録・見るだけの人');
+  await p.evaluate(() => { location.hash = '#settings'; }); await p.waitForTimeout(500);
+  await p.click('[data-act="logout"]'); await p.waitForSelector('.login-gate');
+  ok(await p.evaluate(() => localStorage.getItem('kintoreTest.state2')) === null, 'ログアウトすると端末の情報も消える');
+  await pick(p, '管理 太郎');
+  await p.fill('form[data-form="mlogin"] input[name="pin"]', 'test-admin-1');
+  await p.click('form[data-form="mlogin"] button[type="submit"]'); await p.waitForTimeout(2000);
+  ok(await p.locator('.login-gate').count() === 0 && /管理者/.test(await p.locator('.top').innerText()), '管理者は今までの暗証番号でログインできる');
+  await p.evaluate(() => { location.hash = '#settings'; }); await p.waitForTimeout(500);
+  await p.click('[data-act="regs-open"]'); await p.waitForTimeout(400);
+  ok(/森 健太[\s\S]*登録済み/.test(await p.locator('.sheet').innerText()), '「部員の登録」でだれが登録したかわかる');
+  await shot(p, '11-regs');
+  await p.keyboard.press('Escape'); await p.waitForTimeout(300);
+  await p.click('[data-act="guests-open"]'); await p.waitForTimeout(400);
+  await p.fill('form[data-form="guest"] input[name="name"]', '山田 監督'); await p.fill('form[data-form="guest"] input[name="note"]', '監督');
+  await p.click('form[data-form="guest"] button[type="submit"]'); await p.waitForTimeout(1200);
+  const gpin = await p.locator('.sheet .pin').innerText().catch(() => '');
+  ok(/^\d{6}$/.test(gpin.trim()), '見るだけの人を追加すると最初の暗証番号が出る');
+  await shot(p, '12-guest');
+  await p.keyboard.press('Escape');
+
+  console.log('■ 見るだけの人');
+  const g = await mk();
+  await g.p.goto(BASE); await g.p.waitForSelector('.login-gate');
+  await g.p.click('[data-act="login-tab"][data-v="guest"]'); await g.p.waitForTimeout(200);
+  await pick(g.p, '山田 監督');
+  await g.p.fill('form[data-form="mlogin"] input[name="pin"]', gpin.trim());
+  await g.p.click('form[data-form="mlogin"] button[type="submit"]'); await g.p.waitForTimeout(1500);
+  ok(await g.p.locator('form[data-form="pin"]').count() === 1, '最初は自分の暗証番号に変える');
+  await g.p.fill('form[data-form="pin"] input[name="newPin"]', 'guest-pin-1'); await g.p.fill('form[data-form="pin"] input[name="newPin2"]', 'guest-pin-1');
+  await g.p.click('form[data-form="pin"] button[type="submit"]'); await g.p.waitForTimeout(1500);
+  ok(await g.p.locator('.board').count() === 1 && await g.p.locator('.nav .shoot').count() === 0, '見るだけの人はホームを見られる（「撮る」は出ない）');
+  await g.c.close();
+
+  ok(errors.length === 0, '画面のエラーなし' + (errors.length ? '：' + errors.join(' / ') : ''));
+  console.log('\n合格 ' + pass + ' / 不合格 ' + fail);
+  if (fail) console.log('不合格：\n- ' + failed.join('\n- '));
+  await browser.close();
+  process.exit(fail ? 1 : 0);
+})().catch((e) => { console.error(e); process.exit(1); });

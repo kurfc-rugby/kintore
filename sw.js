@@ -6,8 +6,10 @@
  *  通知（push）… 中身は来ないので、サーバー（pushInbox）に取りに行って表示する
  * 版を上げるときは VERSION と、index.html の ?v= を一緒に変える。 */
 const VERSION = '2.21.0';
-const CACHE = 'kintore-' + VERSION;
 try { importScripts('config.js?v=' + VERSION); } catch (e) { /* 読めなくても画面はしまっておいたもので動く */ }
+// テスト環境（KINTORE_STORE = 'kintoreTest'）は、本番としまう場所の名前を分ける（同じ github.io の中なので）
+const CPREFIX = (self.KINTORE_STORE || 'kintore') + '-';
+const CACHE = CPREFIX + VERSION;
 const SHELL = ['./', 'style.css?v=' + VERSION, 'app.js?v=' + VERSION, 'logic.js?v=' + VERSION, 'config.js?v=' + VERSION,
   'crest.webp?v=1', 'manifest.webmanifest', 'icons/icon-192.png', 'icons/apple-touch-icon.png'];
 
@@ -17,7 +19,7 @@ self.addEventListener('install', (e) => {
   if (!self.registration.active) self.skipWaiting();
 });
 self.addEventListener('activate', (e) => {
-  e.waitUntil(caches.keys().then((keys) => Promise.all(keys.filter((k) => k.indexOf('kintore-') === 0 && k !== CACHE).map((k) => caches.delete(k))))
+  e.waitUntil(caches.keys().then((keys) => Promise.all(keys.filter((k) => k.indexOf(CPREFIX) === 0 && k !== CACHE).map((k) => caches.delete(k))))
     .then(() => self.clients.claim()));
 });
 self.addEventListener('message', (e) => { if (e.data === 'skipWaiting') self.skipWaiting(); });

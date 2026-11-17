@@ -111,6 +111,8 @@ function seed() {
   console.log('テストデータを用意しました（今日 = ' + today + '）');
 }
 seed();
+// SETLOG=1 のときは、テスト環境（全員ログイン・動画）として動かす
+if (process.env.SETLOG) { gas.run('withReq', (f) => f.setupTestEnv()); console.log('setlog（テスト環境）で動かします'); }
 
 const TYPES = { '.png': 'image/png', '.webmanifest': 'application/manifest+json', '.webp': 'image/webp', '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.woff2': 'font/woff2', '.mp4': 'video/mp4', '.jpg': 'image/jpeg', '.json': 'application/json; charset=utf-8' };
 http.createServer((req, res) => {
@@ -126,7 +128,7 @@ http.createServer((req, res) => {
     });
     return;
   }
-  if (url === '/config.js') { res.writeHead(200, { 'Content-Type': TYPES['.js'] }); res.end("self.KINTORE_API = '/exec';"); return; }
+  if (url === '/config.js') { res.writeHead(200, { 'Content-Type': TYPES['.js'] }); res.end("self.KINTORE_API = '/exec';" + (process.env.SETLOG ? "self.KINTORE_STORE = 'kintoreTest';" : '')); return; }
   // フォントは開発用に手元から（FONTS_DIR に @fontsource のフォルダがあるとき）
   if (url.startsWith('/fonts/') && process.env.FONTS_DIR) {
     const f = path.join(process.env.FONTS_DIR, path.basename(url));

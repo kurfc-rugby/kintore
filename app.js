@@ -5,7 +5,7 @@
   const API = window.KINTORE_API;
   const VERSION = '2.21.0';
   const WD = ['日', '月', '火', '水', '木', '金', '土'];
-  const PERM = { admin: '管理者', manager: 'マネージャー', leader: 'FWリーダー', member: '一般部員' };
+  const PERM = { admin: '管理者', manager: 'マネージャー', leader: 'FWリーダー', member: '一般部員', guest: '見るだけ' };
   const MODE = { leader: 'メニュー参加', self: '自主トレ' };
   const MGROUP = { FW: 'FW', BK: 'BK', ALL: '全体' };
   const GRADES = ['1年', '2年', '3年', '4年', 'M1', 'M2'];
@@ -29,10 +29,12 @@
   const $$ = (s, el) => Array.from((el || document).querySelectorAll(s));
   const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const nl2br = (s) => esc(s).replace(/\n/g, '<br>');
+  // 端末にしまう名前の頭。テスト環境は 'kintoreTest'（本番と同じ github.io なので混ざらないように）
+  const SP = (window.KINTORE_STORE || 'kintore') + '.';
   const store = {
-    get(k, d) { try { const v = localStorage.getItem('kintore.' + k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
-    set(k, v) { try { localStorage.setItem('kintore.' + k, JSON.stringify(v)); } catch (e) { /* 保存できなくても動く */ } },
-    del(k) { try { localStorage.removeItem('kintore.' + k); } catch (e) { /* noop */ } }
+    get(k, d) { try { const v = localStorage.getItem(SP + k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
+    set(k, v) { try { localStorage.setItem(SP + k, JSON.stringify(v)); } catch (e) { /* 保存できなくても動く */ } },
+    del(k) { try { localStorage.removeItem(SP + k); } catch (e) { /* noop */ } }
   };
   const md = (s) => +s.slice(5, 7) + '/' + +s.slice(8, 10);
   const mdw = (s) => md(s) + '(' + WD[L.dow(s)] + ')';
@@ -100,7 +102,7 @@
     if (/^(localhost|127\.0\.0\.1)$/.test(location.hostname) && !store.get('swdev', 0)) return;
     navigator.serviceWorker.register('sw.js').then((reg) => {
       PWA.reg = reg;
-      if (S.data && !S.data.locked) loadPush().then(() => { if (S.route.name === 'settings') render(); });
+      if (S.data && !gated()) loadPush().then(() => { if (S.route.name === 'settings') render(); });
       const watch = (w) => { if (!w) return; w.addEventListener('statechange', () => { if (w.state === 'installed' && navigator.serviceWorker.controller) { PWA.waiting = w; showUpdate(); } }); };
       if (reg.waiting && navigator.serviceWorker.controller) { PWA.waiting = reg.waiting; showUpdate(); }
       watch(reg.installing);
@@ -191,6 +193,7 @@
   }
 
   const ICON = {
+    cam: '<path d="M4 8h3l2-3h6l2 3h3v11H4z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><circle cx="12" cy="13" r="3.5" fill="none" stroke="currentColor" stroke-width="2"/>',
     alert: '<path d="M12 3 2 20h20zM12 9v5M12 16.5v1" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>',
     more: '<circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/>',
     copy: '<path d="M9 9h10v12H9zM5 3h10v3H8v11H5z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>',
@@ -251,12 +254,14 @@
     hist: {}, archive: null, recSort: store.get('recSort', 'pos')
   };
   const me = () => (S.data && S.data.me) || null;
+  const STAFF_P = { admin: 1, manager: 1, leader: 1 };
   const can = (what) => {
     const m = me();
     if (!m) return false;
     if (what === 'record') return m.perm === 'admin' || m.perm === 'manager';
     if (what === 'menu') return m.perm === 'admin' || m.perm === 'leader';
     if (what === 'admin') return m.perm === 'admin';
+    if (what === 'anyStaff') return m.perm === 'admin' || m.perm === 'manager' || m.perm === 'leader';
     if (what === 'body') return m.perm === 'admin' || m.perm === 'manager' || m.perm === 'leader';
     if (what === 'archive') return m.perm === 'admin' || m.perm === 'manager' || m.perm === 'leader';
     return false;
@@ -271,7 +276,7 @@
 
   // ---------- 通信 ----------
   // 待つ時間の上限（電波が弱くて返事が来ないとき、ずっと待たない）。読むだけは15秒、保存などは30秒
-  const READ_OPS = { state: 1, memberHistory: 1, logs: 1, feedbackList: 1, sessions: 1, trash: 1, menuArchive: 1 };
+  const READ_OPS = { state: 1, memberHistory: 1, logs: 1, feedbackList: 1, sessions: 1, trash: 1, menuArchive: 1, clips: 1, clipVideo: 1 };
   const RESEND_OK = { saveRecords: 1, saveRecordsWeek: 1 }; // 送り直しても二重にならない
   function timeoutError(op) {
     return { code: 'timeout', message: READ_OPS[op] ? 'つながりにくいため、時間内に読み込めませんでした。電波のよい所でもう一度試してください。'
@@ -283,7 +288,7 @@
     if (S.token) body.token = S.token;
     if (S.viewToken) body.viewToken = S.viewToken;
     const ctl = typeof AbortController === 'function' ? new AbortController() : null;
-    const timer = ctl ? setTimeout(() => ctl.abort(), READ_OPS[op] ? 15000 : 30000) : 0;
+    const timer = ctl ? setTimeout(() => ctl.abort(), op === 'clipUpload' || op === 'clipVideo' ? 60000 : READ_OPS[op] ? 15000 : 30000) : 0;
     let res, j;
     try {
       try {
@@ -325,12 +330,15 @@
 
   function setData(d) {
     S.data = d;
-    S.idx = d.locked ? null : L.buildIndex(d);
+    const gate = d.locked || d.needLogin;
+    S.idx = gate ? null : L.buildIndex(d);
+    // 全員ログイン（setlog）：ログインした選手は、自分の名前を自動で選ぶ
+    if (d.loginAll && d.me && d.me.perm !== 'guest' && d.members && d.members.some((x) => x.id === d.me.id && x.player) && PREF.self !== d.me.id) { PREF.self = d.me.id; store.set('self', PREF.self); }
     S.lastLoad = Date.now();
     S.stampMap = {};
     (d.stamps || []).forEach((x) => { S.stampMap[x.t + '|' + x.e] = x; });
     if (S.token && !d.me) { S.token = ''; store.del('token'); }
-    if (!d.locked) { d.savedAt = Date.now(); store.set('state2', d); }
+    if (!gate) { d.savedAt = Date.now(); store.set('state2', d); }
   }
   /** その日の記録を入れ替え、通算（life）もそろえる（「通算○回」のおめでとうがずれないように） */
   function replaceDay(date, recs) {
@@ -477,7 +485,7 @@
     const hide = () => { if (!ind) return; ind.classList.remove('loading', 'ready'); ind.classList.add('back'); ind.style.transform = ''; ind.style.opacity = ''; setTimeout(() => { if (ind) ind.classList.remove('back'); }, 300); };
     const blocked = (t) => !!t.closest('input, textarea, select, .matrix-wrap, .wk-wrap, .poschips, .seg, .stamps, .podium, .guide, #sheet-root, .sheet-ghost');
     document.addEventListener('touchstart', (ev) => {
-      if (ev.touches.length !== 1 || !S.data || S.data.locked || busyPull || $('#sheet-root').innerHTML || $('#guide-root').innerHTML || TOUR) { st = null; return; }
+      if (ev.touches.length !== 1 || !S.data || gated() || busyPull || $('#sheet-root').innerHTML || $('#guide-root').innerHTML || TOUR) { st = null; return; }
       const t = ev.touches[0];
       st = { x: t.clientX, y: t.clientY, t: performance.now(), top: window.scrollY <= 0, mode: '', d: 0, swipeOk: !blocked(ev.target), pullOk: !ev.target.closest('input, textarea, select, .wk-wrap, .guide') };
     }, { passive: true });
@@ -601,7 +609,7 @@
     const ranked = rk.filter((r) => r.rank !== null);
     const prevWord = (S.kind === 'week' ? '前の週' : '前の月') + (pvTo !== pv.to ? 'の同じ時点' : '');
     const t = cur.team;
-    let h = pinReqBanner() + selfCard() + periodBar();
+    let h = pinReqBanner() + selfCard() + homeClips() + periodBar();
     h += '<section class="board" aria-label="部全体の状況"><svg class="board-streaks" viewBox="25 40 85 66" preserveAspectRatio="xMidYMid slice" aria-hidden="true"><use href="#jk-streaks"/></svg>' +
       '<div class="board-main"><div class="board-k">部全体の実施回数</div>' +
       '<div class="board-v"><span class="num" data-count="' + t.done + '">' + t.done + '</span><span class="unit">回</span></div>' +
@@ -1167,6 +1175,7 @@
     }
     if (tab === 'body') return h + (bodyBlock(m) || emptyState('list', '体重の記録はまだありません', 'スタッフが測定した値を入れると、ここに変化が出ます。'));
     const atNow = mo.from === tm.from;
+    h += memberClips(m.id);
     h += '<section class="block"><div class="mcal-nav"><button class="ibtn" data-act="mmonth" data-v="-1" aria-label="前の月">' + icon('back') + '</button>' +
       '<b>' + ymLabel(mo.from) + '</b><button class="ibtn" data-act="mmonth" data-v="1" aria-label="次の月"' + (atNow ? ' disabled' : '') + '>' + icon('next') + '</button></div>' +
       '<div class="mcal"><div class="mcal-w">' + ['月', '火', '水', '木', '金', '土', '日'].map((w) => '<span>' + w + '</span>').join('') + '</div><div class="mcal-g">';
@@ -2114,18 +2123,19 @@
     const players = sortMembers(S.data.members.filter((x) => x.active && x.player));
     // 1. 自分の名前・見やすさ（この端末だけ）
     h += '<section class="block"><div class="block-h"><h2>自分の名前・見やすさ</h2><span class="count">この端末だけ</span></div>' +
-      '<label class="prefrow form"><span>自分の名前<small>ホームに「わたし」（今週あと何回・届いた応援）が出ます。応援を送るときの名前・通知にも使います</small></span>' +
-      '<select data-act-change="pref-self"><option value="">選ばない</option>' + players.map((x) => '<option value="' + x.id + '"' + (PREF.self === x.id ? ' selected' : '') + '>' + esc(x.name) + '</option>').join('') + '</select></label>' +
+      (loginAll() ? '' : '<label class="prefrow form"><span>自分の名前<small>ホームに「わたし」（今週あと何回・届いた応援）が出ます。応援を送るときの名前・通知にも使います</small></span>' +
+      '<select data-act-change="pref-self"><option value="">選ばない</option>' + players.map((x) => '<option value="' + x.id + '"' + (PREF.self === x.id ? ' selected' : '') + '>' + esc(x.name) + '</option>').join('') + '</select></label>') +
       '<div class="prefrow"><span>画面の明るさ</span><div class="seg small" role="group" aria-label="画面の明るさ">' +
       [['light', 'ライト'], ['dark', 'ダーク'], ['auto', 'スマホに合わせる']].map((x) => '<button data-act="pref-theme" data-v="' + x[0] + '" aria-pressed="' + (PREF.theme === x[0]) + '">' + x[1] + '</button>').join('') + '</div></div>' +
       '<div class="prefrow"><span>文字の大きさ</span><div class="seg small" role="group" aria-label="文字の大きさ">' +
       SIZES.map((x) => '<button data-act="pref-size" data-v="' + x[0] + '" aria-pressed="' + (PREF.size === x[0]) + '">' + x[1] + '</button>').join('') + '</div></div></section>';
     // 2. 通知・ホーム画面のアプリ
     h += pushBlock() + (isStandalone() ? '' : installBlock());
-    // 3. ログイン（スタッフ）
-    h += '<section class="block"><div class="block-h"><h2>ログイン</h2><span class="count">管理者・マネージャー・FWリーダー</span></div>';
+    // 3. ログイン（スタッフ。全員ログインのときは全員）
+    h += '<section class="block"><div class="block-h"><h2>ログイン</h2><span class="count">' + (loginAll() ? 'ログイン中' : '管理者・マネージャー・FWリーダー') + '</span></div>';
     if (m) h += '<p class="acct"><b>' + esc(m.name) + '</b><span class="chip role">' + PERM[m.perm] + '</span></p>' +
-      '<div class="toolbar"><button class="btn" data-act="pin-change">暗証番号を変更</button><button class="btn" data-act="sessions-open">ログインしている端末</button><button class="btn" data-act="logout">ログアウト</button></div>';
+      '<div class="toolbar"><button class="btn" data-act="pin-change">暗証番号を変更</button>' + (STAFF_P[m.perm] ? '<button class="btn" data-act="sessions-open">ログインしている端末</button>' : '') + '<button class="btn" data-act="logout">ログアウト</button></div>' +
+      (loginAll() ? '<p class="note">アプリを開くたびに、ログインの期限が半年のびます。iPhone はホーム画面に追加したアプリで使ってください（Safari とは別のログインです）。</p>' : '');
     else h += '<p class="lead-line small">見るだけならログインは不要です。記録やメニューを入力する人だけログインしてください。</p>' +
       '<div class="toolbar"><button class="btn primary" data-act="login">ログイン</button></div>';
     h += '</section>';
@@ -2135,6 +2145,8 @@
         '<li><a href="#members">部員の追加・編集・権限<small>ポジション・取り組み方の設定は「まとめて編集」が便利です</small></a></li>' +
         '<li><button data-act="perms-open">役職をまとめて付け替え<small>新年度のFWリーダー・マネージャーの交代。新しい人の暗証番号もまとめて発行します</small></button></li>' +
         '<li><button data-act="trash-open">取り消した記録<small>まちがえて取り消した「実施した」を戻せます</small></button></li>' +
+        (loginAll() ? '<li><button data-act="regs-open">部員の登録<small>だれが登録したか。本人ではない登録は消せます</small></button></li>' +
+          '<li><button data-act="guests-open">見るだけの人<small>監督・コーチ・OB など。' + (S.data.guests || []).length + '人</small></button></li>' : '') +
         '<li><a href="#feedback">要望・不具合' + (S.data.feedbackOpen ? '<span class="badge-n">' + S.data.feedbackOpen + '</span>' : '') + '<small>部員から届いたもの。対応したら「対応済み」に</small></a></li>' +
         '<li><a href="#logs">操作履歴<small>だれが・いつ・何を変えたか。画面のエラーも自動で残ります。1年より前の分はスプレッドシートの別のシートへ移します</small></a></li>' +
         backupItem() +
@@ -2142,14 +2154,14 @@
         '<li><button data-act="goal-open">週の目標回数（マスト）<small>いまは週' + goal() + '回以上</small></button></li>' +
         '<li><button data-act="offs-open">部全体のオフ期間<small>試験期間・合宿など、全員の目標をなしにする期間</small></button></li>' +
         '<li><button data-act="lifts-open">重さの目安（体重×倍率）<small>' + esc((S.data.liftRatios || []).map((x) => x.name + '×' + x.ratio).join('・') || '未設定') + '</small></button></li>' +
-        '<li><button data-act="viewlock">閲覧の合言葉<small>' + (S.data.viewLock ? '設定中：合言葉を知っている人だけ見られます' : '未設定：URLを知っていればだれでも見られます') + '</small></button></li>' +
+(loginAll() ? '' :         '<li><button data-act="viewlock">閲覧の合言葉<small>' + (S.data.viewLock ? '設定中：合言葉を知っている人だけ見られます' : '未設定：URLを知っていればだれでも見られます') + '</small></button></li>') +
         '</ul></section>';
     }
     // 5. サポート
     h += '<section class="block" id="feedback"><div class="block-h"><h2>サポート</h2></div><ul class="links">' +
       '<li><a href="#help">' + icon('help') + '使い方ガイド<small>40秒の動画と、立場ごとの使い方</small></a></li>' +
       '<li><button data-act="guide">' + icon('play') + '使い方の案内をもう一度<small>はじめて開いたときの紹介と、実際の画面を見ながらの案内（1分）</small></button></li>' +
-      '<li><button data-act="fb-open">' + icon('send') + '要望・不具合を送る<small>「こうしてほしい」「ここがおかしい」を管理者に。ログインはいりません</small></button></li></ul></section>';
+      '<li><button data-act="fb-open">' + icon('send') + '要望・不具合を送る<small>「こうしてほしい」「ここがおかしい」を管理者に' + (loginAll() ? '' : '。ログインはいりません') + '</small></button></li></ul></section>';
     h +=
       '<p class="ver">KURFC 筋トレ管理 v' + VERSION + (S.data.version ? '（サーバー v' + esc(S.data.version) + '）' : '') + '</p>';
     return h;
@@ -2961,7 +2973,7 @@
 
   // ---------- 全体の描画 ----------
   const NAV = [['home', 'ホーム', 'home'], ['rank', 'ランキング', 'rank'], ['record', '記録', 'check'], ['cal', 'カレンダー', 'cal'], ['menus', 'メニュー', 'menu'], ['members', '部員', 'users']];
-  const TITLE = { home: 'ホーム', rank: 'ランキング', record: '実施記録', cal: 'カレンダー', menus: 'メニュー', members: '部員', member: '部員', settings: '設定', logs: '操作履歴', archive: 'これまでのメニュー', help: '使い方', feedback: '要望・不具合' };
+  const TITLE = { clips: '動画', home: 'ホーム', rank: 'ランキング', record: '実施記録', cal: 'カレンダー', menus: 'メニュー', members: '部員', member: '部員', settings: '設定', logs: '操作履歴', archive: 'これまでのメニュー', help: '使い方', feedback: '要望・不具合' };
   /** 保存した時刻を「今日 10:36」「11/16 21:05」の形に */
   function savedLabel(ms) {
     const j = new Date(ms + 9 * 3600 * 1000).toISOString();
@@ -2970,19 +2982,21 @@
   function shell(inner) {
     const r = S.route.name, m = me();
     const navOn = r === 'member' ? 'members' : (r === 'logs' || r === 'help' || r === 'feedback') ? 'settings' : r === 'archive' ? 'menus' : r;
-    const items = NAV.filter((n) => n[0] !== 'record' || can('record'));
+    const shoot = loginAll() && mePlayer();
+    const items = shoot ? NAV.map((n) => (n[0] === 'record' ? ['shoot', '撮る', 'cam'] : n)) : NAV.filter((n) => n[0] !== 'record' || can('record'));
     return '<header class="top"><a class="brand" href="#home" aria-label="ホーム"><img class="mark" src="crest.webp?v=1" alt="" width="30" height="32"><span class="brand-t"><b>KURFC</b>筋トレ</span></a>' +
       '<span class="top-title"><span>' + (TITLE[r] || '') + '</span></span>' +
       '<a class="top-help' + (r === 'help' ? ' on' : '') + '" href="#help" aria-label="使い方ガイド">' + icon('help') + '</a>' +
-      '<a class="top-acct' + (navOn === 'settings' ? ' on' : '') + '" href="#settings" aria-label="設定">' + (m ? '<span class="who">' + PERM[m.perm] + '</span>' : '') + icon('gear') + '</a></header>' +
+      '<a class="top-acct' + (navOn === 'settings' ? ' on' : '') + '" href="#settings" aria-label="設定">' + (m && (STAFF_P[m.perm] || !loginAll()) ? '<span class="who">' + PERM[m.perm] + '</span>' : '') + icon('gear') + '</a></header>' +
       '<div class="hoops" aria-hidden="true"></div>' +
       '<nav class="nav n' + items.length + '" aria-label="メニュー">' + items.map((n) =>
-        '<a href="#' + n[0] + '" class="' + (navOn === n[0] ? 'on' : '') + (n[0] === 'record' ? ' rec' : '') + '"' + (navOn === n[0] ? ' aria-current="page"' : '') + '>' + (navOn === n[0] ? '<i class="nav-ind" aria-hidden="true"></i>' : '') + icon(n[2]) + '<span>' + n[1] + '</span></a>').join('') +
+        (n[0] === 'shoot' ? '<button class="rec shoot" data-act="cam-open" aria-label="動画を撮る">' + icon(n[2]) + '<span>' + n[1] + '</span></button>' :
+        '<a href="#' + n[0] + '" class="' + (navOn === n[0] ? 'on' : '') + (n[0] === 'record' ? ' rec' : '') + '"' + (navOn === n[0] ? ' aria-current="page"' : '') + '>' + (navOn === n[0] ? '<i class="nav-ind" aria-hidden="true"></i>' : '') + icon(n[2]) + '<span>' + n[1] + '</span></a>')).join('') +
       '<a href="#settings" class="nav-set ' + (navOn === 'settings' ? 'on' : '') + '">' + (navOn === 'settings' ? '<i class="nav-ind" aria-hidden="true"></i>' : '') + icon('gear') + '<span>設定</span></a></nav>' +
       (S.stale && S.loading ? '<div class="refreshing" role="status"><span class="rf-bar" aria-hidden="true"></span><span class="rf-t">' + (S.data && S.data.savedAt ? '前回 ' + savedLabel(S.data.savedAt) + ' の情報・' : '') + '更新中…</span></div>' : '') +
       '<main class="main view-' + r + '" id="main">' +
       (S.loadError ? '<div class="banner err">' + esc(S.loadError) + '<button class="btn small" data-act="reload">再読み込み</button></div>' : '') +
-      draftBanner() +
+      draftBanner() + queueBanner() +
       inner + '</main>';
   }
   /** ホームの数字を 0 から数え上げる（画面に入ったときだけ） */
@@ -3019,8 +3033,9 @@
       return;
     }
     if (S.data.locked) { app.innerHTML = lockedView(); return; }
+    if (S.data.needLogin) { app.innerHTML = loginView(); document.title = 'ログイン｜KURFC 筋トレ'; return; }
     const r = S.route;
-    const fn = { home: vHome, rank: vRank, cal: vCal, menus: vMenus, members: vMembers, record: vRecord, settings: vSettings, logs: vLogs, archive: vArchive, help: vHelp, feedback: vFeedback };
+    const fn = { clips: vClips, home: vHome, rank: vRank, cal: vCal, menus: vMenus, members: vMembers, record: vRecord, settings: vSettings, logs: vLogs, archive: vArchive, help: vHelp, feedback: vFeedback };
     app.innerHTML = shell(r.name === 'member' ? vMember(r.arg) : (fn[r.name] || vHome)());
     document.title = (TITLE[r.name] ? TITLE[r.name] + '｜' : '') + 'KURFC 筋トレ';
     const entering = S.enter !== false;
@@ -3049,6 +3064,381 @@
     if (me() && me().mustChange && !$('#sheet-root form[data-form="pin"]')) openPinChange(true, pendingOldPin);
     const wrap = $('.matrix-wrap'), th = wrap && $('thead th.today', wrap);
     if (th) wrap.scrollLeft = Math.max(0, th.offsetLeft - wrap.clientWidth + th.offsetWidth + 48);
+  }
+
+  // ======================= setlog（v3・テスト環境だけ）：全員ログイン・アプリの中で撮る3秒の動画 =======================
+  const gated = () => !!(S.data && (S.data.locked || S.data.needLogin));
+  const loginAll = () => !!(S.data && (S.data.loginAll || S.data.needLogin));
+  const mePlayer = () => { const m = me(); if (!m || !S.data.members) return null; const x = S.data.members.find((y) => y.id === m.id); return x && x.player && x.active ? x : null; };
+  const GRADE_ORDER = ['4年', '3年', '2年', '1年', 'M2', 'M1'];
+  /** ログインの画面（ログインしていない人に出すのはこれだけ） */
+  function loginView() {
+    const d = S.data, ppl = d.people || [], guests = d.guests || [];
+    const tab = S.loginTab || 'member';
+    const list = tab === 'guest' ? guests : ppl;
+    const sel = list.find((x) => x.id === S.loginId) || null;
+    const groups = {};
+    ppl.forEach((p) => { (groups[p.grade || 'その他'] = groups[p.grade || 'その他'] || []).push(p); });
+    const order = GRADE_ORDER.filter((g) => groups[g]).concat(Object.keys(groups).filter((g) => GRADE_ORDER.indexOf(g) < 0));
+    const opts = tab === 'guest'
+      ? guests.map((g) => '<option value="' + esc(g.id) + '"' + (sel && sel.id === g.id ? ' selected' : '') + '>' + esc(g.name) + '</option>').join('')
+      : order.map((g) => '<optgroup label="' + esc(g) + '">' + groups[g].map((p) => '<option value="' + esc(p.id) + '"' + (sel && sel.id === p.id ? ' selected' : '') + '>' + esc(p.name) + (p.reg ? '' : '（未登録）') + '</option>').join('') + '</optgroup>').join('');
+    let form = '';
+    if (sel && (tab === 'guest' || sel.reg)) {
+      form = '<form data-form="mlogin" class="form"><input type="hidden" name="memberId" value="' + esc(sel.id) + '">' +
+        '<label>暗証番号<input type="password" name="pin" autocomplete="current-password" required autofocus></label>' +
+        '<p class="form-err" role="alert" hidden></p><button class="btn primary wide" type="submit">ログイン</button></form>' +
+        '<p class="hint">' + (tab === 'guest' ? '暗証番号を忘れたら、管理者に出し直してもらってください。' : sel.staff ? '暗証番号を忘れたら<button type="button" class="linkbtn inline" data-act="pinreq-open">出し直しを頼む</button>' : '暗証番号を忘れたら、管理者に「登録を消して」と頼んでください。もう一度登録できます。') + '</p>';
+    } else if (sel && sel.staff) {
+      form = '<p class="lead-line small">スタッフ（管理者・マネージャー・FWリーダー）は、管理者からもらった暗証番号でログインします。まだもらっていなければ、管理者に頼んでください。</p>';
+    } else if (sel) {
+      form = '<form data-form="register" class="form"><input type="hidden" name="memberId" value="' + esc(sel.id) + '">' +
+        '<p class="lead-line small"><b>' + esc(sel.name) + '</b> さん、はじめての登録です。自分だけが知っている暗証番号を決めてください。次からはこの暗証番号でログインします。</p>' +
+        '<label>暗証番号<span class="opt">半角6文字以上</span><input type="password" name="pin" autocomplete="new-password" minlength="6" required autofocus></label>' +
+        '<label>もう一度<input type="password" name="pin2" autocomplete="new-password" minlength="6" required></label>' +
+        '<p class="form-err" role="alert" hidden></p><button class="btn primary wide" type="submit">登録してはじめる</button>' +
+        '<p class="hint">自分の名前で登録してください。ほかの人の名前で登録すると、管理者が消します。</p></form>';
+    }
+    return '<div class="gate login-gate"><div class="boot-mark" aria-hidden="true">' + jersey({ num: '', front: true }) + '</div><h1>KURFC 筋トレ</h1>' +
+      (isTestSite() ? '<p class="test-tag">テスト環境</p>' : '') +
+      (guests.length ? '<div class="seg" role="group" aria-label="ログインする人">' +
+        '<button data-act="login-tab" data-v="member" aria-pressed="' + (tab !== 'guest') + '">部員・スタッフ</button>' +
+        '<button data-act="login-tab" data-v="guest" aria-pressed="' + (tab === 'guest') + '">見るだけの人</button></div>' : '') +
+      '<label class="form login-name">名前<select data-act-change="login-pick"><option value="">' + (tab === 'guest' ? '選んでください' : '自分の名前を選んでください') + '</option>' + opts + '</select></label>' +
+      form +
+      (S.loginErr ? '<p class="form-err">' + esc(S.loginErr) + '</p>' : '') + '</div>';
+  }
+  function isTestSite() { return (window.KINTORE_STORE || '') === 'kintoreTest'; }
+
+  // ---- 撮る（アプリの中のカメラだけ。音なし3秒。日時と今日の数字を動画に入れる） ----
+  const CAM = { stream: null, facing: 'environment', raf: 0, rec: null, blob: null, url: '', thumb: '', at: '', mime: '', busy: false };
+  const CLIP_SEC = 3, CW = 360, CH = 640;
+  function pickMime() {
+    if (typeof MediaRecorder === 'undefined') return '';
+    const list = ['video/mp4;codecs=avc1', 'video/mp4', 'video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm'];
+    for (const t of list) { try { if (MediaRecorder.isTypeSupported(t)) return t; } catch (e) { /* 次へ */ } }
+    return '';
+  }
+  const jstStamp = () => new Date(Date.now() + 9 * 3600 * 1000).toISOString().replace('T', ' ').slice(0, 19);
+  async function openCamera() {
+    if (!mePlayer()) { toast('動画を出せるのは選手だけです', 'err'); return; }
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia || !pickMime()) {
+      toast('このブラウザでは撮影できません。iPhone は Safari、Android は Chrome の新しい版で開いてください', 'err'); return;
+    }
+    CAM.blob = null; CAM.thumb = ''; CAM.at = '';
+    $('#cam-root').innerHTML = camHtml();
+    document.body.classList.add('cam-open');
+    await camStart();
+  }
+  function camHtml() {
+    return '<div class="cam" role="dialog" aria-modal="true" aria-label="動画を撮る">' +
+      '<div class="cam-top"><button class="cam-x" data-act="cam-close" aria-label="閉じる">×</button><b>今日の1本（' + CLIP_SEC + '秒・音なし）</b>' +
+      '<button class="cam-flip" data-act="cam-flip" aria-label="カメラを切りかえる">' + icon('reload') + '</button></div>' +
+      '<div class="cam-stage"><canvas id="cam-canvas" width="' + CW + '" height="' + CH + '"></canvas><video id="cam-preview" class="cam-preview" playsinline muted loop hidden></video>' +
+      '<div class="cam-ring" aria-hidden="true"></div><p class="cam-msg" id="cam-msg"></p></div>' +
+      '<div class="cam-bottom" id="cam-bottom">' + camButtons('ready') + '</div>' +
+      '<video id="cam-v" playsinline muted autoplay hidden></video></div>';
+  }
+  function camButtons(stage) {
+    if (stage === 'ready') return '<p class="cam-hint">押すと' + CLIP_SEC + '秒撮ります。日時と今日の数字は自動で入ります</p><button class="cam-shoot" data-act="cam-shoot" aria-label="撮る"><span></span></button>';
+    if (stage === 'rec') return '<p class="cam-hint">撮っています…</p><button class="cam-shoot on" disabled aria-label="撮っています"><span></span></button>';
+    if (stage === 'done') return '<div class="cam-actions"><button class="btn" data-act="cam-retake">撮り直す</button><button class="btn primary" data-act="cam-send">送る</button></div>';
+    if (stage === 'send') return '<p class="cam-hint"><span class="spin"></span>送っています…</p>';
+    return '';
+  }
+  async function camStart() {
+    camStopStream();
+    const v = $('#cam-v');
+    try {
+      CAM.stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: CAM.facing, width: { ideal: 720 }, height: { ideal: 1280 } }, audio: false });
+    } catch (e) {
+      camMsg('カメラを使えませんでした。ブラウザの設定でカメラを許可してください。');
+      return;
+    }
+    v.srcObject = CAM.stream;
+    try { await v.play(); } catch (e) { /* 自動で始まらない端末もある */ }
+    camDraw();
+  }
+  function camMsg(t) { const el = $('#cam-msg'); if (el) { el.textContent = t; el.hidden = !t; } }
+  function camDraw() {
+    cancelAnimationFrame(CAM.raf);
+    const c = $('#cam-canvas'), v = $('#cam-v');
+    if (!c || !v) return;
+    const g = c.getContext('2d');
+    const code = S.data.clipCode;
+    const step = () => {
+      if (!c.isConnected) return;
+      const vw = v.videoWidth, vh = v.videoHeight;
+      g.fillStyle = '#000'; g.fillRect(0, 0, CW, CH);
+      if (vw && vh) {
+        const k = Math.max(CW / vw, CH / vh), w = vw * k, h = vh * k;
+        g.save();
+        if (CAM.facing === 'user') { g.translate(CW, 0); g.scale(-1, 1); }
+        g.drawImage(v, (CW - w) / 2, (CH - h) / 2, w, h);
+        g.restore();
+      }
+      // 日時と今日の数字（動画に入る）
+      const t = jstStamp(), lab = (+t.slice(5, 7)) + '/' + (+t.slice(8, 10)) + '(' + WD[L.dow(t.slice(0, 10))] + ') ' + t.slice(11, 16);
+      g.fillStyle = 'rgba(0,0,0,.55)'; g.fillRect(0, CH - 64, CW, 64);
+      g.fillStyle = '#fff'; g.font = '700 20px system-ui, sans-serif'; g.textBaseline = 'middle';
+      g.fillText(lab, 14, CH - 32);
+      const ct = '今日の数字 ' + code;
+      g.font = '800 22px system-ui, sans-serif';
+      const tw = g.measureText(ct).width;
+      g.fillStyle = '#8c1d2f'; g.fillRect(CW - tw - 28, CH - 50, tw + 18, 36);
+      g.fillStyle = '#fff'; g.fillText(ct, CW - tw - 19, CH - 32);
+      g.font = '700 13px system-ui, sans-serif'; g.fillStyle = 'rgba(255,255,255,.9)'; g.fillText('KURFC', 14, 22);
+      CAM.raf = requestAnimationFrame(step);
+    };
+    step();
+  }
+  function camStopStream() {
+    cancelAnimationFrame(CAM.raf);
+    if (CAM.stream) { CAM.stream.getTracks().forEach((t) => t.stop()); CAM.stream = null; }
+  }
+  function camClose() {
+    camStopStream();
+    if (CAM.rec && CAM.rec.state === 'recording') { try { CAM.rec.stop(); } catch (e) { /* noop */ } }
+    if (CAM.url) { URL.revokeObjectURL(CAM.url); CAM.url = ''; }
+    $('#cam-root').innerHTML = '';
+    document.body.classList.remove('cam-open');
+  }
+  function camShoot() {
+    const c = $('#cam-canvas');
+    if (!c || !CAM.stream || CAM.busy) return;
+    if (S.data.today !== L.todayJST()) { toast('日付が変わりました。読み込み直してから撮ってください', 'err'); return; }
+    const mime = pickMime();
+    let stream;
+    try { stream = c.captureStream(30); } catch (e) { stream = CAM.stream; } // 描いた画面を撮れない端末は、カメラをそのまま撮る
+    let rec;
+    try { rec = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 900000 }); } catch (e) { rec = new MediaRecorder(stream); }
+    const chunks = [];
+    CAM.mime = (rec.mimeType || mime || 'video/webm').split(';')[0];
+    CAM.at = jstStamp();
+    rec.ondataavailable = (e) => { if (e.data && e.data.size) chunks.push(e.data); };
+    rec.onstop = () => {
+      CAM.busy = false;
+      if (!$('#cam-root .cam')) return;
+      CAM.blob = new Blob(chunks, { type: CAM.mime });
+      if (CAM.url) URL.revokeObjectURL(CAM.url);
+      CAM.url = URL.createObjectURL(CAM.blob);
+      camStopStream();
+      const pv = $('#cam-preview');
+      pv.src = CAM.url; pv.hidden = false; $('#cam-canvas').hidden = true;
+      pv.play().catch(() => {});
+      $('#cam-root .cam').classList.remove('rec');
+      $('#cam-bottom').innerHTML = camButtons('done');
+    };
+    CAM.rec = rec; CAM.busy = true;
+    rec.start(250);
+    $('#cam-root .cam').classList.add('rec');
+    $('#cam-bottom').innerHTML = camButtons('rec');
+    // 真ん中あたりの絵をサムネイルにする
+    setTimeout(() => {
+      try {
+        const t = document.createElement('canvas'); t.width = 180; t.height = 320;
+        t.getContext('2d').drawImage(c, 0, 0, 180, 320);
+        CAM.thumb = t.toDataURL('image/jpeg', 0.6).split(',')[1] || '';
+      } catch (e) { CAM.thumb = ''; }
+    }, CLIP_SEC * 500);
+    setTimeout(() => { if (rec.state === 'recording') rec.stop(); }, CLIP_SEC * 1000);
+  }
+  const blobToB64 = (blob) => new Promise((ok, ng) => { const r = new FileReader(); r.onload = () => ok(String(r.result).split(',')[1] || ''); r.onerror = ng; r.readAsDataURL(blob); });
+  async function camSend() {
+    if (!CAM.blob) return;
+    $('#cam-bottom').innerHTML = camButtons('send');
+    const item = { at: CAM.at, mime: CAM.mime, data: await blobToB64(CAM.blob), thumb: CAM.thumb, code: S.data.clipCode };
+    const res = await sendClip(item, true);
+    if (res === 'sent' || res === 'queued') camClose();
+    else $('#cam-bottom').innerHTML = camButtons('done');
+  }
+  /** 動画を送る。電波のせいで送れなかったら端末に残して、あとで送り直す */
+  async function sendClip(item, fresh) {
+    try {
+      const r = await api('clipUpload', { mime: item.mime, data: item.data, thumb: item.thumb, recordedAt: item.at, code: item.code });
+      if (r.records) { replaceDay(item.at.slice(0, 10), r.records); setData(S.data); }
+      const list = S.data.clips || (S.data.clips = []);
+      if (!list.some((c) => c.id === r.clip.id)) list.unshift(r.clip);
+      S.clipCache = {};
+      S.clipThumb = S.clipThumb || {}; S.clipThumb[r.clip.id] = item.thumb;
+      render();
+      toast(r.pending ? '送りました。取り消された日なので、スタッフが確認するまで待ちになります' : '送りました。' + (item.at.slice(0, 10) === S.data.today ? '今日' : mdw(item.at.slice(0, 10))) + 'は「実施した」になりました');
+      return 'sent';
+    } catch (e) {
+      if (e.code === 'network' || e.code === 'timeout') {
+        if (fresh) {
+          const q = store.get('clipQueue', []).filter((x) => x.at !== item.at);
+          q.push(item);
+          store.set('clipQueue', q.slice(-3));
+          render();
+          toast('電波が弱くて送れませんでした。つながったら自動で送ります', 'err');
+        }
+        return 'queued';
+      }
+      toast(e.message, 'err');
+      return 'error';
+    }
+  }
+  /** 送れていない動画を送り直す（開いたとき・つながったとき） */
+  let clipRetrying = false;
+  async function retryClips() {
+    if (clipRetrying || !S.data || !S.data.me || !navigator.onLine) return;
+    const q = store.get('clipQueue', []);
+    if (!q.length) return;
+    clipRetrying = true;
+    try {
+      for (const item of q) {
+        const r = await sendClip(item, false);
+        if (r === 'queued') break;
+        store.set('clipQueue', store.get('clipQueue', []).filter((x) => x.at !== item.at));
+      }
+    } finally { clipRetrying = false; render(); }
+  }
+  function queueBanner() {
+    const q = store.get('clipQueue', []);
+    if (!q.length || !S.data || !S.data.me) return '';
+    return '<div class="banner warn" role="status">' + icon('alert') + '<span>送れていない動画が' + q.length + '本あります</span>' +
+      '<button class="btn small primary" data-act="clip-retry">送る</button><button class="btn small" data-act="clip-drop">捨てる</button></div>';
+  }
+
+  // ---- 動画の一覧・再生 ----
+  S.clipCache = {}; S.clipThumb = {}; S.clipUrl = {};
+  async function loadClips(key, payload) {
+    if (S.clipCache[key] && S.clipCache[key] !== 'loading') return S.clipCache[key];
+    if (S.clipCache[key] === 'loading') return null;
+    S.clipCache[key] = 'loading';
+    try {
+      const r = await api('clips', payload);
+      r.clips.forEach((c) => { if (c.th) S.clipThumb[c.id] = c.th; });
+      S.clipCache[key] = r.clips;
+    } catch (e) { S.clipCache[key] = null; toast(e.message, 'err'); }
+    render();
+    return S.clipCache[key];
+  }
+  const memberName = (id) => { const m = (S.data.members || []).find((x) => x.id === id); return m ? m.name : ''; };
+  function clipCard(c, opt) {
+    const th = S.clipThumb[c.id];
+    const staff = !!(me() && can('anyStaff'));
+    const tag = c.st === 'pending' ? '<span class="clip-tag wait">確認待ち</span>' : c.st === 'canceled' ? '<span class="clip-tag no">取り消し</span>' : (staff && c.nf ? '<span class="clip-tag flag">気になる ' + c.nf + '</span>' : '');
+    return '<button class="clip-card" data-act="clip-open" data-id="' + esc(c.id) + '">' +
+      '<span class="clip-th">' + (th ? '<img src="data:image/jpeg;base64,' + th + '" alt="" loading="lazy">' : '<span class="clip-ph" aria-hidden="true">' + icon('cam') + '</span>') + tag + '</span>' +
+      '<span class="clip-meta">' + (opt && opt.noName ? '' : '<b>' + esc(memberName(c.m)) + '</b>') + '<small>' + (opt && opt.date ? mdw(c.d) + ' ' : '') + esc((c.at || '').slice(11, 16)) + '</small></span></button>';
+  }
+  function vClips() {
+    const today = S.data.today, staff = can('anyStaff');
+    const tab = S.route.arg === 'queue' && staff ? 'queue' : 'day';
+    const day = S.clipDay && S.clipDay <= today ? S.clipDay : today;
+    let h = '<div class="toolbar sticky-sub"><div class="seg" role="group" aria-label="動画">' +
+      '<button data-act="clips-tab" data-v="day" aria-pressed="' + (tab === 'day') + '">みんなの動画</button>' +
+      (staff ? '<button data-act="clips-tab" data-v="queue" aria-pressed="' + (tab === 'queue') + '">確認' + (S.data.clipQueue ? '<span class="badge-n">' + S.data.clipQueue + '</span>' : '') + '</button>' : '') + '</div>' +
+      (mePlayer() ? '<button class="btn primary" data-act="cam-open">' + icon('cam') + '撮る</button>' : '') + '</div>';
+    if (tab === 'queue') {
+      const list = S.clipCache.queue;
+      if (list === undefined) loadClips('queue', { from: L.addDays(today, -35), to: today, queue: true });
+      h += '<section class="block"><div class="block-h"><h2>確認が要る動画</h2><span class="count">' + (Array.isArray(list) ? list.length + '本' : '') + '</span></div>' +
+        '<p class="lead-line small">取り消された日に撮り直した「確認待ち」と、部員が「気になる」を押した動画です。見て「問題なし」か「取り消す」を押してください。</p>' +
+        (!Array.isArray(list) ? '<p class="empty">読み込んでいます…</p>' : list.length ? '<div class="clip-grid">' + list.map((c) => clipCard(c, { date: true })).join('') + '</div>' : '<p class="empty">確認が要る動画はありません。</p>') + '</section>';
+      return h;
+    }
+    const list = S.clipCache['d:' + day];
+    if (list === undefined) loadClips('d:' + day, { from: day, to: day });
+    const n = Array.isArray(list) ? list.length : (S.data.clips || []).filter((c) => c.d === day && c.st !== 'canceled').length;
+    h += '<div class="pbar clip-pbar"><div class="pnav"><button class="ibtn" data-act="clip-day" data-v="-1" aria-label="前の日">' + icon('back') + '</button>' +
+      '<div class="plabel"><b>' + (day === today ? '今日' : day === L.addDays(today, -1) ? '昨日' : (Math.round((L.parse(today) - L.parse(day)) / 864e5)) + '日前') + '</b><span>' + mdw(day) + '・' + n + '本</span></div>' +
+      '<button class="ibtn" data-act="clip-day" data-v="1" aria-label="次の日"' + (day >= today ? ' disabled' : '') + '>' + icon('next') + '</button></div></div>';
+    h += '<section class="block">' + (!Array.isArray(list) ? '<p class="empty">読み込んでいます…</p>'
+      : list.length ? '<div class="clip-grid">' + list.map((c) => clipCard(c)).join('') + '</div>'
+        : '<p class="empty">' + (day === today ? 'まだだれも出していません。' + (mePlayer() ? '「撮る」から今日の1本を出そう。' : '') : 'この日の動画はありません。') + '</p>') + '</section>';
+    return h;
+  }
+  /** ホームの「今日の動画」 */
+  function homeClips() {
+    if (!loginAll()) return '';
+    const today = S.data.today;
+    const list = S.clipCache['d:' + today];
+    if (list === undefined) setTimeout(() => loadClips('d:' + today, { from: today, to: today }), 0);
+    const own = me() ? (S.data.clips || []).filter((c) => c.m === me().id && c.d === today && c.st !== 'canceled') : [];
+    const mine = own.some((c) => c.st === 'ok'), wait = !mine && own.length > 0;
+    const q = can('anyStaff') && S.data.clipQueue ? '<a class="banner warn" href="#clips/queue">' + icon('alert') + '<span>確認が要る動画が' + S.data.clipQueue + '本あります</span></a>' : '';
+    return q + '<section class="block home-clips"><div class="block-h"><h2>今日の動画</h2><a class="more" href="#clips">すべて見る</a></div>' +
+      (mePlayer() ? (mine ? '<p class="clip-done">' + icon('check') + '今日の1本は出しました</p>' : wait ? '<p class="clip-done wait">確認待ちです。スタッフが確認すると「実施した」になります</p>' : '<button class="btn primary wide cam-cta" data-act="cam-open">' + icon('cam') + '今日の1本を撮る（3秒）</button>') : '') +
+      (Array.isArray(list) && list.length ? '<div class="clip-strip">' + list.slice(0, 12).map((c) => clipCard(c)).join('') + '</div>' : Array.isArray(list) ? '<p class="empty small">まだだれも出していません。</p>' : '') + '</section>';
+  }
+  /** 部員ページの動画（1か月） */
+  function memberClips(id) {
+    if (!loginAll()) return '';
+    const today = S.data.today, key = 'm:' + id;
+    const list = S.clipCache[key];
+    if (list === undefined) setTimeout(() => loadClips(key, { memberId: id, from: L.addDays(today, -31), to: today }), 0);
+    return '<section class="block"><div class="block-h"><h2>動画</h2><span class="count">1か月で消えます</span></div>' +
+      (!Array.isArray(list) ? '<p class="empty small">読み込んでいます…</p>' : list.length ? '<div class="clip-grid">' + list.map((c) => clipCard(c, { date: true, noName: true })).join('') + '</div>' : '<p class="empty small">この1か月の動画はありません。</p>') + '</section>';
+  }
+  function findClip(id) {
+    for (const k of Object.keys(S.clipCache)) { const l = S.clipCache[k]; if (Array.isArray(l)) { const c = l.find((x) => x.id === id); if (c) return c; } }
+    return (S.data.clips || []).find((x) => x.id === id) || null;
+  }
+  async function openClip(id) {
+    const c = findClip(id);
+    if (!c) return;
+    const m = me(), staff = can('anyStaff'), own = m && m.id === c.m;
+    const name = memberName(c.m);
+    const acts = [];
+    if (m && m.perm !== 'guest' && !own && c.st !== 'canceled') acts.push('<button class="btn' + (c.mine ? ' on' : '') + '" data-act="clip-flag" data-id="' + esc(c.id) + '" aria-pressed="' + !!c.mine + '">' + (c.mine ? '気になるを取り消す' : '気になる') + '</button>');
+    if (staff && c.st !== 'canceled') {
+      if (c.st === 'pending' || c.nf) acts.push('<button class="btn primary" data-act="clip-approve" data-id="' + esc(c.id) + '">' + (c.st === 'pending' ? '確認して「実施した」に' : '問題なし') + '</button>');
+      acts.push('<button class="btn danger" data-act="clip-cancel-open" data-id="' + esc(c.id) + '">取り消す</button>');
+    }
+    openSheet(name + '・' + mdw(c.d) + ' ' + (c.at || '').slice(11, 16),
+      '<div class="clip-player"><video id="clip-v" playsinline muted loop autoplay' + (S.clipThumb[c.id] ? ' poster="data:image/jpeg;base64,' + S.clipThumb[c.id] + '"' : '') + '></video><p class="clip-load" id="clip-load"><span class="spin"></span>読み込んでいます…</p></div>' +
+      (c.st === 'pending' ? '<p class="note">取り消された日に撮り直した動画です。スタッフが確認すると「実施した」になります。</p>' : '') +
+      (c.st === 'canceled' ? '<p class="note err">取り消されました' + (c.why ? '（' + esc(c.why) + '）' : '') + '。</p>' : '') +
+      (c.st !== 'canceled' ? stampBar(c.m, 'c:' + c.id) : '') +
+      (acts.length ? '<div class="toolbar clip-acts">' + acts.join('') + '</div>' : '') +
+      '<div class="clip-cancel" id="clip-cancel" hidden><form data-form="clipcancel" class="form"><input type="hidden" name="id" value="' + esc(c.id) + '">' +
+      '<label>取り消す理由<span class="opt">本人に届きます（なくてもよい）</span><input name="reason" maxlength="80" placeholder="例：ジムで撮った動画ではない"></label>' +
+      '<p class="form-err" role="alert" hidden></p><div class="actions"><button type="button" class="btn" data-act="clip-cancel-close">やめる</button><button class="btn danger" type="submit">取り消す</button></div></form></div>' +
+      '<p class="hint"><a href="#member/' + encodeURIComponent(c.m) + '">' + esc(name) + ' さんのページへ</a></p>');
+    try {
+      let url = S.clipUrl[c.id];
+      if (!url) {
+        const r = await api('clipVideo', { id: c.id });
+        const bin = atob(r.data), u = new Uint8Array(bin.length);
+        for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i);
+        url = S.clipUrl[c.id] = URL.createObjectURL(new Blob([u], { type: r.mime }));
+      }
+      const v = $('#clip-v');
+      if (v) {
+        v.src = url;
+        v.play().catch(() => {});
+        v.onerror = () => { const l = $('#clip-load'); if (l) { l.hidden = false; l.textContent = 'このスマホでは再生できない形式でした（' + esc(c.id) + '）。'; } };
+        const l = $('#clip-load'); if (l) l.hidden = true;
+      }
+    } catch (e) { const l = $('#clip-load'); if (l) l.textContent = e.message; }
+  }
+  function clipUpdated(c) {
+    Object.keys(S.clipCache).forEach((k) => { const l = S.clipCache[k]; if (Array.isArray(l)) { const i = l.findIndex((x) => x.id === c.id); if (i >= 0) l[i] = Object.assign({}, l[i], c); } });
+    const l2 = S.data.clips || [];
+    const j = l2.findIndex((x) => x.id === c.id);
+    if (j >= 0) l2[j] = Object.assign({}, l2[j], c);
+  }
+
+  // ---- 管理者：部員の登録・見るだけの人 ----
+  function openRegs() {
+    const list = sortMembers(S.data.members.filter((x) => x.active && x.perm === 'member'));
+    const reg = (S.data.regs || {});
+    openSheet('部員の登録',
+      '<p class="lead-line small">部員は自分で名前を選んで登録します。本人ではない人が登録していたら「登録を消す」を押してください。本人がもう一度登録できます。</p>' +
+      '<ul class="exlist">' + list.map((x) => '<li><span class="ex-r"><b>' + esc(x.name) + '</b><small>' + esc(x.grade || '') + '・' + (reg[x.id] ? '登録済み' : '未登録') + '</small></span>' +
+        (reg[x.id] ? '<span class="pr-a"><button class="btn small" data-act="unreg" data-id="' + x.id + '">登録を消す</button></span>' : '<span></span>') + '</li>').join('') + '</ul>', { wide: true });
+  }
+  async function openGuests() {
+    const g = S.data.guests || [];
+    openSheet('見るだけの人',
+      '<p class="lead-line small">監督・コーチ・OB など、部員名簿にいない人の登録です。ランキング・カレンダー・動画を見られます（動画は出せません）。作ると最初の暗証番号が出るので、本人に直接伝えてください。</p>' +
+      (g.length ? '<ul class="exlist">' + g.map((x) => '<li><span class="ex-r"><b>' + esc(x.name) + '</b><small>' + esc(x.note || '') + '</small></span><span class="pr-a">' +
+        '<button class="btn small" data-act="guest-reissue" data-id="' + esc(x.id) + '">暗証番号を出し直す</button><button class="textbtn" data-act="guest-del" data-id="' + esc(x.id) + '">削除</button></span></li>').join('') + '</ul>' : '<p class="empty small">まだいません。</p>') +
+      '<form data-form="guest" class="form"><label>名前<input name="name" maxlength="30" required></label><label>メモ<span class="opt">任意</span><input name="note" maxlength="60" placeholder="例：監督"></label>' +
+      '<p class="form-err" role="alert" hidden></p><div class="actions"><button class="btn primary" type="submit">追加して暗証番号を出す</button></div></form>', { wide: true });
   }
   function lockedView() {
     return '<div class="gate"><div class="boot-mark" aria-hidden="true">' + jersey({ num: '', front: true }) + '</div><h1>KURFC 筋トレ</h1>' +
@@ -3184,7 +3574,9 @@
     logout: async () => {
       if (!recLeaveOk()) return;
       try { await api('logout', {}); } catch (e) { /* 通信できなくても端末側は消す */ }
+      const all = loginAll();
       S.token = ''; store.del('token'); pendingOldPin = '';
+      if (all) { store.del('state2'); store.del('clipQueue'); S.clipCache = {}; S.clipThumb = {}; S.clipUrl = {}; }
       closeSheet(); await loadState(); render(); toast('ログアウトしました');
     },
     'pin-change': () => openPinChange(false),
@@ -3214,7 +3606,7 @@
       if (on) { x.mine.push(k); x.c[k] = (x.c[k] || 0) + 1; } else { x.mine = x.mine.filter((y) => y !== k); x.c[k] = Math.max(0, (x.c[k] || 1) - 1); if (!x.c[k]) delete x.c[k]; }
       putStamp(x); STAMP_BUSY[key] = 1;
       if (on && !reduceMotion()) burst(rect, k);
-      try { const r = await api('stamp', { target: t, event: e, kind: k, from: PREF.self || '' }); putStamp(r.stamp); }
+      try { const r = await api('stamp', { target: t, event: e, kind: k, from: (loginAll() && me() && me().perm !== 'guest' ? me().id : PREF.self) || '' }); putStamp(r.stamp); }
       catch (err) { putStamp(before); toast(err.message, 'err'); }
       finally { delete STAMP_BUSY[key]; }
     },
@@ -3448,6 +3840,53 @@
       S.rec.date = n; S.rec.edits = {}; render();
     },
     'rec-confirm': () => openRecConfirm(),
+    'login-tab': (el) => { S.loginTab = el.dataset.v; S.loginId = ''; S.loginErr = ''; render(); },
+    'cam-open': () => openCamera(),
+    'cam-close': () => { if (CAM.blob && !confirm('撮った動画を送らずに閉じますか？')) return; camClose(); },
+    'cam-flip': () => { CAM.facing = CAM.facing === 'user' ? 'environment' : 'user'; camStart(); },
+    'cam-shoot': () => camShoot(),
+    'cam-retake': () => { CAM.blob = null; const pv = $('#cam-preview'); if (pv) { pv.pause(); pv.hidden = true; } $('#cam-canvas').hidden = false; $('#cam-bottom').innerHTML = camButtons('ready'); camStart(); },
+    'cam-send': (el) => busy(el, camSend),
+    'clip-retry': (el) => busy(el, retryClips),
+    'clip-drop': () => { if (!confirm('送れていない動画を捨てますか？（その日の「実施した」は付きません）')) return; store.del('clipQueue'); render(); },
+    'clips-tab': (el) => { location.hash = el.dataset.v === 'queue' ? '#clips/queue' : '#clips'; },
+    'clip-day': (el) => { const d = L.addDays(S.clipDay || S.data.today, +el.dataset.v); if (d > S.data.today) return; S.clipDay = d; vt(render, +el.dataset.v < 0 ? 'prev' : 'next'); },
+    'clip-open': (el) => openClip(el.dataset.id),
+    'clip-flag': async (el) => {
+      const c = findClip(el.dataset.id); if (!c) return;
+      await busy(el, async () => {
+        try { const r = await api('clipFlag', { id: c.id, on: !c.mine }); clipUpdated(r.clip); toast(r.clip.mine ? '「気になる」を押しました。スタッフが確認します' : '「気になる」を取り消しました'); openClip(c.id); }
+        catch (e) { toast(e.message, 'err'); }
+      });
+    },
+    'clip-approve': async (el) => {
+      await busy(el, async () => {
+        try {
+          const r = await api('clipApprove', { id: el.dataset.id });
+          clipUpdated(r.clip); if (r.records) { replaceDay(r.clip.d, r.records); setData(S.data); }
+          S.clipCache.queue = undefined; S.data.clipQueue = Math.max(0, (S.data.clipQueue || 1) - 1);
+          closeSheet(); render(); toast(r.recorded ? '「実施した」にしました' : '問題なしにしました');
+        } catch (e) { toast(e.message, 'err'); }
+      });
+    },
+    'clip-cancel-open': () => { const b = $('#clip-cancel'); if (b) { b.hidden = false; const i = $('input[name="reason"]', b); if (i) i.focus(); } },
+    'clip-cancel-close': () => { const b = $('#clip-cancel'); if (b) b.hidden = true; },
+    'regs-open': () => openRegs(),
+    'guests-open': () => openGuests(),
+    unreg: async (el) => {
+      const name = memberName(el.dataset.id);
+      if (!confirm(name + ' さんの登録を消しますか？　ログインが切れて、もう一度登録できるようになります。')) return;
+      await busy(el, async () => { try { await api('unregister', { memberId: el.dataset.id }); await loadState(); render(); openRegs(); toast('登録を消しました'); } catch (e) { toast(e.message, 'err'); } });
+    },
+    'guest-reissue': async (el) => {
+      const g = (S.data.guests || []).find((x) => x.id === el.dataset.id); if (!g) return;
+      if (!confirm(g.name + ' さんの暗証番号を出し直しますか？　今のログインは切れます。')) return;
+      await busy(el, async () => { try { const r = await api('guestSave', { id: g.id, name: g.name, note: g.note || '', reissue: true }); openSheet('暗証番号を出し直しました', '<div class="pinshow"><p>' + esc(g.name) + ' さんの最初の暗証番号</p><div class="pin num">' + esc(r.tempPin) + '</div></div><p class="note">本人に直接伝えてください。最初のログインで自分の暗証番号に変えてもらいます。</p>'); } catch (e) { toast(e.message, 'err'); } });
+    },
+    'guest-del': async (el) => {
+      const g = (S.data.guests || []).find((x) => x.id === el.dataset.id); if (!g || !confirm(g.name + ' さんを削除しますか？　ログインできなくなります。')) return;
+      await busy(el, async () => { try { await api('guestDelete', { id: g.id }); await loadState(); render(); openGuests(); toast('削除しました'); } catch (e) { toast(e.message, 'err'); } });
+    },
     'draft-resume': () => {
       const d = recDraft();
       if (!d) { render(); return; }
@@ -3482,6 +3921,46 @@
   };
 
   const forms = {
+    mlogin: async (f, btn) => {
+      await busy(btn, async () => {
+        try {
+          const pin = f.pin.value;
+          const r = await api('login', { memberId: f.memberId.value, pin: pin, deviceName: deviceName() });
+          S.token = r.token; store.set('token', r.token); S.loginErr = '';
+          pendingOldPin = r.me.mustChange ? pin : '';
+          await loadState(); render();
+          if (!r.me.mustChange) toast(r.me.name + ' さんでログインしました');
+        } catch (e) { sheetErrorIn(f, e.message); }
+      });
+    },
+    register: async (f, btn) => {
+      if (f.pin.value !== f.pin2.value) { sheetErrorIn(f, '1回目と2回目の暗証番号が違います。'); return; }
+      await busy(btn, async () => {
+        try {
+          const r = await api('register', { memberId: f.memberId.value, pin: f.pin.value, deviceName: deviceName() });
+          S.token = r.token; store.set('token', r.token); S.loginErr = '';
+          await loadState(); render(); toast('登録しました。ようこそ、' + r.me.name + ' さん');
+        } catch (e) { sheetErrorIn(f, e.message); }
+      });
+    },
+    clipcancel: async (f, btn) => {
+      await busy(btn, async () => {
+        try {
+          const r = await api('clipCancel', { id: f.id.value, reason: f.reason.value });
+          clipUpdated(r.clip); if (r.records) { replaceDay(r.date, r.records); setData(S.data); }
+          S.clipCache = {}; closeSheet(); await loadState(); render(); toast('取り消しました。本人に知らせました');
+        } catch (e) { sheetErrorIn(f, e.message); }
+      });
+    },
+    guest: async (f, btn) => {
+      await busy(btn, async () => {
+        try {
+          const r = await api('guestSave', { name: f.name.value, note: f.note.value });
+          await loadState(); render();
+          openSheet('見るだけの人を追加しました', '<div class="pinshow"><p>' + esc(r.guest.name) + ' さんの最初の暗証番号</p><div class="pin num">' + esc(r.tempPin) + '</div></div><p class="note">本人に直接伝えてください。ログインの画面で「見るだけの人」→ 名前を選んで入れます。最初のログインで自分の暗証番号に変えてもらいます。</p>');
+        } catch (e) { sheetErrorIn(f, e.message); }
+      });
+    },
     login: async (f, btn) => {
       const pin = f.pin.value;
       await busy(btn, async () => {
@@ -3744,6 +4223,7 @@
   });
   document.addEventListener('change', (ev) => {
     const t = ev.target;
+    if (t.dataset && t.dataset.actChange === 'login-pick') { S.loginId = t.value; S.loginErr = ''; render(); const p = $('#app input[type="password"]'); if (p) p.focus(); return; }
     if (t.name === 'sv' && SV) { const i = +t.value; if (t.checked) SV.sel.add(i); else SV.sel.delete(i); svCount(); return; }
     if (t.dataset && t.dataset.actChange === 'rec-date') {
       const v = t.value;
@@ -3829,7 +4309,7 @@
     // 前に読み込んだ情報があれば、すぐ出す（日付が変わっていても、今日の日付に合わせて出す）。新しい情報が来たら入れかえる
     const cached = store.get('state2', null);
     const today0 = L.todayJST();
-    if (cached && cached.members) {
+    if (cached && cached.members && !(cached.loginAll && !S.token)) {
       cached.me = null; // 権限は必ずサーバーに確かめる
       if (cached.range && cached.range.from <= today0 && today0 <= cached.range.to) {
         if (cached.today !== today0) { cached.today = today0; S.stale = true; }
@@ -3847,7 +4327,8 @@
     }
     S.stale = false;
     render();
-    if (S.data && !S.data.locked && !store.get('guided', 0)) openGuide(0);
-    else if (S.data && !S.data.locked) setTimeout(maybeRoleTour, 1200);
+    if (S.data && !gated() && !store.get('guided', 0)) openGuide(0);
+    else if (S.data && !gated()) setTimeout(maybeRoleTour, 1200);
+    if (S.data && S.data.loginAll) { retryClips(); window.addEventListener('online', retryClips); }
   })();
 })();
