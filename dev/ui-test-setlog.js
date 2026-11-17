@@ -53,6 +53,9 @@ const shot = async (p, name) => { if (SHOT) { require('fs').mkdirSync(SHOT, { re
   await shot(p, '04-camera');
   await p.click('[data-act="cam-shoot"]'); await p.waitForTimeout(800);
   ok(await p.locator('.cam.rec').count() === 1, '押すと撮りはじめる（赤い枠）');
+  const ring = await p.evaluate(() => { const c = document.getElementById('cam-canvas'), r = c.getBoundingClientRect(); return { sh: getComputedStyle(c).boxShadow, ratio: r.width / r.height }; });
+  ok(/229, 72, 77/.test(ring.sh) && Math.abs(ring.ratio - 0.75) < 0.02, '赤い枠は映像（3:4）の縁にぴったり付く（' + ring.ratio.toFixed(3) + '）');
+  await shot(p, '04b-rec');
   await p.waitForSelector('[data-act="cam-send"]', { timeout: 8000 });
   const pv = await p.evaluate(() => { const v = document.getElementById('cam-preview'); return { hidden: v.hidden, src: !!v.src }; });
   ok(!pv.hidden && pv.src, '2秒で止まり、撮った動画をくり返し見せる');
