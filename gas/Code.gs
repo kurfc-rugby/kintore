@@ -474,6 +474,7 @@ function withLock_(fn, opt) {
     throw err_('busy', 'いま混み合っています。少し待ってもう一度試してください。');
   }
   try {
+    SpreadsheetApp.flush(); // ほかの実行が書いた内容を読めるように（同じ実行の中で前に読んだ内容を使い回させない）
     if (REQ_) {
       REQ_.tables = {}; REQ_.goalHist = null;
       if (!keep) { REQ_.roster = null; REQ_.members = null; REQ_.rinfo = null; REQ_.fresh = true; }
@@ -3515,7 +3516,36 @@ function clipThumbArg_(ctx) {
   if (thumb.length > 40000 || !/^[A-Za-z0-9+/=]*$/.test(thumb)) throw err_('bad_thumb', 'サムネイルが正しくありません。');
   return thumb;
 }
-const findClip_ = function (memberId, at) { return table_('clips').rows.filter(function (c) { return c.memberId === memberId && c.recordedAt === at; })[0] || null; };
+const clipRowsFor_ = function (memberId, at) { return table_('clips').rows.filter(function (c) { return c.memberId === memberId && c.recordedAt === at; }); };
+/** 同じ人・同じ撮影時刻の行（ふつうは1つ）。下書きでない行を先に返す */
+const findClip_ = function (memberId, at) {
+  const l = clipRowsFor_(memberId, at);
+  return l.filter(function (c) { return c.status !== 'draft'; })[0] || l[0] || null;
+};
+/** 同じ動画の行が2つできてしまったとき（「送る」と下書きがほぼ同時に着いたとき）に1つにまとめる。ロックの中で呼ぶ。
+ *  下書きの動画を、出した行（「実施した」の行）につけて、下書きの行は消す（動画のファイルは残す） */
+function healClip_(memberId, at) {
+  const l = clipRowsFor_(memberId, at);
+  const main = l.filter(function (c) { return c.status !== 'draft'; })[0];
+  const drafts = l.filter(function (c) { return c.status === 'draft'; });
+  if (!main || !drafts.length) return main || l[0] || null;
+  const withFile = drafts.filter(function (d) { return d.fileId; })[0];
+  if (withFile && !main.fileId) {
+    main.fileId = withFile.fileId; main.mime = withFile.mime; main.size = withFile.size; main.uploadedAt = withFile.uploadedAt;
+    update_('clips', main);
+  }
+  drafts.forEach(function (d) { if (d.fileId && d.fileId !== main.fileId) { try { DriveApp.getFileById(d.fileId).setTrashed(true); } catch (x) { /* noop */ } } });
+  const ids = {};
+  drafts.forEach(function (d) { ids[d.id] = 1; });
+  removeMany_('clips', drafts);
+  removeMany_('clipThumbs', table_('clipThumbs').rows.filter(function (t) { return ids[t.id]; }));
+  return findClip_(memberId, at);
+}
+/** 出した行に動画が無いのに、下書きの行に動画がある（まとめる必要がある） */
+const needHeal_ = function (memberId, at) {
+  const l = clipRowsFor_(memberId, at);
+  return l.some(function (c) { return c.status !== 'draft' && !c.fileId; }) && l.some(function (c) { return c.status === 'draft' && c.fileId; });
+};
 /** 行を足して「実施した」にする（ロックの中で呼ぶ）。file が無ければ動画待ち */
 function clipAddRow_(me, k, thumb, file, bytes, T, draft) {
   let tt = Date.now(); const lap = function (key) { if (!T) return; const n = Date.now(); T[key] = (T[key] || 0) + n - tt; tt = n; };
@@ -3559,12 +3589,12 @@ function opClipStart_(ctx) {
   const k = clipCheck_(ctx, me);
   const thumb = clipThumbArg_(ctx);
   const dup = findClip_(me.id, k.at);
-  if (dup && dup.status !== 'draft') return { ok: true, clip: clipWire_(dup, me), again: true, records: recordsWire_(k.date, k.date) };
+  if (dup && dup.status !== 'draft' && !needHeal_(me.id, k.at)) return { ok: true, clip: clipWire_(dup, me), again: true, records: recordsWire_(k.date, k.date) };
   T.check = Date.now() - t1; T.drive = 0;
   const t3 = Date.now();
   const res = withLock_(function () {
     T.wait = Date.now() - t3;
-    const d2 = findClip_(me.id, k.at);
+    const d2 = healClip_(me.id, k.at);
     if (d2 && d2.status !== 'draft') return { ok: true, clip: clipWire_(d2, me), again: true, records: recordsWire_(k.date, k.date) };
     return clipAddRow_(me, k, d2 ? '' : thumb, null, null, T, d2);
   }, { keepRoster: true });
@@ -3582,11 +3612,15 @@ function opClipUpload_(ctx) {
   try { bytes = Utilities.base64Decode(String(ctx.req.data || '')); } catch (x) { throw err_('bad_data', '動画を読み取れませんでした。'); }
   if (!bytes.length || bytes.length > CLIP_MAX_BYTES) throw err_('too_big', '動画が大きすぎます（2MBまで）。');
   // 同じ動画を送り直したとき（電波が切れて返事が届かなかったなど）は、前のものを返す
+  // 行が2つできていたら（下書きに動画がある）まとめる。動画はもう届いているので送られた分は使わない
+  if (needHeal_(me.id, k.at)) {
+    return withLock_(function () { const c = healClip_(me.id, k.at); return { ok: true, clip: clipWire_(c, me), again: true }; }, { keepRoster: true });
+  }
   const dup = findClip_(me.id, k.at);
   if (dup && dup.status === 'draft' && dup.fileId) {
     // 下書きで動画はもう届いている：動画を送ってきた＝「出す」とみなす
     const res0 = withLock_(function () {
-      const c = findClip_(me.id, k.at);
+      const c = healClip_(me.id, k.at);
       if (c && c.status !== 'draft') return { ok: true, clip: clipWire_(c, me), again: true };
       return clipAddRow_(me, k, '', null, null, null, c);
     }, { keepRoster: true });
@@ -3601,7 +3635,7 @@ function opClipUpload_(ctx) {
   T.drive = Date.now() - t2;
   const t3 = Date.now();
   const res = withLock_(function () {
-    const c = findClip_(me.id, k.at);
+    const c = healClip_(me.id, k.at);
     if (c && c.fileId) { try { file.setTrashed(true); } catch (x) { /* noop */ } return { ok: true, clip: clipWire_(c, me), again: true }; }
     if (c) {
       // 先に「実施した」にしてある行に、動画をつける
@@ -3635,7 +3669,7 @@ function opClipDraft_(ctx) {
   T.drive = Date.now() - t2;
   const t3 = Date.now();
   const res = withLock_(function () {
-    const c = findClip_(me.id, k.at);
+    const c = healClip_(me.id, k.at);
     if (c && c.fileId) { try { file.setTrashed(true); } catch (x) { /* noop */ } return { ok: true, clip: c.status === 'draft' ? null : clipWire_(c, me), again: true }; }
     const now = now_();
     if (c) {

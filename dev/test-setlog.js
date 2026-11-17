@@ -209,6 +209,25 @@ api({ op: 'clipDraft', token: ISHI, mime: 'video/mp4', data: vid, thumb, recorde
 r = api({ op: 'clipUpload', token: ISHI, mime: 'video/mp4', data: vid, thumb, recordedAt: at9, code });
 ok(r.ok && r.clip.st === 'ok' && r.clip.nv === 0, '下書きのあとに動画を送ってきたら「出す」とみなす');
 
+section('「送る」と下書きがほぼ同時に着いて、行が2つになったとき');
+const atx = jst(0.05);
+r = api({ op: 'clipStart', token: ISHI, mime: 'video/mp4', thumb, recordedAt: atx, code });
+ok(r.ok && r.clip.nv === 1, '「送る」の行（動画待ち）');
+{ // 本番で起きた形をそのまま作る：同じ撮影時刻の下書きの行（動画あり）がもう1つある
+  const sh = gas.sheet('動画'), head = sh.data[0], row = head.map(() => '');
+  const set = (name, v) => { row[head.indexOf(name)] = v; };
+  const fid = Object.keys(gas.drive.files)[0];
+  set('動画ID', 'Cdupdraft0001'); set('部員ID', IS); set('日付', atx.slice(0, 10)); set('撮影日時', atx); set('送信日時', atx); set('ファイルID', fid);
+  set('形式', 'video/mp4'); set('大きさ', '100'); set('今日の数字', String(code)); set('状態', '下書き'); set('気になる（部員ID）', '[]');
+  sh.data.push(row);
+}
+const rowsOf = () => gas.sheet('動画').data.filter((x) => x.indexOf(atx) >= 0 && x.indexOf(IS) >= 0);
+ok(rowsOf().length === 2, '（行が2つある状態）');
+r = api({ op: 'clipStart', token: ISHI, mime: 'video/mp4', thumb, recordedAt: atx, code });
+ok(r.ok && r.clip.nv === 0, '確かめ直しの「送る」で、下書きの動画を出した行にまとめる（動画が届いた扱い）');
+ok(rowsOf().length === 1, '下書きの行は消えて、1つになる');
+ok(api({ op: 'clipUpload', token: ISHI, mime: 'video/mp4', data: vid, thumb, recordedAt: atx, code }).again, 'そのあと動画が来ても二重にならない');
+
 section('ログインを覚えておく（速くするため）');
 const L1 = api({ op: 'login', memberId: MO, pin: 'mori-pin-1' }).token;
 ok(api({ op: 'state', token: L1 }).me && api({ op: 'state', token: L1 }).me.id === MO, '覚えたログインで使える');
