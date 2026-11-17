@@ -65,6 +65,10 @@ const shot = async (p, name) => { if (SHOT) { require('fs').mkdirSync(SHOT, { re
   ok(Date.now() - t0 < 1500, '「送る」を押すとすぐ閉じる（送るのは裏で）');
   ok(/今日の1本は出しました/.test(await p.locator('.home-clips').innerText()) && /「実施した」にしました/.test(await p.locator('#toast-root').innerText()), '押したらすぐ「実施した」（サーバーの返事を待たない）');
   ok(/送っています/.test(await p.locator('#main').innerText()), '送っている間は「送っています」と出る');
+  await p.evaluate(() => { location.hash = '#clips'; }); await p.waitForTimeout(150);
+  ok(!/読み込んでいます/.test(await p.locator('#main').innerText()) && await p.locator('.clip-grid .clip-card').count() >= 1, '送った直後に「動画」を開いても、一覧が消えない（読み込み直さない）');
+  await p.evaluate(() => { location.hash = ''; }); await p.waitForTimeout(150);
+  ok(await p.locator('.home-clips .clip-card').count() === 1, 'ホームの今日の動画に、送った動画が1回だけ出る');
   await p.waitForFunction(() => !localStorage.getItem('kintoreTest.clipQueue'), null, { timeout: 15000 }).catch(() => {});
   await p.waitForTimeout(800);
   ok(await p.locator('.cam').count() === 0 && /今日の1本は出しました/.test(await p.locator('.home-clips').innerText()), '送ると閉じて「今日の1本は出しました」');

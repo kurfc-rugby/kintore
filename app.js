@@ -3,7 +3,7 @@
   'use strict';
   const L = window.KLogic;
   const API = window.KINTORE_API;
-  const VERSION = '2.22.0-t11';
+  const VERSION = '2.22.0-t12';
   const WD = ['日', '月', '火', '水', '木', '金', '土'];
   const PERM = { admin: '管理者', manager: 'マネージャー', leader: 'FWリーダー', member: '一般部員', guest: '見るだけ' };
   const MODE = { leader: 'メニュー参加', self: '自主トレ' };
@@ -3380,25 +3380,36 @@
   /** 「送る」を押したらすぐ、このスマホの画面では「実施した」にしておく（サーバーの返事を待たない）。
    *  送れない動画だったときは読み直して元に戻す。戻り値：取り消された日（確認待ちになる）なら true */
   S.marked = {};
+  /** 読み込み済みの動画の一覧（その日・その人）に1本入れる／置きかえる。一覧は捨てない（捨てると「読み込んでいます」に戻ってしまう） */
+  function cacheUpsert(c) {
+    ['d:' + c.d, 'm:' + c.m].forEach((k) => {
+      const l = S.clipCache[k];
+      if (!Array.isArray(l)) return;
+      const rest = l.filter((x) => x.id !== c.id && !(x.local && x.at === c.at && x.m === c.m));
+      S.clipCache[k] = [c].concat(rest).sort((a, b) => (a.at < b.at ? 1 : -1));
+    });
+  }
+  function cacheDrop(id) { Object.keys(S.clipCache).forEach((k) => { const l = S.clipCache[k]; if (Array.isArray(l)) S.clipCache[k] = l.filter((x) => x.id !== id); }); }
   function markLocal(item) {
     const m = me(); if (!m) return false;
     const d = item.at.slice(0, 10), lid = 'local:' + item.at;
     S.marked[item.at] = 1;
     const list = S.data.clips || (S.data.clips = []);
     const pend = list.some((c) => c.m === m.id && c.d === d && c.st === 'canceled');
-    if (!list.some((c) => c.id === lid)) list.unshift({ id: lid, m: m.id, d: d, at: item.at, st: pend ? 'pending' : 'ok', nv: 1, local: 1 });
+    const ph = { id: lid, m: m.id, d: d, at: item.at, st: pend ? 'pending' : 'ok', nv: 1, local: 1 };
+    if (!list.some((c) => c.id === lid)) list.unshift(ph);
     if (item.thumb) S.clipThumb[lid] = item.thumb;
+    cacheUpsert(ph);
     if (!pend) {
       const day = S.data.records.filter((x) => x[1] === d);
       if (!day.some((x) => x[0] === m.id && +x[2] === 1)) { replaceDay(d, day.filter((x) => x[0] !== m.id).concat([[m.id, d, 1, 0, m.id, m.id]])); setData(S.data); }
     }
-    S.clipCache = {};
     return pend;
   }
   /** 送れない動画だった：画面の仮の「実施した」をやめて、サーバーの内容で読み直す */
   function unmarkLocal(at) {
     if (S.data && S.data.clips) S.data.clips = S.data.clips.filter((c) => c.id !== 'local:' + at);
-    S.clipCache = {};
+    cacheDrop('local:' + at);
     loadState().catch(() => {});
   }
   /** テスト環境だけ：送った時間の内訳を5回分しまっておいて、設定の画面に出す */
@@ -3450,9 +3461,9 @@
     if (r.clip) {
       const i = list.findIndex((c) => c.id === r.clip.id);
       if (i >= 0) list[i] = Object.assign({}, list[i], r.clip); else list.unshift(r.clip);
+      cacheUpsert(Object.assign({}, list[i >= 0 ? i : 0]));
       clipUpdated(r.clip);
     }
-    S.clipCache = {};
     if (r.clip && item.thumb) { S.clipThumb = S.clipThumb || {}; S.clipThumb[r.clip.id] = item.thumb; }
     const day = item.at.slice(0, 10) === S.data.today ? '今日' : mdw(item.at.slice(0, 10));
     if (stage === 'video') { toast('動画も送り終わりました'); return; }
@@ -3503,7 +3514,7 @@
         delete S.drafts[item.at];
         if (!one) {
           const m = me(), c = m && (S.data.clips || []).find((x) => x.m === m.id && x.at === item.at);
-          if (c) { c.nv = 0; clipUpdated(c); S.clipCache = {}; }
+          if (c) { c.nv = 0; clipUpdated(c); }
           toast('動画も送り終わりました');
           return 'sent';
         }
@@ -3648,7 +3659,8 @@
     const mine = own.some((c) => c.st === 'ok'), wait = !mine && own.length > 0;
     const held = !mine && !wait && qList().some((x) => x.at.slice(0, 10) === today);
     // 送っている途中の自分の動画（仮の行）も先頭に出す
-    const strip = (S.data.clips || []).filter((c) => c.local && c.d === today).concat(Array.isArray(list) ? list : []);
+    const lst = Array.isArray(list) ? list : [];
+    const strip = (S.data.clips || []).filter((c) => c.local && c.d === today && !lst.some((x) => x.id === c.id)).concat(lst);
     const q = can('anyStaff') && S.data.clipQueue ? '<a class="banner warn" href="#clips/queue">' + icon('alert') + '<span>確認が要る動画が' + S.data.clipQueue + '本あります</span></a>' : '';
     return q + '<section class="block home-clips"><div class="block-h"><h2>今日の動画</h2><a class="more" href="#clips">すべて見る</a></div>' +
       (mePlayer() ? (mine ? '<p class="clip-done">' + icon('check') + '今日の1本は出しました' + (qList().some((x) => x.at.slice(0, 10) === today) ? '<small>' + (S.clipSending ? '<span class="spin"></span>動画を送っています…' : '動画はまだ送れていません') + '</small>' : '') + '</p>' : wait ? '<p class="clip-done wait">確認待ちです。スタッフが確認すると「実施した」になります</p>' : held ? '<p class="clip-done wait">' + (S.clipSending ? '<span class="spin"></span>今日の1本を送っています…' : '今日の1本はまだ送れていません。電波のよい所で「送る」を押してください') + '</p>' : '<button class="btn primary wide cam-cta" data-act="cam-open">' + icon('cam') + '今日の1本を撮る（' + CLIP_SEC + '秒）</button>') : '') +
