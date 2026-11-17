@@ -28,7 +28,7 @@
   /* 明るい画面とダークで入れ替える色 */
   --enji-bg: var(--enji); --top-bg: var(--enji); --on-ink: #fff; --bar: #000;
   --chip-bg: #e6e8eb; --chip-fg: #33363b; --soft: #f2f3f5; --ex-bg: #e4e7eb; --ex-fg: #5b6470; --stripe: #e9ebee;
-  --xbtn: #eceef1; --field: #8b9097; --muted: #9aa0a8; --nav-fg: #7a7f87; --hoop: #fff; --err-fg: #8a1a11; --sat: #1d5fbf;
+  --xbtn: #eceef1; --field: #8b9097; --muted: #9aa0a8; --nav-fg: #676c74; --hoop: #fff; --err-fg: #8a1a11; --sat: #1d5fbf;
   --pchip-line: #b9bec5; --bk-line: #8a5a5f; --menu-bk: #b98a8f; --now-bg: #fde7ea; --now-fg: #a1001f; --next-bg: #e8f0fe; --next-fg: #1a56c4;
   --pn: #4d5b4b; --sw-off: #c9cdd2; --gold: #b07d12; --gold-bg: #fbf1d8; --warn-bg: #fff4d6; --warn-fg: #6b4a00;
   --zoom: 1;
@@ -432,7 +432,7 @@ button { cursor: pointer; -webkit-tap-highlight-color: transparent; }
 .acct { display: flex; align-items: center; gap: 2px; font-size: 17px; margin-bottom: 10px; }
 .links li > * { display: block; width: 100%; text-align: left; background: none; border: 0; border-bottom: 1px solid var(--line); padding: 12px 4px; font-weight: 700; font-size: 15px; }
 .links small { display: block; font-weight: 500; font-size: 12px; color: var(--sub); }
-.ver { text-align: center; font-size: 11px; color: var(--muted); margin-top: 16px; }
+.ver { text-align: center; font-size: 11px; color: var(--sub); margin-top: 16px; }
 .logs li { background: var(--paper); padding: 9px 12px; border-bottom: 1px solid var(--line); font-size: 13px; }
 .log-h { display: flex; justify-content: space-between; gap: 8px; }
 .log-h time { font-family: var(--num); font-size: 15px; color: var(--sub); white-space: nowrap; }
@@ -1402,3 +1402,31 @@ body.touring { overflow-anchor: none; }
 .tour-probe { position: fixed; left: 100px; top: 0; width: 1px; height: 1px; visibility: hidden; pointer-events: none; }
 /* v2.20 背番号札のサブポジション：行の高さを変えず、札と同じ色で横に並べる */
 .pos-tag small, .rname .pos-tag small { display: inline; color: inherit; opacity: .85; margin: 0; font-size: 10px; }
+
+/* ---------- v2.21 見やすさ・押しやすさ ---------- */
+/* 最近の達成の名前：色だけでなく下線でも押せるとわかるように */
+.feed-h a { text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 3px; text-decoration-color: var(--pchip-line); }
+/* 押せる範囲を広げる（見た目はほぼそのまま。外側の余白を内側の余白に置きかえる） */
+.matrix tbody .mname { padding: 0; }
+.matrix tbody .mname a { display: flex; align-items: center; min-height: 44px; padding: 0 8px; overflow: hidden; text-overflow: ellipsis; }
+.textbtn { min-height: 36px; padding: 8px 6px; margin: -8px -6px; }
+.rhead .rsort { min-height: 40px; padding: 8px 6px; margin: -8px -4px; }
+.block-h .more { display: inline-flex; align-items: center; min-height: 40px; padding: 0 4px; margin: -10px -4px; }
+.linkbtn.inline { min-height: 32px; }
+.gone-box summary, .goal-more summary { min-height: 40px; align-items: center; }
+/* 前に読み込んだ情報を出している間の「更新中」 */
+.refreshing { position: relative; display: flex; align-items: center; justify-content: center; gap: 8px;
+  height: 26px; font-size: 12px; font-weight: 700; color: var(--sub); background: var(--ground); box-shadow: 0 1px 0 var(--line); overflow: hidden; }
+.refreshing .rf-bar { position: absolute; left: 0; bottom: 0; height: 2px; width: 30%; background: var(--enji-bg); }
+@media (prefers-reduced-motion: no-preference) {
+  .refreshing .rf-bar { animation: rf-run 1.1s var(--ease-io) infinite; }
+}
+@keyframes rf-run { from { transform: translateX(-100%); } to { transform: translateX(340%); } }
+/* 設定：文字「特大」でも「画面の明るさ」が幅に収まる */
+html[data-size="l"] .seg.small button, html[data-size="xl"] .seg.small button { padding: 0 8px; }
+.goal-hist { list-style: none; margin: 0 0 12px; padding: 0; border-top: 1px solid var(--line); }
+.goal-hist li { display: flex; justify-content: space-between; gap: 12px; padding: 8px 2px; border-bottom: 1px solid var(--line); font-size: 14px; }
+.goal-hist span { color: var(--sub); }
+.banner.draft { flex-wrap: wrap; }
+.banner.draft span { flex: 1 1 60%; }
+.banner.draft .btn { flex: none; }

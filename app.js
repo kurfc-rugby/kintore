@@ -3,7 +3,7 @@
   'use strict';
   const L = window.KLogic;
   const API = window.KINTORE_API;
-  const VERSION = '2.20.1';
+  const VERSION = '2.21.0';
   const WD = ['日', '月', '火', '水', '木', '金', '土'];
   const PERM = { admin: '管理者', manager: 'マネージャー', leader: 'FWリーダー', member: '一般部員' };
   const MODE = { leader: 'メニュー参加', self: '自主トレ' };
@@ -191,6 +191,7 @@
   }
 
   const ICON = {
+    alert: '<path d="M12 3 2 20h20zM12 9v5M12 16.5v1" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>',
     more: '<circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/>',
     copy: '<path d="M9 9h10v12H9zM5 3h10v3H8v11H5z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>',
     share: '<path d="M12 3v12M8 7l4-4 4 4M6 11H5v10h14V11h-1" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>',
@@ -269,18 +270,33 @@
   const posText = (m) => (m.position ? m.position + (m.subs && m.subs.length ? '/' + m.subs.join('/') : '') : (m.group || '未設定'));
 
   // ---------- 通信 ----------
+  // 待つ時間の上限（電波が弱くて返事が来ないとき、ずっと待たない）。読むだけは15秒、保存などは30秒
+  const READ_OPS = { state: 1, memberHistory: 1, logs: 1, feedbackList: 1, sessions: 1, trash: 1, menuArchive: 1 };
+  const RESEND_OK = { saveRecords: 1, saveRecordsWeek: 1 }; // 送り直しても二重にならない
+  function timeoutError(op) {
+    return { code: 'timeout', message: READ_OPS[op] ? 'つながりにくいため、時間内に読み込めませんでした。電波のよい所でもう一度試してください。'
+      : RESEND_OK[op] ? '時間内に返事がありませんでした。電波のよい所で、もう一度「保存」を押してください（同じ記録が二重になることはありません）。'
+        : '時間内に返事がありませんでした。保存できたかどうか、画面を読み込み直して確かめてから、もう一度試してください。' };
+  }
   async function api(op, payload) {
     const body = Object.assign({ op: op, device: DEVICE }, payload || {});
     if (S.token) body.token = S.token;
     if (S.viewToken) body.viewToken = S.viewToken;
-    let res;
+    const ctl = typeof AbortController === 'function' ? new AbortController() : null;
+    const timer = ctl ? setTimeout(() => ctl.abort(), READ_OPS[op] ? 15000 : 30000) : 0;
+    let res, j;
     try {
-      res = await fetch(API, { method: 'POST', body: JSON.stringify(body), redirect: 'follow' });
-    } catch (e) {
-      throw { code: 'network', message: '通信できませんでした。電波の状態を確認して、もう一度試してください。' };
-    }
-    let j;
-    try { j = await res.json(); } catch (e) { throw { code: 'network', message: 'サーバーから正しい返事がありませんでした。少し待ってもう一度試してください。' }; }
+      try {
+        res = await fetch(API, { method: 'POST', body: JSON.stringify(body), redirect: 'follow', signal: ctl ? ctl.signal : undefined });
+      } catch (e) {
+        if (ctl && ctl.signal.aborted) throw timeoutError(op);
+        throw { code: 'network', message: '通信できませんでした。電波の状態を確認して、もう一度試してください。' };
+      }
+      try { j = await res.json(); } catch (e) {
+        if (ctl && ctl.signal.aborted) throw timeoutError(op);
+        throw { code: 'network', message: 'サーバーから正しい返事がありませんでした。少し待ってもう一度試してください。' };
+      }
+    } finally { clearTimeout(timer); }
     if (!j.ok) throw { code: j.error, message: j.message || 'エラーが起きました。' };
     return j;
   }
@@ -324,13 +340,16 @@
     S.data.records = S.data.records.filter((x) => x[1] !== date).concat(recs);
   }
   async function loadState(range) {
-    S.loading = true; S.loadError = '';
+    S.loading = true; S.loadError = ''; S.loadCode = '';
     try {
-      const d = await api('state', range || (S.data && S.data.range ? { from: S.data.range.from, to: S.data.range.to } : {}));
-      if (S.data && S.data.today && d.today !== S.data.today && !range) setData(await api('state', {}));
+      // 日付が変わっていたら、今日を中心にした範囲で読み直す（1回で済むよう、先に今日の日付で比べる）
+      const dayChanged = S.data && S.data.today && S.data.today !== L.todayJST();
+      const d = await api('state', range || (!dayChanged && S.data && S.data.range ? { from: S.data.range.from, to: S.data.range.to } : {}));
+      if (S.data && S.data.today && d.today !== S.data.today && !range && !dayChanged) setData(await api('state', {}));
       else setData(d);
+      S.stale = false;
     } catch (e) {
-      S.loadError = e.message;
+      S.loadError = e.message; S.loadCode = e.code || '';
     }
     S.loading = false;
   }
@@ -628,7 +647,7 @@
       '<div class="board-s">' + sub + '</div></div>';
   }
   function goalBlock(rows, isNow, p) {
-    const g = goal();
+    const g = goalFor(p.from);
     const list = rows.filter((r) => r.goal.weeks.length).map((r) => Object.assign({ w: r.goal.weeks[0] }, r));
     if (!list.length) return '';
     const exempt = list.filter((r) => r.w.exempt).sort((a, b) => a.sort - b.sort);
@@ -651,7 +670,7 @@
   }
   /** LINE に貼る文章（その週の「まだの人」） */
   function goalText(from) {
-    const d = S.data, today = d.today, to = L.addDays(from, 6), g = goal();
+    const d = S.data, today = d.today, to = L.addDays(from, 6), g = goalFor(from);
     const st = L.periodStats(d, S.idx, from, to, today, { goal: g });
     const list = st.rows.filter((r) => r.goal.weeks.length).map((r) => Object.assign({ w: r.goal.weeks[0] }, r));
     const open = to >= today;
@@ -765,7 +784,7 @@
     return { top: top, mvp: mvp, perfect: perfect, up: up, best: best, closed: Math.max(0, ...rows.map((r) => r.goal.closed)) };
   }
   function awardsBlock(rows, preRows, p, isNow) {
-    const a = awardsOf(rows, preRows), g = goal();
+    const a = awardsOf(rows, preRows), g = goalFor(p.from);
     if (!a.mvp.length && !a.perfect.length) return '';
     const names = (list) => list.map((r) => '<a href="#member/' + r.id + '">' + esc(r.name) + '</a>').join('、');
     let h = '<section class="block awards"><div class="block-h"><h2>' + ymLabel(p.from) + 'の表彰' + (isNow ? '<small>（途中）</small>' : '') + '</h2></div><ul class="award-list">';
@@ -782,7 +801,7 @@
     return { p: p, a: awardsOf(cur.rows, pre.rows), open: today <= p.to };
   }
   function awardText(from) {
-    const x = monthAwards(from), a = x.a, g = goal();
+    const x = monthAwards(from), a = x.a, g = goalFor(x.p.from);
     let t = '【筋トレ ' + ymLabel(x.p.from) + 'の表彰】' + (x.open ? '（途中）' : '') + '\n';
     if (a.mvp.length) t += '\nMVP：' + a.mvp.map((r) => r.name).join('、') + '（' + a.top + '回）';
     if (a.perfect.length) t += '\n週' + g + '回 皆勤：' + a.perfect.map((r) => r.name).join('、');
@@ -838,7 +857,7 @@
   }
   function eventLabel(e) {
     const k = e.split(':');
-    if (k[0] === 'g') return mdw(k[1]) + 'の週 週' + goal() + '回達成';
+    if (k[0] === 'g') return mdw(k[1]) + 'の週 週' + goalFor(k[1]) + '回達成';
     if (k[0] === 'c') return '通算' + k[1] + '回';
     if (k[0] === 'f') return '初めての記録';
     if (k[0] === 'v') return mdw(k[1]) + 'の週のMVP';
@@ -895,7 +914,7 @@
     if (!ev.length) return '';
     const FIRST = 4;
     const li = (e) => {
-      const what = e.kind === 'goal' ? '週' + goal() + '回を達成' + (e.streak >= 2 ? '<em>' + e.streak + '週連続</em>' : '')
+      const what = e.kind === 'goal' ? '週' + (e.goal || goal()) + '回を達成' + (e.streak >= 2 ? '<em>' + e.streak + '週連続</em>' : '')
         : e.kind === 'total' ? '通算<em>' + e.n + '回</em>' : '初めての記録';
       return '<li class="feed-i' + (e.mark || e.kind !== 'goal' ? ' big' : '') + '"><div class="feed-h"><a href="#member/' + e.id + '"><b>' + esc(e.name) + '</b></a><span>' + what + '</span><time>' + mdw(e.date) + '</time></div>' + stampBar(e.id, e.key, { small: true }) + '</li>';
     };
@@ -1185,7 +1204,7 @@
   function personalOf(m) {
     const h = S.hist[m.id];
     if (!h || !h.records) return null;
-    const ix = L.buildIndex({ records: h.records, exempts: h.exempts });
+    const ix = L.buildIndex({ records: h.records, exempts: h.exempts, goalHist: S.data.goalHist });
     return L.personal(ix, m, S.data.today, goal());
   }
   function bestsBlock(m, p) {
@@ -2046,8 +2065,28 @@
   function recDirty() { const c = recChanges(); return c.add.length + c.del.length > 0; }
   function recLeaveOk() {
     if (!S.rec.date || !S.idx || !can('record') || !recDirty()) return true;
-    if (confirm('保存していない記録があります。保存しないで移動しますか？')) { S.rec.edits = {}; return true; }
+    if (confirm('保存していない記録があります。保存しないで移動しますか？')) { S.rec.edits = {}; saveRecDraft(); return true; }
     return false;
+  }
+  // ---- 記録の下書き：押した分を端末に残す（スマホがアプリを閉じても消えない）。保存できたら消す ----
+  function recDraft() {
+    const d = store.get('recDraft', null), m = me();
+    if (!d || !m || d.by !== m.id || !d.edits || !Object.keys(d.edits).length || Date.now() - (d.at || 0) > 7 * 86400000) return null;
+    return d;
+  }
+  function saveRecDraft() {
+    const m = me();
+    if (m && S.rec.date && Object.keys(S.rec.edits).length) store.set('recDraft', { date: S.rec.date, edits: S.rec.edits, by: m.id, at: Date.now() });
+    else store.del('recDraft');
+  }
+  function draftBanner() {
+    if (!S.idx || !can('record')) return '';
+    const d = recDraft();
+    if (!d) return '';
+    if (S.rec.date === d.date && Object.keys(S.rec.edits).length) return ''; // いま開いている
+    const n = Object.keys(d.edits).length;
+    return '<div class="banner warn draft" role="status">' + icon('alert') + '<span>保存していない記録があります（' + mdw(d.date) + '・' + n + '人分）</span>' +
+      '<button class="btn small primary" data-act="draft-resume">続ける</button><button class="btn small" data-act="draft-drop">捨てる</button></div>';
   }
   function openRecConfirm() {
     const ch = recChanges(), date = S.rec.date;
@@ -2097,7 +2136,8 @@
         '<li><button data-act="perms-open">役職をまとめて付け替え<small>新年度のFWリーダー・マネージャーの交代。新しい人の暗証番号もまとめて発行します</small></button></li>' +
         '<li><button data-act="trash-open">取り消した記録<small>まちがえて取り消した「実施した」を戻せます</small></button></li>' +
         '<li><a href="#feedback">要望・不具合' + (S.data.feedbackOpen ? '<span class="badge-n">' + S.data.feedbackOpen + '</span>' : '') + '<small>部員から届いたもの。対応したら「対応済み」に</small></a></li>' +
-        '<li><a href="#logs">操作履歴<small>だれが・いつ・何を変えたか。画面のエラーも自動で残ります</small></a></li>' +
+        '<li><a href="#logs">操作履歴<small>だれが・いつ・何を変えたか。画面のエラーも自動で残ります。1年より前の分はスプレッドシートの別のシートへ移します</small></a></li>' +
+        backupItem() +
         '</ul><h3 class="sub3">部のルール</h3><ul class="links">' +
         '<li><button data-act="goal-open">週の目標回数（マスト）<small>いまは週' + goal() + '回以上</small></button></li>' +
         '<li><button data-act="offs-open">部全体のオフ期間<small>試験期間・合宿など、全員の目標をなしにする期間</small></button></li>' +
@@ -2882,12 +2922,31 @@
     });
     return { rows: rows, errs: errs };
   }
+  /** 自動バックアップ（管理者だけ）：最後に取った日と、ファイルを開くリンク */
+  function backupItem() {
+    const b = S.data.backup;
+    if (!b) return '';
+    const text = '毎週1回、別のスプレッドシートに写しを取ります。2か月より古い分は自動で消えます。' + (b.last ? '最後：' + mdw(b.last) : 'まだ取っていません（1時間以内に取ります）');
+    return b.url ? '<li><a href="' + esc(b.url) + '" target="_blank" rel="noopener noreferrer">自動バックアップ<small>' + text + '</small></a></li>'
+      : '<li><span class="links-static">自動バックアップ<small>' + text + '</small></span></li>';
+  }
+  /** 週の目標回数の移り変わり（古い順） */
+  function goalHist() { return (S.data && S.data.goalHist && S.data.goalHist.length) ? S.data.goalHist : [{ from: '2000-01-01', goal: goal() }]; }
+  /** その週（月曜）の目標回数。過ぎた週の見出しはその週の回数で出す */
+  function goalFor(ws) { return L.goalAt(goalHist(), L.weekStart(ws), goal()); }
   function openGoal() {
-    const g = goal();
+    const g = goal(), ws = L.weekStart(S.data.today), next = L.addDays(ws, 7);
+    const hist = goalHist().slice().reverse();
+    const histHtml = hist.length > 1 || hist[0].from > '2000-01-01'
+      ? '<ul class="goal-hist">' + hist.map((x, i) => '<li><b>週' + x.goal + '回</b><span>' + (x.from <= '2000-01-01' ? 'はじめから' : mdw(x.from) + 'の週から') + (i === 0 && x.from > ws ? '（予定）' : '') + '</span></li>').join('') + '</ul>' : '';
     openSheet('週の目標回数',
-      '<form data-form="goal" class="form"><p class="lead-line small">月曜〜日曜の1週間に、何回以上の筋トレをマストにするか。変えると、過去の週の達成もこの回数で数え直します。</p>' +
+      '<form data-form="goal" class="form"><p class="lead-line small">月曜〜日曜の1週間に、何回以上の筋トレをマストにするか。変える前の週は、その時の回数のまま数えます（達成・連続・称号は変わりません）。</p>' +
       '<label>週の回数<select name="goal">' + [1, 2, 3, 4, 5, 6, 7].map((n) => '<option value="' + n + '"' + (n === g ? ' selected' : '') + '>' + n + '回以上</option>').join('') + '</select></label>' +
-      '<p class="form-err" hidden></p>' +
+      '<fieldset><legend>いつから</legend><div class="radios">' +
+      '<label><input type="radio" name="from" value="this" checked><span>今週から（' + mdw(ws) + '〜）</span></label>' +
+      '<label><input type="radio" name="from" value="next"><span>来週から（' + mdw(next) + '〜）</span></label></div></fieldset>' +
+      (histHtml ? '<p class="lead-line small">これまでの回数</p>' + histHtml : '') +
+      '<p class="form-err" role="alert" hidden></p>' +
       '<div class="actions"><button type="button" class="btn" data-act="sheet-close">やめる</button><button class="btn primary" type="submit">保存</button></div></form>');
   }
   function openViewLock() {
@@ -2903,6 +2962,11 @@
   // ---------- 全体の描画 ----------
   const NAV = [['home', 'ホーム', 'home'], ['rank', 'ランキング', 'rank'], ['record', '記録', 'check'], ['cal', 'カレンダー', 'cal'], ['menus', 'メニュー', 'menu'], ['members', '部員', 'users']];
   const TITLE = { home: 'ホーム', rank: 'ランキング', record: '実施記録', cal: 'カレンダー', menus: 'メニュー', members: '部員', member: '部員', settings: '設定', logs: '操作履歴', archive: 'これまでのメニュー', help: '使い方', feedback: '要望・不具合' };
+  /** 保存した時刻を「今日 10:36」「11/16 21:05」の形に */
+  function savedLabel(ms) {
+    const j = new Date(ms + 9 * 3600 * 1000).toISOString();
+    return (j.slice(0, 10) === L.todayJST() ? '今日 ' : (+j.slice(5, 7)) + '/' + (+j.slice(8, 10)) + ' ') + j.slice(11, 16);
+  }
   function shell(inner) {
     const r = S.route.name, m = me();
     const navOn = r === 'member' ? 'members' : (r === 'logs' || r === 'help' || r === 'feedback') ? 'settings' : r === 'archive' ? 'menus' : r;
@@ -2915,8 +2979,10 @@
       '<nav class="nav n' + items.length + '" aria-label="メニュー">' + items.map((n) =>
         '<a href="#' + n[0] + '" class="' + (navOn === n[0] ? 'on' : '') + (n[0] === 'record' ? ' rec' : '') + '"' + (navOn === n[0] ? ' aria-current="page"' : '') + '>' + (navOn === n[0] ? '<i class="nav-ind" aria-hidden="true"></i>' : '') + icon(n[2]) + '<span>' + n[1] + '</span></a>').join('') +
       '<a href="#settings" class="nav-set ' + (navOn === 'settings' ? 'on' : '') + '">' + (navOn === 'settings' ? '<i class="nav-ind" aria-hidden="true"></i>' : '') + icon('gear') + '<span>設定</span></a></nav>' +
+      (S.stale && S.loading ? '<div class="refreshing" role="status"><span class="rf-bar" aria-hidden="true"></span><span class="rf-t">' + (S.data && S.data.savedAt ? '前回 ' + savedLabel(S.data.savedAt) + ' の情報・' : '') + '更新中…</span></div>' : '') +
       '<main class="main view-' + r + '" id="main">' +
       (S.loadError ? '<div class="banner err">' + esc(S.loadError) + '<button class="btn small" data-act="reload">再読み込み</button></div>' : '') +
+      draftBanner() +
       inner + '</main>';
   }
   /** ホームの数字を 0 から数え上げる（画面に入ったときだけ） */
@@ -3227,7 +3293,7 @@
     'selfrec-open': (el) => openSelfRec(el.dataset.id),
     'member-tab': (el) => { if ((S.memberTab || 'rec') === el.dataset.v) return; S.memberTab = el.dataset.v; vt(render, 'swap'); },
     'badge-open': (el) => openBadge(el.dataset.id, el.dataset.k),
-    'week-open': () => { if (recDirty() && !confirm('この日の保存していない記録は消えます。続けますか？')) return; S.rec.edits = {}; openWeek(L.weekStart(S.rec.date || S.data.today)); },
+    'week-open': () => { if (recDirty() && !confirm('この日の保存していない記録は消えます。続けますか？')) return; S.rec.edits = {}; saveRecDraft(); openWeek(L.weekStart(S.rec.date || S.data.today)); },
     'week-move': (el) => {
       const n = Object.keys(S.wk.edits).length;
       if (n && !confirm('この週の保存していない変更（' + n + '件）は消えます。続けますか？')) return;
@@ -3353,6 +3419,7 @@
       if (!row || row.locked) return;
       const next = !recCur(row);
       if (next === row.saved) delete S.rec.edits[id]; else S.rec.edits[id] = next;
+      saveRecDraft();
       recRefreshRow(id);
       tick(next ? 10 : 5);
       const b = $('.rec-row[data-id="' + id + '"] .rec-btn');
@@ -3381,6 +3448,15 @@
       S.rec.date = n; S.rec.edits = {}; render();
     },
     'rec-confirm': () => openRecConfirm(),
+    'draft-resume': () => {
+      const d = recDraft();
+      if (!d) { render(); return; }
+      if (d.date > S.data.today || d.date < S.data.range.from) { store.del('recDraft'); toast('この下書きの日付は記録できません', 'err'); render(); return; }
+      S.rec.date = d.date; S.rec.edits = Object.assign({}, d.edits);
+      if (S.route.name !== 'record') location.hash = '#record'; else render();
+      toast('保存していない記録を戻しました。確かめて「保存」を押してください');
+    },
+    'draft-drop': () => { if (!confirm('保存していない記録を捨てますか？')) return; store.del('recDraft'); if (S.route.name === 'record') S.rec.edits = {}; render(); toast('捨てました'); },
     'rec-save': async (el) => {
       const ch = recChanges();
       const items = ch.add.map((r) => ({ memberId: r.m.id, done: true })).concat(ch.del.map((r) => ({ memberId: r.m.id, done: false })));
@@ -3391,7 +3467,7 @@
           const r = await api('saveRecords', { date: date, items: items });
           replaceDay(date, r.records);
           setData(S.data); S.hist = {};
-          S.rec.edits = {};
+          S.rec.edits = {}; store.del('recDraft');
           const hit = goalHitters(before, S.idx, [L.weekStart(date)]);
           closeSheet(); render();
           if (r.rejected.length) toast('保存できなかった記録があります：' + r.rejected.map((x) => (x.name || '') + '（' + x.message + '）').join('、'), 'err');
@@ -3636,8 +3712,9 @@
     goal: async (f, btn) => {
       await busy(btn, async () => {
         try {
-          await api('saveSettings', { weekGoal: Number(f.goal.value) });
-          closeSheet(); await loadState(); render(); toast('週の目標を ' + f.goal.value + '回以上にしました');
+          const fromNext = f.from && f.from.value === 'next';
+          await api('saveSettings', { weekGoal: Number(f.goal.value), weekGoalFrom: fromNext ? 'next' : 'this' });
+          closeSheet(); await loadState(); render(); toast((fromNext ? '来週から' : '今週から') + '週の目標を ' + f.goal.value + '回以上にしました');
         } catch (e) { sheetError(e.message); }
       });
     },
@@ -3749,17 +3826,26 @@
         setTimeout(() => it.remove(), 1300);
       }
     } catch (e) { /* sessionStorage が使えない端末は演出なし */ }
+    // 前に読み込んだ情報があれば、すぐ出す（日付が変わっていても、今日の日付に合わせて出す）。新しい情報が来たら入れかえる
     const cached = store.get('state2', null);
-    if (cached && cached.members) cached.me = null; // 権限は必ずサーバーに確かめる
-    if (cached && cached.members && cached.today === L.todayJST()) { S.data = cached; S.idx = L.buildIndex(cached); }
+    const today0 = L.todayJST();
+    if (cached && cached.members) {
+      cached.me = null; // 権限は必ずサーバーに確かめる
+      if (cached.range && cached.range.from <= today0 && today0 <= cached.range.to) {
+        if (cached.today !== today0) { cached.today = today0; S.stale = true; }
+        else if (!cached.savedAt || Date.now() - cached.savedAt > 60000) S.stale = true;
+        S.data = cached; S.idx = L.buildIndex(cached); S.loading = true;
+      }
+    }
     render();
     await loadState({});
     // つながらないときは、前に読み込んだ情報を出す（日付が古くても）
     if (S.loadError && cached && cached.members && (!S.data || S.data === cached)) {
       S.data = cached; S.idx = L.buildIndex(cached);
       const t = cached.savedAt ? new Date(cached.savedAt + 9 * 3600 * 1000).toISOString().slice(5, 16).replace('-', '/').replace('T', ' ') : '';
-      S.loadError = 'つながらないため、' + (t ? t + ' に' : '前に') + '読み込んだ情報を表示しています。';
+      S.loadError = (S.loadCode === 'timeout' ? 'つながりにくいため、' : 'つながらないため、') + (t ? t + ' に' : '前に') + '読み込んだ情報を表示しています。';
     }
+    S.stale = false;
     render();
     if (S.data && !S.data.locked && !store.get('guided', 0)) openGuide(0);
     else if (S.data && !S.data.locked) setTimeout(maybeRoleTour, 1200);

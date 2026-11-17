@@ -6,6 +6,8 @@ const vm = require('vm');
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const zlib = require('zlib');
+function mkBlob(buf, type) { return { _buf: buf, getBytes: () => Array.from(buf).map((b) => (b > 127 ? b - 256 : b)), getDataAsString: () => buf.toString('utf8'), getContentType: () => type }; }
 
 const MASTER_ID = '1cBIdb6Wl7ifMBBkS5SVkPL_GhcVQRCuKAyz0mEto-I8';
 
@@ -54,6 +56,7 @@ function create(opts) {
       return this;
     }
     setValue(v) { return this.setValues([[v]]); }
+    clearContent() { for (let i = 0; i < this.nr; i++) { const row = this.sh.data[this.r - 1 + i]; if (!row) continue; for (let j = 0; j < this.nc; j++) if (this.c - 1 + j < row.length) row[this.c - 1 + j] = ''; } return this; }
     setNumberFormat() { return this; }
     setFontWeight() { return this; }
     setBackground() { return this; }
@@ -68,7 +71,8 @@ function create(opts) {
     getLastColumn() { let m = 0; this.data.forEach((r) => { for (let i = r.length; i > 0; i--) if (r[i - 1] !== '' && r[i - 1] !== undefined) { if (i > m) m = i; break; } }); return m; }
     getMaxRows() { return this.maxRows; }
     insertRowsAfter(after, n) { this.maxRows += n; if (after < this.data.length) this.data.splice(after, 0, ...Array.from({ length: n }, () => [])); return this; }
-    getMaxColumns() { return 26; }
+    getMaxColumns() { return this.maxCols || 26; }
+    deleteColumns(at, n) { this.maxCols = (this.maxCols || 26) - n; this.data.forEach((r) => r.splice(at - 1, n)); }
     getDataRange() { return new Range(this, 1, 1, Math.max(this.getLastRow(), 1), Math.max(this.getLastColumn(), 1)); }
     getRange(r, c, nr, nc) { return new Range(this, r, c, nr || 1, nc || 1); }
     appendRow(arr) { new Range(this, this.getLastRow() + 1, 1, 1, arr.length).setValues([arr]); return this; }
@@ -80,7 +84,8 @@ function create(opts) {
     constructor(id) { this.id = id; this.sheets = [new Sheet('シート1')]; }
     getId() { return this.id; }
     getSheetByName(n) { return this.sheets.find((s) => s.name === n) || null; }
-    insertSheet(n) { const s = new Sheet(n); this.sheets.push(s); return s; }
+    insertSheet(n, at) { const s = new Sheet(n); if (at === undefined) this.sheets.push(s); else this.sheets.splice(at, 0, s); return s; }
+    getUrl() { return 'https://docs.google.com/spreadsheets/d/' + this.id + '/edit'; }
     getSheets() { return this.sheets; }
     deleteSheet(s) { this.sheets = this.sheets.filter((x) => x !== s); }
     toast() {}
@@ -99,7 +104,11 @@ function create(opts) {
   }
   function cacheStore() {
     const c = {};
-    return { get: (k) => (k in c ? c[k] : null), put: (k, v) => { c[k] = v; }, remove: (k) => { delete c[k]; }, _all: c };
+    const size = (v) => { if (String(v).length > 100000) throw new Error('キャッシュの値が大きすぎます'); };
+    return { get: (k) => (k in c ? c[k] : null), put: (k, v) => { size(v); c[k] = String(v); }, remove: (k) => { delete c[k]; },
+      putAll: (o) => { Object.keys(o).forEach((k) => { size(o[k]); c[k] = String(o[k]); }); },
+      getAll: (keys) => { const o = {}; keys.forEach((k) => { if (k in c) o[k] = c[k]; }); return o; },
+      clear: () => { Object.keys(c).forEach((k) => delete c[k]); }, _all: c };
   }
   function lockStore(name) {
     let held = false;
@@ -117,6 +126,11 @@ function create(opts) {
     computeDigest: (alg, s) => Array.from(crypto.createHash('sha256').update(typeof s === 'string' ? Buffer.from(s, 'utf8') : Buffer.from(s.map((b) => b & 255))).digest()).map((b) => (b > 127 ? b - 256 : b)),
     computeHmacSha256Signature: (v, k) => Array.from(crypto.createHmac('sha256', Buffer.from(k.map((b) => b & 255))).update(Buffer.from(v.map((b) => b & 255))).digest()).map((b) => (b > 127 ? b - 256 : b)),
     getUuid: () => crypto.randomUUID(),
+    newBlob: (data, type) => mkBlob(typeof data === 'string' ? Buffer.from(data, 'utf8') : Buffer.from(data.map((b) => b & 255)), type),
+    gzip: (b) => mkBlob(zlib.gzipSync(b._buf), 'application/x-gzip'),
+    ungzip: (b) => mkBlob(zlib.gunzipSync(b._buf), ''),
+    base64Encode: (bytes) => Buffer.from(bytes.map((b) => b & 255)).toString('base64'),
+    base64Decode: (str) => Array.from(Buffer.from(str, 'base64')).map((b) => (b > 127 ? b - 256 : b)),
     formatDate: (d, tz, f) => {
       if (tz !== 'Asia/Tokyo') throw new Error('TZ');
       const j = new RealDate(d.getTime() + 9 * 3600 * 1000);
@@ -127,14 +141,16 @@ function create(opts) {
       throw new Error('format ' + f);
     }
   };
+  let bookN = 0;
   const SpreadsheetApp = {
     getActiveSpreadsheet: () => ss,
+    create: (name) => { const b = new Spreadsheet('MOCK_BOOK_' + (++bookN)); b.name = name; books[b.id] = b; return b; },
     openById: (id) => { if (!books[id]) throw new Error('スプレッドシートがありません: ' + id); return books[id]; },
     flush: () => {},
     getUi: () => ({
-      createMenu: () => { const m = { addItem: () => m, addToUi: () => {} }; return m; },
-      prompt: () => ({ getSelectedButton: () => 'OK', getResponseText: () => opts.promptText || '' }),
-      alert: (t) => uiLog.push(t), ButtonSet: { OK_CANCEL: 1 }, Button: { OK: 'OK' }
+      createMenu: () => { const m = { addItem: () => m, addSeparator: () => m, addToUi: () => {} }; return m; },
+      prompt: () => ({ getSelectedButton: () => 'OK', getResponseText: () => (Array.isArray(opts.promptText) ? opts.promptText.shift() : opts.promptText) || '' }),
+      alert: (t, b) => { uiLog.push(b && typeof b === 'string' ? t + '\n' + b : t); return 'YES'; }, ButtonSet: { OK_CANCEL: 1, OK: 2, YES_NO: 3 }, Button: { OK: 'OK', YES: 'YES' }
     })
   };
 
@@ -166,7 +182,7 @@ function create(opts) {
   if (opts.withLibrary !== false) sandbox.KurfcRoster = KurfcRoster;
   vm.createContext(sandbox);
   const code = fs.readFileSync(path.join(__dirname, '..', 'gas', 'Code.gs'), 'utf8');
-  vm.runInContext(code + '\n;this.__fn = {handle_, setup, registerAdmin_, doPost, doGet, onOpen, menuRegisterAdmin, pinHash_, today_, pushHourly, setupPush, ecSign_, utf8_, pruneStamps_: function (d) { REQ_ = { tables: {}, ss: null, roster: null }; try { pruneStamps_(d); } finally { REQ_ = null; } }};', sandbox, { filename: 'Code.gs' });
+  vm.runInContext(code + '\n;this.__fn = {handle_, setup, registerAdmin_, doPost, doGet, onOpen, menuRegisterAdmin, pinHash_, today_, pushHourly, setupPush, ecSign_, utf8_, pruneStamps_: function (d) { REQ_ = { tables: {}, ss: null, roster: null }; try { pruneStamps_(d); } finally { REQ_ = null; } }, menuBackupNow, menuRestoreBackup, withReq: function (f) { REQ_ = { tables: {}, ss: null, roster: null }; try { return f({ backupNow_, restoreBackup_, archiveLogs_, weeklyBackup_, backupBook_, readBackupTab_, goalHist_, weekGoalAt_ }); } finally { REQ_ = null; } }};', sandbox, { filename: 'Code.gs' });
   const fn = sandbox.__fn;
 
   const api = {
@@ -176,7 +192,10 @@ function create(opts) {
     sheet: (name) => ss.getSheetByName(name),
     masterSheet: () => master.getSheetByName('部員'),
     /** 会計アプリが名簿を書き換えたことにする（会計アプリは KurfcRoster.touch() を呼ぶ） */
-    accountingEdit: (fnEdit) => { fnEdit(master.getSheetByName('部員')); KurfcRoster.touch(); },
+    accountingEdit: (fnEdit) => { fnEdit(master.getSheetByName('部員')); KurfcRoster.touch(); cache.remove('k:roster'); },
+    /** 10分たったことにする（覚えておいた名簿・作り置きを忘れる） */
+    forget: () => cache.clear(),
+    books,
     shiftDays: (n) => { clock.offset += n * 86400000; },
     setToday: (ymd) => { clock.offset = new RealDate(ymd + 'T03:00:00Z').getTime() - RealDate.now(); },
     dump: () => { const o = {}; ss.sheets.forEach((s) => { o[s.name] = s.data; }); o['__master'] = master.getSheetByName('部員').data; return o; }

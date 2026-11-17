@@ -5,7 +5,7 @@
  *  サーバー（script.google.com）への通信 … 触らない（いつもネット）
  *  通知（push）… 中身は来ないので、サーバー（pushInbox）に取りに行って表示する
  * 版を上げるときは VERSION と、index.html の ?v= を一緒に変える。 */
-const VERSION = '2.20.1';
+const VERSION = '2.21.0';
 const CACHE = 'kintore-' + VERSION;
 try { importScripts('config.js?v=' + VERSION); } catch (e) { /* 読めなくても画面はしまっておいたもので動く */ }
 const SHELL = ['./', 'style.css?v=' + VERSION, 'app.js?v=' + VERSION, 'logic.js?v=' + VERSION, 'config.js?v=' + VERSION,
@@ -28,11 +28,21 @@ function fromCacheFirst(req) {
     return res;
   }));
 }
-function networkFirst(req) {
-  return fetch(req).then((res) => {
+// ページはネットから。3秒たっても返ってこない（電波が弱い）ときは、保存してあるページを先に出す（ネットの分は裏で保存し直す）
+function networkFirst(req, e) {
+  const fromCache = () => caches.match('./').then((hit) => hit || caches.match(req));
+  const net = fetch(req).then((res) => {
     if (res && res.ok) { const copy = res.clone(); caches.open(CACHE).then((c) => c.put('./', copy)); }
     return res;
-  }).catch(() => caches.match('./').then((hit) => hit || caches.match(req)));
+  });
+  if (e) e.waitUntil(net.catch(() => {}));
+  return new Promise((resolve) => {
+    let done = false;
+    const finish = (r) => { if (!done && r) { done = true; resolve(r); } };
+    const t = setTimeout(() => { fromCache().then(finish); }, 3000);
+    net.then((res) => { clearTimeout(t); finish(res); })
+      .catch(() => { clearTimeout(t); fromCache().then((hit) => { if (hit) finish(hit); else finish(Response.error()); }); });
+  });
 }
 self.addEventListener('fetch', (e) => {
   const req = e.request;
@@ -40,7 +50,7 @@ self.addEventListener('fetch', (e) => {
   const url = new URL(req.url);
   if (/^fonts\.(googleapis|gstatic)\.com$/.test(url.hostname)) { e.respondWith(fromCacheFirst(req)); return; }
   if (url.origin !== self.location.origin) return;
-  if (req.mode === 'navigate') { e.respondWith(networkFirst(req)); return; }
+  if (req.mode === 'navigate') { e.respondWith(networkFirst(req, e)); return; }
   if (/\/sw\.js$/.test(url.pathname)) return;
   if (/\/media\//.test(url.pathname)) return; // 動画は分割して読むので、Service Worker を通さない
   e.respondWith(fromCacheFirst(req));

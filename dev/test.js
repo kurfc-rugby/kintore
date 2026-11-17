@@ -881,6 +881,119 @@ section('種目の動画');
   ok(del.ok && del.exercises.length === 0 && api({ op: 'state' }).exercises.length === 0, '消せる（スプレッドシートには削除日時つきで残る）');
 }
 
+section('v2.21：見る人向けの作り置き・全期間の連続・目標回数の移り変わり・バックアップ・操作の記録');
+{
+  const st0 = api({ op: 'state' });
+  const today = st0.today;
+  const player = st0.members.find((m) => m.player && m.active && !m.left);
+  // ---- 作り置き ----
+  gas.forget();
+  const ra = gas.stats.reads;
+  const s1 = api({ op: 'state', device: 'aaaaaaaaaaaaaaaa' });
+  const rb = gas.stats.reads;
+  const s2 = api({ op: 'state', device: 'aaaaaaaaaaaaaaaa' });
+  const rc = gas.stats.reads;
+  ok(rb - ra > 5 && rc - rb <= 1 && JSON.stringify(s1.records) === JSON.stringify(s2.records) && JSON.stringify(s1.members) === JSON.stringify(s2.members), '見る人の2回目は、シートを読まずに作り置きから返す（' + (rb - ra) + '回 → ' + (rc - rb) + '回）');
+  const MG21 = staffLogin(id['マネ 花子'], 'manager-21-pin');
+  const dDate = L.addDays(today, -1);
+  const hadBefore = s2.records.some((x) => x[0] === player.id && x[1] === dDate && x[2] === 1);
+  api({ op: 'saveRecords', token: MG21, date: dDate, items: [{ memberId: player.id, done: !hadBefore }] });
+  const s3 = api({ op: 'state' });
+  ok(s3.records.some((x) => x[0] === player.id && x[1] === dDate && x[2] === 1) === !hadBefore, '記録を保存すると、見る人にもすぐ出る（作り置きを使い直さない）');
+  // 応援の「自分が押した」は端末ごと
+  const ev = 'g:' + L.weekStart(today);
+  api({ op: 'stamp', target: player.id, event: ev, kind: 'clap', device: 'aaaaaaaaaaaaaaaa' });
+  const sa = api({ op: 'state', device: 'aaaaaaaaaaaaaaaa' }).stamps.find((x) => x.t === player.id && x.e === ev);
+  const sb = api({ op: 'state', device: 'bbbbbbbbbbbbbbbb' }).stamps.find((x) => x.t === player.id && x.e === ev);
+  ok(sa && sb && sa.mine.indexOf('clap') >= 0 && sb.mine.indexOf('clap') < 0 && sa.c.clap === sb.c.clap, '作り置きでも、応援の「自分が押した」は端末ごとに正しい');
+  const adm = api({ op: 'state', token: A });
+  ok(adm.me && adm.me.perm === 'admin' && adm.backup && 'last' in adm.backup && !api({ op: 'state' }).backup, 'ログインした人には作り置きを使わない（管理者にはバックアップの情報も）');
+  // ---- 全期間の連続 ----
+  const recSh = gas.sheet('実施記録');
+  const head = recSh.data[0];
+  const ci = (n) => head.indexOf(n);
+  const ws0 = L.weekStart(today);
+  const extra = [];
+  for (let w = 25; w >= 1; w--) {
+    const ws = L.addDays(ws0, -7 * w);
+    [0, 2, 4].forEach((k) => {
+      const d = L.addDays(ws, k);
+      if (recSh.data.some((r) => r[ci('部員ID')] === player.id && r[ci('日付')] === d)) return;
+      const row = head.map(() => '');
+      row[ci('部員ID')] = player.id; row[ci('日付')] = d; row[ci('実施状況')] = '実施した'; row[ci('メニュー対象')] = 'いいえ'; row[ci('記録者ID')] = 'test'; row[ci('記録日時')] = d + ' 10:00:00';
+      extra.push(row);
+    });
+  }
+  // 1週間に3回を超えないように、この人の25週の記録をそろえる（すでにある記録は残す）
+  recSh.data.push(...extra);
+  recSh.maxRows = Math.max(recSh.maxRows, recSh.data.length + 10);
+  gas.forget(); gas.props.setProperty('DV', 'test-' + Date.now());
+  const s4 = api({ op: 'state' });
+  const ix4 = L.buildIndex(s4);
+  const pm = s4.members.find((m) => m.id === player.id);
+  const lastWs = L.addDays(ws0, -7);
+  const full = L.streakWeeks(ix4, pm, lastWs, s4.range.from, s4.weekGoal);
+  const noPast = Object.assign({}, s4); delete noPast.pastWeeks;
+  const cut = L.streakWeeks(L.buildIndex(noPast), pm, lastWs, s4.range.from, s4.weekGoal);
+  ok(s4.pastWeeks && s4.pastWeeks.to > s4.range.from && s4.pastWeeks.c[player.id] && full >= 25 && cut <= 15, '読み込む範囲より前の週の回数も届き、連続を全期間で数える（' + full + '週。前の週なしだと' + cut + '週で止まる）');
+  ok(s4.exempts.length >= api({ op: 'state', token: A, from: L.addDays(today, -10), to: today }).exempts.length, '免除は全期間を返す');
+  // ---- 目標回数の移り変わり ----
+  let g = api({ op: 'saveSettings', token: A, weekGoal: 2, weekGoalFrom: 'next' });
+  const next = L.addDays(ws0, 7);
+  ok(g.ok && g.weekGoal === 3 && g.goalHist.length === 2 && g.goalHist[1].from === next && g.goalHist[1].goal === 2, '「来週から週2回」：今週は3回のまま、来週の月曜から2回');
+  g = api({ op: 'saveSettings', token: A, weekGoal: 4, weekGoalFrom: 'this' });
+  ok(g.weekGoal === 4 && g.goalHist.length === 2 && g.goalHist[1].from === ws0 && g.goalHist[1].goal === 4, '「今週から週4回」：来週の予定は消え、今週から4回');
+  const s5 = api({ op: 'state' });
+  const ix5 = L.buildIndex(s5);
+  const nw = (w) => { const n = L.weekNeed(ix5, pm, w, 4); return { n: n.need, want: (g0) => (n.ex >= 7 ? 0 : Math.ceil(g0 * (7 - n.ex) / 7)) }; };
+  const nl = nw(L.addDays(ws0, -7)), nt = nw(ws0);
+  ok(L.goalAt(ix5.goals, L.addDays(ws0, -7), 4) === 3 && L.goalAt(ix5.goals, ws0, 4) === 4 && nl.n === nl.want(3) && nt.n === nt.want(4), '先週は前の回数（3回）、今週は新しい回数（4回）で数える（免除の日があれば、その分減らす）');
+  ok(L.streakWeeks(ix5, pm, lastWs, s5.range.from, 4) === full, '回数を上げても、過去の連続は変わらない');
+  g = api({ op: 'saveSettings', token: A, weekGoal: 3, weekGoalFrom: 'this' });
+  ok(g.weekGoal === 3 && g.goalHist.length === 1, '元の回数に戻すと、移り変わりも元どおり');
+  ok(api({ op: 'saveSettings', token: MG21, weekGoal: 2 }).error === 'forbidden', '目標回数を変えられるのは管理者だけ');
+  // ---- 操作の記録：シート全体を読まずに書き足す ----
+  const logSh = gas.sheet('操作履歴');
+  let full0 = 0; const orig = logSh.getDataRange.bind(logSh);
+  logSh.getDataRange = () => { full0++; return orig(); };
+  const nLog = logSh.getLastRow();
+  const ce = api({ op: 'clientError', message: 'v2.21 append test', src: 'app.js', line: 1, page: '#home', version: '2.21.0', device: 'cccccccccccccccc' });
+  logSh.getDataRange = orig;
+  const lastRow = logSh.data[logSh.getLastRow() - 1];
+  ok(ce.logged && full0 === 0 && logSh.getLastRow() === nLog + 1 && lastRow.join('|').includes('v2.21 append test'), '操作の記録は、シート全体を読まずに最後の行へ足す');
+  // 1年より前の分を別のシートへ
+  const lh = logSh.data[0];
+  const old1 = lh.map((h) => (h === '日時' ? '2024-01-05 10:00:00' : h === '操作' ? '古い操作1' : ''));
+  const old2 = lh.map((h) => (h === '日時' ? '2024-03-05 10:00:00' : h === '操作' ? '=古い操作2' : ''));
+  logSh.data.splice(1, 0, old1, old2);
+  const before = logSh.getLastRow();
+  gas.sheet('設定').data.forEach((r) => { if (r[0] === 'logArchiveOn') r[1] = '2000-01'; }); // 今月はまだ整理していないことにする
+  gas.run('withReq', (f) => f.archiveLogs_());
+  const arc = gas.sheet('操作履歴（古い分）');
+  ok(arc && arc.data.length >= 3 && arc.data.some((r) => r.includes('古い操作1')) && arc.data.some((r) => r.includes('=古い操作2')) && logSh.getLastRow() === before - 2 && !logSh.data.some((r) => r.includes('古い操作1')), '1年より前の操作の記録は「操作履歴（古い分）」へ移す（記号で始まる文もそのまま）');
+  ok(api({ op: 'logs', token: A }).logs[0].detail.includes('v2.21 append test') || api({ op: 'logs', token: A }).logs.some((x) => x.detail.includes('v2.21 append test')), '管理者の操作履歴の画面は今までどおり');
+  // ---- バックアップ ----
+  const b1 = gas.run('withReq', (f) => f.backupNow_(today));
+  const book = gas.books[gas.props.getProperty('BACKUP_ID')];
+  const tab = book && gas.run('withReq', (f) => f.readBackupTab_(book.getSheetByName(today)));
+  const recRows = gas.sheet('実施記録').data.slice(1).filter((r) => r.some((v) => v !== '' && v !== undefined)).length;
+  ok(book && book.getSheetByName('説明') && tab && tab['実施記録'] && tab['実施記録'].rows.length === recRows && !tab['ログイン'] && tab['部員設定'], 'バックアップ：別のスプレッドシートの日付のタブに、ログイン以外の全シートを写す（' + b1.tables + 'シート）');
+  const keep = JSON.stringify(gas.sheet('実施記録').data.slice(0, recRows + 1));
+  gas.sheet('実施記録').data.splice(1); // まちがえて全部消した
+  const rs = gas.run('withReq', (f) => f.restoreBackup_(today, ['実施記録']));
+  ok(rs.restored.join() === '実施記録' && JSON.stringify(gas.sheet('実施記録').data.slice(0, recRows + 1)) === keep && book.getSheetByName(today + ' 戻す前'), 'バックアップから戻せる（戻す前の状態も「戻す前」のタブに残す）');
+  gas.forget(); gas.props.setProperty('DV', 'test2-' + Date.now());
+  ok(api({ op: 'state' }).records.length === s4.records.length, '戻したあとも画面の記録は同じ');
+  // 1時間ごとの処理で毎週取り、2か月より古いタブは消える
+  gas.props.setProperty('BACKUP_LAST', today);
+  for (let i = 0; i < 10; i++) { gas.shiftDays(8); gas.run('pushHourly'); }
+  const now10 = gas.run('today_');
+  const tabs = book.getSheets().map((sh) => sh.getName()).filter((n) => /^\d{4}-\d{2}-\d{2}/.test(n));
+  ok(tabs.length >= 7 && tabs.length <= 9 && tabs.every((n) => n.slice(0, 10) >= L.addDays(now10, -62)) && tabs.includes(now10), '毎週1回取り、2か月より古いタブは自動で消える（いま' + tabs.length + 'つ）');
+  gas.shiftDays(-80);
+  gas.forget();
+}
+
 section('2回目以降・保存と読み込み');
 const reqs = gas.stats.writes;
 api({ op: 'state' }); api({ op: 'state' });

@@ -667,6 +667,82 @@ const ok = (c, label) => { if (c) { pass++; console.log('  ✓ ' + label); } els
     ok(mid && (+mid[1] === 0 || +mid[0] < +mid[1]) && fin === mid[1], 'ホームに入ると数字が 0 から数え上がり、最後は正しい値になる');
     await c3.close();
   }
+  console.log('■ v2.21：前の画面をすぐ出す・待つ時間の上限・記録の下書き・目標回数・押しやすさ');
+  {
+    const c4 = await browser.newContext({ viewport: { width: 375, height: 760 }, isMobile: true, hasTouch: true, reducedMotion: 'reduce' });
+    await c4.route(/fonts\.(googleapis|gstatic)\.com/, (r) => r.abort());
+    await c4.addInitScript(() => { localStorage.setItem('kintore.guided', '1'); ['manager', 'leader', 'admin'].forEach((k) => localStorage.setItem('kintore.tourAsk:' + k, '1')); });
+    const p4 = await c4.newPage();
+    p4.on('pageerror', (e) => errors.push('v221: ' + e.message));
+    p4.on('dialog', (d) => d.accept());
+    const yesterday = () => p4.evaluate(() => { const k = 'kintore.state2'; const s = JSON.parse(localStorage.getItem(k)); const t = new Date(s.today + 'T00:00:00Z'); t.setUTCDate(t.getUTCDate() - 1); s.today = t.toISOString().slice(0, 10); s.savedAt = Date.now() - 86400000; localStorage.setItem(k, JSON.stringify(s)); });
+    await p4.goto(BASE); await p4.waitForSelector('.board'); await p4.waitForTimeout(500);
+    await yesterday();
+    await p4.route('**/exec', async (r) => { await new Promise((res) => setTimeout(res, 2500)); await r.continue().catch(() => {}); });
+    await p4.reload(); await p4.waitForTimeout(500);
+    const early = await p4.evaluate(() => ({ board: !!document.querySelector('.board'), boot: !!document.querySelector('.boot'), rf: (document.querySelector('.refreshing') || {}).innerText || '' }));
+    ok(early.board && !early.boot && /更新中/.test(early.rf), '日付が変わっても、前に読み込んだ情報をすぐ出して「前回 … の情報・更新中…」を出す');
+    await p4.waitForSelector('.refreshing', { state: 'detached', timeout: 9000 }).catch(() => {});
+    ok(await p4.locator('.refreshing').count() === 0 && await p4.locator('.board').count() === 1, '新しい情報が来たら「更新中」が消える');
+    await p4.unroute('**/exec');
+    await yesterday();
+    await p4.route('**/exec', () => { /* 返事をしない（電波が弱い） */ });
+    await p4.reload(); await p4.waitForTimeout(500);
+    ok(await p4.locator('.board').count() === 1, '返事が来なくても、前の情報はすぐ出る');
+    await p4.waitForSelector('.banner.err', { timeout: 20000 }).catch(() => {});
+    ok(/つながりにくいため/.test(await p4.locator('.banner.err').first().innerText().catch(() => '')), '15秒で打ち切って「つながりにくいため、… に読み込んだ情報を表示しています」');
+    await p4.unroute('**/exec');
+    await p4.reload(); await p4.waitForSelector('.board'); await p4.waitForTimeout(400);
+    // 記録の下書き
+    await p4.evaluate(() => { location.hash = '#settings'; }); await p4.waitForTimeout(400);
+    await p4.click('[data-act="login"]'); await p4.selectOption('select[name="memberId"]', { label: 'マネ 花子（マネージャー）' });
+    await p4.fill('input[name="pin"]', 'test-mgr-01'); await p4.click('form[data-form="login"] button[type="submit"]'); await p4.waitForTimeout(1200);
+    await p4.evaluate(() => { location.hash = '#record'; }); await p4.waitForTimeout(700);
+    const rid = await p4.evaluate(() => { const b = document.querySelector('.rec-row .rec-btn[aria-pressed="false"]'); return b ? b.closest('.rec-row').dataset.id : ''; });
+    if (rid) {
+      await p4.click('.rec-row[data-id="' + rid + '"] .rec-btn'); await p4.waitForTimeout(150);
+      const dr = await p4.evaluate(() => JSON.parse(localStorage.getItem('kintore.recDraft') || 'null'));
+      ok(dr && dr.edits[rid] === true, '記録画面で押した分は、すぐ端末に下書きとして残る');
+      await p4.reload(); await p4.waitForSelector('#main'); await p4.waitForTimeout(1500);
+      ok(/保存していない記録があります/.test(await p4.locator('.banner.draft').first().innerText().catch(() => '')), 'アプリを開き直すと「保存していない記録があります（続ける／捨てる）」が出る');
+      await p4.click('[data-act="draft-resume"]'); await p4.waitForTimeout(700);
+      ok(await p4.locator('.rec-row[data-id="' + rid + '"] .rec-btn[aria-pressed="true"]').count() === 1 && await p4.locator('.banner.draft').count() === 0, '「続ける」で押した分が戻る');
+      await p4.click('[data-act="rec-confirm"]'); await p4.waitForTimeout(500);
+      await p4.click('[data-act="rec-save"]'); await p4.waitForTimeout(1500);
+      ok(await p4.evaluate(() => localStorage.getItem('kintore.recDraft')) === null && await p4.locator('.banner.draft').count() === 0, '保存したら下書きは消える');
+    } else ok(false, '記録の画面に押せるボタンがある（下書き）');
+    // 押しやすさ：カレンダーの名前は行の高さいっぱい
+    await p4.evaluate(() => { location.hash = '#cal'; }); await p4.waitForTimeout(600);
+    const hName = await p4.evaluate(() => { const a = document.querySelector('.matrix tbody .mname a'); return a ? a.getBoundingClientRect().height : 0; });
+    ok(hName >= 44, 'カレンダーの名前は高さ44px以上で押せる（' + Math.round(hName) + 'px）');
+    // 目標回数（管理者）
+    await p4.evaluate(() => { location.hash = '#settings'; }); await p4.waitForTimeout(400);
+    await p4.click('[data-act="logout"]'); await p4.waitForTimeout(900);
+    await p4.click('[data-act="login"]'); await p4.selectOption('select[name="memberId"]', { label: '管理 太郎（管理者）' });
+    await p4.fill('input[name="pin"]', 'test-admin-1'); await p4.click('form[data-form="login"] button[type="submit"]'); await p4.waitForTimeout(1200);
+    await p4.evaluate(() => { location.hash = '#settings'; }); await p4.waitForTimeout(500);
+    ok(/自動バックアップ/.test(await p4.locator('#main').innerText()), '管理者の設定に「自動バックアップ」がある');
+    await p4.click('[data-act="goal-open"]'); await p4.waitForTimeout(500);
+    ok(await p4.locator('form[data-form="goal"] input[name="from"][value="next"]').count() === 1, '目標回数は「今週から／来週から」を選べる');
+    await p4.selectOption('form[data-form="goal"] select[name="goal"]', '2');
+    await p4.locator('form[data-form="goal"] label:has(input[value="next"])').click();
+    await p4.click('form[data-form="goal"] button[type="submit"]'); await p4.waitForTimeout(1500);
+    await p4.click('[data-act="goal-open"]'); await p4.waitForTimeout(500);
+    const gh = await p4.locator('.goal-hist').innerText().catch(() => '');
+    ok(/週2回/.test(gh) && /予定/.test(gh) && /週3回/.test(gh), '「来週から週2回」にすると、これまでの回数に「（予定）」で出る');
+    await p4.selectOption('form[data-form="goal"] select[name="goal"]', '3');
+    await p4.click('form[data-form="goal"] button[type="submit"]'); await p4.waitForTimeout(1500);
+    await p4.click('[data-act="goal-open"]'); await p4.waitForTimeout(500);
+    ok(await p4.locator('.goal-hist').count() === 0, '今週から元の回数に戻すと、移り変わりも元どおり');
+    await p4.keyboard.press('Escape'); await p4.waitForTimeout(300);
+    // 文字「特大」×幅360pxでも設定画面がはみ出さない
+    await p4.setViewportSize({ width: 360, height: 760 });
+    await p4.evaluate(() => { localStorage.setItem('kintore.size', '"xl"'); }); await p4.reload(); await p4.waitForSelector('#main'); await p4.waitForTimeout(600);
+    await p4.evaluate(() => { location.hash = '#settings'; }); await p4.waitForTimeout(600);
+    const sw = await p4.evaluate(() => document.documentElement.scrollWidth);
+    ok(sw <= 360, '文字「特大」×幅360pxでも設定画面が横にはみ出さない（' + sw + 'px）');
+    await c4.close();
+  }
   ok(errors.length === 0, '画面のエラーなし' + (errors.length ? ': ' + errors.join(' / ') : ''));
   console.log('\n合格 ' + pass + ' / 不合格 ' + fail);
   await browser.close();

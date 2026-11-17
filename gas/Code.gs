@@ -10,7 +10,7 @@
  * 最初にやること：スプレッドシートのメニュー「筋トレ管理」→「管理者を登録」
  * 詳しくは 04_ドキュメント/筋トレ管理アプリ_使い方と引き継ぎ.md
  */
-const APP_VERSION = '2.20.0';
+const APP_VERSION = '2.21.0';
 const SCHEMA_VERSION = '9';
 const TZ = 'Asia/Tokyo';
 const SESSION_DAYS = 90;
@@ -137,7 +137,7 @@ function handle_(req) {
     if (!req || typeof req !== 'object') throw err_('bad_request', '送信内容が正しくありません。');
     ensureSchema_();
     syncRoster_();
-    dailyMaint_();
+    maintFromRequest_();
     const ctx = { req: req, me: null, view: false };
     resolveSession_(ctx);
     const op = String(req.op || '');
@@ -310,8 +310,11 @@ function rowArray_(t, o) {
   DEF[t.key].cols.forEach(function (c) { arr[t.col[c[0]]] = encodeField_(t.key, c[0], o[c[0]]); });
   return arr;
 }
+/** 足すだけの表（操作の記録）。シート全体を読まずに、最後の行のあとへ書く */
+const APPEND_ONLY = { logs: 1 };
 function insert_(tkey, objs) {
   if (!objs.length) return;
+  if (APPEND_ONLY[tkey] && !(REQ_ && REQ_.tables[tkey])) { append_(tkey, objs); return; }
   const t = table_(tkey);
   const rows = objs.map(function (o) { return rowArray_(t, o); });
   // シートの行が足りなければ足す（新しいシートは1000行。足りないまま書くとエラーになる）
@@ -322,6 +325,27 @@ function insert_(tkey, objs) {
   range.setValues(rows);
   objs.forEach(function (o, i) { o._r = t.lastRow + 1 + i; t.rows.push(o); });
   t.lastRow += rows.length;
+}
+function append_(tkey, objs) {
+  const def = DEF[tkey];
+  const sheet = ss_().getSheetByName(def.name);
+  if (!sheet) throw err_('no_sheet', 'シート「' + def.name + '」がありません。初期設定を実行してください。');
+  const width = Math.max(sheet.getLastColumn(), 1);
+  const head = sheet.getRange(1, 1, 1, width).getValues()[0].map(function (h) { return String(h).trim(); });
+  const col = {};
+  def.cols.forEach(function (c) {
+    const i = head.indexOf(c[1]);
+    if (i < 0) throw err_('bad_sheet', 'シート「' + def.name + '」に列「' + c[1] + '」がありません。初期設定を実行してください。');
+    col[c[0]] = i;
+  });
+  const t = { key: tkey, sheet: sheet, col: col, width: width };
+  const rows = objs.map(function (o) { return rowArray_(t, o); });
+  const last = Math.max(sheet.getLastRow(), 1);
+  const lack = last + rows.length - sheet.getMaxRows();
+  if (lack > 0) sheet.insertRowsAfter(sheet.getMaxRows(), lack + 200);
+  const range = sheet.getRange(last + 1, 1, rows.length, width);
+  range.setNumberFormat('@');
+  range.setValues(rows);
 }
 function update_(tkey, o) {
   const t = table_(tkey);
@@ -352,15 +376,22 @@ function withLock_(fn) {
     throw err_('busy', 'いま混み合っています。少し待ってもう一度試してください。');
   }
   try {
-    if (REQ_) { REQ_.tables = {}; REQ_.roster = null; REQ_.members = null; }
+    if (REQ_) { REQ_.tables = {}; REQ_.roster = null; REQ_.members = null; REQ_.rinfo = null; REQ_.fresh = true; REQ_.goalHist = null; }
     const res = fn();
     SpreadsheetApp.flush();
+    bumpDataVersion_();
     return res;
   } finally {
-    if (REQ_) { REQ_.roster = null; REQ_.members = null; }
+    if (REQ_) { REQ_.roster = null; REQ_.members = null; REQ_.fresh = false; REQ_.goalHist = null; }
     lock.releaseLock();
   }
 }
+
+/** データが変わるたびに変える印（見る人向けの返事の作り置きを使い直さないため） */
+function bumpDataVersion_() {
+  try { PropertiesService.getScriptProperties().setProperty('DV', Date.now().toString(36) + Math.floor(Math.random() * 1296).toString(36)); } catch (x) { /* noop */ }
+}
+function dataVersion_() { return PropertiesService.getScriptProperties().getProperty('DV') || '0'; }
 
 function setting_(key) {
   const row = table_('settings').rows.filter(function (r) { return r.key === key; })[0];
@@ -368,10 +399,31 @@ function setting_(key) {
 }
 /** 週の目標回数（週◯回以上がマスト）。設定が無ければ3 */
 const DEFAULT_WEEK_GOAL = 3;
-function weekGoal_() {
-  const v = parseInt(setting_('weekGoal'), 10);
-  return v >= 1 && v <= 7 ? v : DEFAULT_WEEK_GOAL;
+function goalNum_(v) { v = parseInt(v, 10); return v >= 1 && v <= 7 ? v : DEFAULT_WEEK_GOAL; }
+/**
+ * 週の目標回数の移り変わり [{from: 月曜の日付, goal}]（古い順）。それぞれの週は、その週の回数で数える。
+ * 移り変わりが無い（v2.20 まで）ときは、今の設定がずっと続いていたことにする
+ */
+function goalHist_() {
+  if (REQ_ && REQ_.goalHist) return REQ_.goalHist;
+  let list = [];
+  const raw = setting_('weekGoalHist');
+  if (raw) {
+    try { list = JSON.parse(raw).filter(function (x) { return x && isDate_(String(x.from)) && goalNum_(x.goal) === Number(x.goal); }); } catch (x) { list = []; }
+  }
+  if (!list.length) list = [{ from: OLD_DATE, goal: goalNum_(setting_('weekGoal')) }];
+  list = list.map(function (x) { return { from: String(x.from), goal: Number(x.goal) }; }).sort(function (a, b) { return a.from < b.from ? -1 : a.from > b.from ? 1 : 0; });
+  if (REQ_) REQ_.goalHist = list;
+  return list;
 }
+/** その週（月曜の日付）の目標回数 */
+function weekGoalAt_(ws) {
+  let g = DEFAULT_WEEK_GOAL;
+  goalHist_().forEach(function (x) { if (x.from <= ws) g = x.goal; });
+  return g;
+}
+/** 今週の目標回数 */
+function weekGoal_() { return weekGoalAt_(weekStartOf_(today_())); }
 function setSetting_(key, value) {
   const row = table_('settings').rows.filter(function (r) { return r.key === key; })[0];
   if (row) { row.value = value; update_('settings', row); } else insert_('settings', [{ key: key, value: value }]);
@@ -393,15 +445,41 @@ function rosterLib_() {
   }
   return KurfcRoster;
 }
+// 名簿とポジションは10分だけ覚えておく（毎回ライブラリを呼ばない）。筋トレアプリから名簿を書き換えたときは、すぐ忘れる。
+// 会計アプリで直した名簿は、最大10分おくれて出る。ロックの中（保存するとき）は、いつもライブラリから読み直す
+const ROSTER_TTL = 600;
+function rosterInfo_() {
+  if (REQ_ && REQ_.rinfo) return REQ_.rinfo;
+  const c = CacheService.getScriptCache();
+  let info = null;
+  if (!(REQ_ && REQ_.fresh)) {
+    const hit = c.get('k:roster');
+    if (hit) { try { info = JSON.parse(hit); } catch (x) { info = null; } }
+  }
+  if (!info) {
+    const list = rosterLib_().list(), pos = rosterLib_().positions();
+    info = { list: list, pos: pos, sig: sha256Hex_(JSON.stringify([list, pos])).slice(0, 16) };
+    try { c.put('k:roster', JSON.stringify(info), ROSTER_TTL); } catch (x) { /* 覚えられなくても動く */ }
+  }
+  if (REQ_) REQ_.rinfo = info;
+  return info;
+}
+/** 筋トレアプリから名簿を書き換えたあとに呼ぶ */
+function rosterChanged_() {
+  try { CacheService.getScriptCache().remove('k:roster'); } catch (x) { /* noop */ }
+  if (REQ_) REQ_.rinfo = null; // このリクエストの中の一覧（REQ_.roster）は今までどおり。読み直すときは REQ_.roster = null にする
+}
+function rosterAdd_(people) { const r = rosterLib_().add(people); rosterChanged_(); return r; }
+function rosterUpdate_(id, patch) { const r = rosterLib_().update(id, patch); rosterChanged_(); return r; }
 function roster_() {
   if (REQ_ && REQ_.roster) return REQ_.roster;
-  const list = rosterLib_().list();
+  const list = rosterInfo_().list;
   if (REQ_) REQ_.roster = list;
   return list;
 }
 function positionsList_() {
   if (REQ_ && REQ_.positions) return REQ_.positions;
-  const p = rosterLib_().positions();
+  const p = rosterInfo_().pos;
   if (REQ_) REQ_.positions = p;
   return p;
 }
@@ -458,6 +536,13 @@ function peopleRow_(m) {
  * 変える必要があるときだけロックを取って書く。
  */
 function syncRoster_() {
+  // 名簿が前に確かめたときと同じなら、10分のあいだは確かめ直さない（筋トレアプリの中の変更は、その操作が自分で履歴を足す）
+  const c = CacheService.getScriptCache();
+  if (c.get('k:synced') === rosterInfo_().sig) return;
+  syncRosterNow_();
+  try { c.put('k:synced', rosterInfo_().sig, ROSTER_TTL); } catch (x) { /* noop */ }
+}
+function syncRosterNow_() {
   if (!needsSync_()) return;
   withLock_(function () {
     if (!needsSync_()) return;
@@ -665,9 +750,15 @@ function resolveSession_(ctx) {
     }
   }
   if (req.viewToken && typeof req.viewToken === 'string') {
+    // 合言葉のトークンは、確かめた結果を10分覚えておく（合言葉を変えると印が変わって無効になる）
     const h2 = sha256Hex_(req.viewToken);
-    const v = table_('sessions').rows.filter(function (r) { return r.tokenHash === h2 && r.kind === 'view'; })[0];
-    if (v && v.expiresAt > now) ctx.view = true;
+    const c = CacheService.getScriptCache(), ck = 'k:vt:' + (PropertiesService.getScriptProperties().getProperty('VIEWGEN') || '0') + ':' + h2.slice(0, 32);
+    const hit = c.get(ck);
+    if (hit) { if (hit > now) ctx.view = true; }
+    else {
+      const v = table_('sessions').rows.filter(function (r) { return r.tokenHash === h2 && r.kind === 'view'; })[0];
+      if (v && v.expiresAt > now) { ctx.view = true; try { c.put(ck, v.expiresAt, 600); } catch (x) { /* noop */ } }
+    }
   }
 }
 
@@ -871,30 +962,97 @@ function recordsWire_(from, to) {
   return out;
 }
 
+/**
+ * 画面に出す情報。見る人（ログインしていない人・合言葉の人）のふつうの範囲は、みんな同じ内容なので作り置きする
+ * （データが変わるたびに変える印・日付・名簿の印で見分ける。10分で忘れる）。応援の「自分が押した」だけは端末ごとに足す
+ */
+const STATE_TTL = 600;
 function opState_(ctx) {
   const today = today_();
-  const locked = !!setting_('viewPassHash') && !ctx.me && !ctx.view;
-  const base = { ok: true, version: APP_VERSION, today: today, me: ctx.me, staff: staffList_(), viewLock: !!setting_('viewPassHash'), weekGoal: weekGoal_(), positions: positionsList_(), pushKey: vapidKeys_().pub };
-  if (locked) { base.locked = true; return base; }
+  const pub = !ctx.me && !ctx.req.from && !ctx.req.to;
+  if (pub) {
+    const key = 'st:' + today + ':' + dataVersion_() + ':' + rosterInfo_().sig;
+    let p = null;
+    const hit = cacheGetBig_(key);
+    if (hit) { try { p = JSON.parse(hit); } catch (x) { p = null; } }
+    if (!p) {
+      p = buildState_(ctx, today, true);
+      cachePutBig_(key, JSON.stringify(p), STATE_TTL);
+    }
+    return finishPublic_(p, ctx);
+  }
+  return buildState_(ctx, today, false).base;
+}
+/** 作り置きから、この人への返事を作る */
+function finishPublic_(p, ctx) {
+  const base = p.base;
+  if (base.viewLock && !ctx.view) {
+    return { ok: true, version: base.version, today: base.today, me: null, staff: base.staff, viewLock: true, weekGoal: base.weekGoal,
+      positions: base.positions, pushKey: base.pushKey, locked: true };
+  }
+  const mine = (p.mine || {})[String(ctx.req.device || '')] || {};
+  (base.stamps || []).forEach(function (o) { o.mine = mine[o.t + '|' + o.e] || []; });
+  return base;
+}
+function buildState_(ctx, today, pub) {
+  const base = { ok: true, version: APP_VERSION, today: today, me: ctx.me, staff: staffList_(), viewLock: !!setting_('viewPassHash'), weekGoal: weekGoal_(),
+    goalHist: goalHist_(), positions: positionsList_(), pushKey: vapidKeys_().pub };
+  if (!pub && base.viewLock && !ctx.me && !ctx.view) { base.locked = true; return { base: base }; }
   let from = ctx.req.from ? reqDate_(ctx.req.from, '開始日') : addDays_(today, -DEFAULT_BACK_DAYS);
   let to = ctx.req.to ? reqDate_(ctx.req.to, '終了日') : addDays_(today, DEFAULT_AHEAD_DAYS);
   if (to < from) { const x = from; from = to; to = x; }
   if (addDays_(from, MAX_RANGE_DAYS) < to) from = addDays_(to, -MAX_RANGE_DAYS);
-  const admin = !!(ctx.me && ctx.me.perm === 'admin');
+  const me = pub ? null : ctx.me;
+  const admin = !!(me && me.perm === 'admin');
   base.range = { from: from, to: to };
   base.members = members_().map(function (m) { return memberWire_(m, admin); });
   base.menus = table_('menus').rows.filter(function (w) { return !w.deletedAt && w.date >= from && w.date <= to; }).map(menuWire_);
   base.records = recordsWire_(from, to);
-  base.exempts = exemptsWire_(addDays_(from, -7), addDays_(to, 7), ctx.me);
-  base.life = lifeWire_();
-  base.body = bodyWire_(ctx.me);
-  base.stamps = stampsWire_(addDays_(today, -STAMP_DAYS), ctx.req.device);
-  if (ctx.me && (ctx.me.perm === 'admin' || ctx.me.perm === 'leader')) base.templates = table_('templates').rows.filter(function (t) { return !t.deletedAt; }).map(templateWire_);
-  if (admin) { base.pinRequests = pinRequests_(); base.feedbackOpen = table_('feedback').rows.filter(function (f) { return !f.doneAt; }).length; }
+  // 免除は全期間（連続の週を、読み込む範囲より前までさかのぼって数えるため）
+  base.exempts = exemptsWire_('0000-01-01', '9999-12-31', me);
+  const lp = lifeAndPast_(from);
+  base.life = lp.life;
+  if (lp.past) base.pastWeeks = lp.past;
+  base.body = bodyWire_(me);
+  let mine = null;
+  if (pub) { const sw = stampsAll_(addDays_(today, -STAMP_DAYS)); base.stamps = sw.list; mine = sw.mine; }
+  else base.stamps = stampsWire_(addDays_(today, -STAMP_DAYS), ctx.req.device);
+  if (me && (me.perm === 'admin' || me.perm === 'leader')) base.templates = table_('templates').rows.filter(function (t) { return !t.deletedAt; }).map(templateWire_);
+  if (admin) {
+    base.pinRequests = pinRequests_(); base.feedbackOpen = table_('feedback').rows.filter(function (f) { return !f.doneAt; }).length;
+    base.backup = backupInfo_();
+  }
   base.selfRecs = table_('templates').rows.filter(function (t) { return !t.deletedAt && t.selfRec === '1'; }).map(templateWire_);
   base.liftRatios = liftRatios_();
   base.exercises = exercisesWire_();
-  return base;
+  return { base: base, mine: mine };
+}
+
+/** 大きな文字列をキャッシュに置く（gzip して、9万文字ずつに分ける） */
+function cachePutBig_(key, str, ttl) {
+  try {
+    const z = Utilities.base64Encode(Utilities.gzip(Utilities.newBlob(str, 'application/json')).getBytes());
+    const n = Math.ceil(z.length / 90000);
+    if (n > 30) return false;
+    const o = {};
+    for (let i = 0; i < n; i++) o[key + ':' + i] = z.slice(i * 90000, (i + 1) * 90000);
+    o[key] = String(n);
+    CacheService.getScriptCache().putAll(o, ttl);
+    return true;
+  } catch (x) { console.error(x); return false; }
+}
+function cacheGetBig_(key) {
+  try {
+    const c = CacheService.getScriptCache();
+    const n = parseInt(c.get(key) || '0', 10);
+    if (!n) return null;
+    const keys = [];
+    for (let i = 0; i < n; i++) keys.push(key + ':' + i);
+    const got = c.getAll(keys);
+    let z = '';
+    for (let i = 0; i < n; i++) { const v = got[keys[i]]; if (!v) return null; z += v; }
+    return Utilities.ungzip(Utilities.newBlob(Utilities.base64Decode(z), 'application/x-gzip')).getDataAsString();
+  } catch (x) { console.error(x); return null; }
 }
 
 // ---------------------------------------------------------------------------
@@ -1181,7 +1339,7 @@ function opSaveMember_(ctx) {
     const now = now_(), today = today_();
     let m;
     if (isNew) {
-      const res = rosterLib_().add([{ name: d.name, grade: d.grade || '', role: d.clubRole || '部員', group: d.group || '', position: d.position || '', subPositions: d.subs || [] }]);
+      const res = rosterAdd_([{ name: d.name, grade: d.grade || '', role: d.clubRole || '部員', group: d.group || '', position: d.position || '', subPositions: d.subs || [] }]);
       if (!res.added.length) {
         const sk = res.skipped[0] || {};
         throw err_('duplicate', sk.reason === 'inactive'
@@ -1202,7 +1360,7 @@ function opSaveMember_(ctx) {
       const before = m.name + '（' + describe_(m) + '）';
       const patch = rosterPatch_(m, d);
       if (Object.keys(patch).length) {
-        const r = rosterLib_().update(m.id, patch);
+        const r = rosterUpdate_(m.id, patch);
         Object.assign(m, { grade: r.grade, clubRole: r.role, group: r.group, position: r.position, subs: r.subPositions, player: r.player, finance: r.finance });
       }
       const ch = applyAppFields_(m, d, me, now);
@@ -1233,7 +1391,7 @@ function opBulkMembers_(ctx) {
       if (!m || m.gone) return;
       const patch = rosterPatch_(m, x.d);
       if (Object.keys(patch).length) {
-        const r = rosterLib_().update(m.id, patch);
+        const r = rosterUpdate_(m.id, patch);
         Object.assign(m, { group: r.group, position: r.position, subs: r.subPositions });
       }
       const ch = applyAppFields_(m, { mode: x.d.mode }, me, now);
@@ -1276,7 +1434,7 @@ function opImportMembers_(ctx) {
       if (!m.active) { skipped.push(m.name + '（在籍なし）'); return; }
       const patch = rosterPatch_(m, d);
       if (Object.keys(patch).length) {
-        const r = rosterLib_().update(m.id, patch);
+        const r = rosterUpdate_(m.id, patch);
         Object.assign(m, { group: r.group, position: r.position, subs: r.subPositions, grade: r.grade });
       }
       const ch = applyAppFields_(m, { mode: d.mode }, me, now);
@@ -1284,7 +1442,7 @@ function opImportMembers_(ctx) {
     });
     let added = [];
     if (toAdd.length) {
-      const res = rosterLib_().add(toAdd.map(function (d) {
+      const res = rosterAdd_(toAdd.map(function (d) {
         return { name: d.name, grade: d.grade || '', group: d.group || '', position: d.position || '', subPositions: d.subs || [] };
       }));
       REQ_.roster = null; REQ_.members = null;
@@ -1315,7 +1473,7 @@ function opSetMemberActive_(ctx) {
       if (m.id === me.id) throw err_('self', '自分自身は外せません。');
       if (m.perm === 'admin' && activeAdmins_().length <= 1) throw err_('last_admin', '管理者が1人もいなくなるので外せません。');
     }
-    rosterLib_().update(m.id, { active: active });
+    rosterUpdate_(m.id, { active: active });
     const s = peopleRow_(m);
     s.left = active ? '' : today_(); s.updatedAt = now_();
     update_('people', s);
@@ -1357,17 +1515,17 @@ function opPromote_(ctx) {
       const g = m.grade || '';
       if (GRADE_NEXT[g]) {
         if (choice[m.id] === 'stay') { stay++; return; } // 留年など
-        rosterLib_().update(m.id, { grade: GRADE_NEXT[g] }); up++; return;
+        rosterUpdate_(m.id, { grade: GRADE_NEXT[g] }); up++; return;
       }
       if (!GRADE_TOP[g]) return;
       const c = GRADE_TOP[g].indexOf(choice[m.id]) >= 0 ? choice[m.id] : 'stay';
-      if (c === 'M1') { rosterLib_().update(m.id, { grade: 'M1' }); up++; return; }
+      if (c === 'M1') { rosterUpdate_(m.id, { grade: 'M1' }); up++; return; }
       if (c !== 'grad') { stay++; return; }
       if (m.id === me.id) { errs.push(m.name + '（自分自身）'); stay++; return; }
       if (m.finance) { errs.push(m.name + '（財務は会計アプリで）'); stay++; return; }
       if (m.perm === 'admin' && admins - gradAdmins <= 1) { errs.push(m.name + '（最後の管理者）'); stay++; return; }
       if (m.perm === 'admin') gradAdmins++;
-      rosterLib_().update(m.id, { active: false });
+      rosterUpdate_(m.id, { active: false });
       const s = peopleRow_(m);
       s.left = today_(); s.updatedAt = now_();
       update_('people', s);
@@ -1481,22 +1639,33 @@ function opSaveSettings_(ctx) {
     if (ctx.req.weekGoal !== undefined) {
       const g = Number(ctx.req.weekGoal);
       if (!(g >= 1 && g <= 7 && Math.floor(g) === g)) throw err_('bad_goal', '週の目標回数は1〜7回で選んでください。');
-      const before = weekGoal_();
-      if (g !== before) {
-        setSetting_('weekGoal', String(g));
-        log_(me, '週の目標回数を変更', '週' + before + '回 → 週' + g + '回');
+      // 今週から／来週から。その週より前は、前の回数のまま数える
+      const thisWs = weekStartOf_(today_());
+      const from = ctx.req.weekGoalFrom === 'next' ? addDays_(thisWs, 7) : thisWs;
+      const hist = goalHist_();
+      const keep = hist.filter(function (x) { return x.from < from; });
+      const prev = keep.length ? keep[keep.length - 1].goal : DEFAULT_WEEK_GOAL;
+      const next = keep.concat(prev === g && keep.length ? [] : [{ from: from, goal: g }]);
+      if (JSON.stringify(next) !== JSON.stringify(hist)) {
+        const before = weekGoalAt_(from);
+        setSetting_('weekGoalHist', JSON.stringify(next));
+        setSetting_('weekGoal', String(next[next.length - 1].goal)); // 古い版のアプリ向け
+        REQ_.goalHist = null;
+        log_(me, '週の目標回数を変更', '週' + before + '回 → 週' + g + '回（' + Number(from.slice(5, 7)) + '/' + Number(from.slice(8, 10)) + 'の週から）');
       }
     }
     if (ctx.req.viewPass !== undefined) {
       const p = String(ctx.req.viewPass == null ? '' : ctx.req.viewPass);
       if (p === '') {
         setSetting_('viewPassHash', ''); setSetting_('viewPassSalt', '');
+        PropertiesService.getScriptProperties().setProperty('VIEWGEN', Date.now().toString(36));
         log_(me, '閲覧の合言葉を解除', '');
       } else {
         if (p.length < 4 || p.length > 64) throw err_('bad_pass', '合言葉は4文字以上にしてください。');
         const salt = randomHex_().slice(0, 32);
         setSetting_('viewPassSalt', salt); setSetting_('viewPassHash', pinHash_(salt, p));
         removeMany_('sessions', table_('sessions').rows.filter(function (r) { return r.kind === 'view'; }));
+        PropertiesService.getScriptProperties().setProperty('VIEWGEN', Date.now().toString(36));
         log_(me, '閲覧の合言葉を設定', '');
       }
     }
@@ -1505,7 +1674,7 @@ function opSaveSettings_(ctx) {
       setSetting_('liftRatios', JSON.stringify(list));
       log_(me, '重さの目安を変更', list.map(function (x) { return x.name + '×' + x.ratio; }).join('、') || '（なし）');
     }
-    return { ok: true, viewLock: !!setting_('viewPassHash'), weekGoal: weekGoal_(), liftRatios: liftRatios_() };
+    return { ok: true, viewLock: !!setting_('viewPassHash'), weekGoal: weekGoal_(), goalHist: goalHist_(), liftRatios: liftRatios_() };
   });
 }
 
@@ -1536,6 +1705,243 @@ function memberOrThrow_(id) {
 const REPEAT_AHEAD_DAYS = 28;
 const STAMP_DAYS = 60;          // 画面に返す応援の期間
 const STAMP_KEEP_DAYS = 400;    // これより古い応援はシートから消す
+/**
+ * 毎日の作業は1時間ごとの処理（pushHourly）がする。リクエストでは、その日の分が済んでいるかを見るだけ。
+ * 1時間ごとの処理が止まっていたら入れ直し、2日以上あいていたらここでする（だれかが少し待つ）
+ */
+function maintFromRequest_() {
+  const c = CacheService.getScriptCache(), today = today_();
+  if (c.get('k:maint') === today) return;
+  const on = setting_('maintOn');
+  if (on === today) { try { c.put('k:maint', today, 21600); } catch (x) { /* noop */ } return; }
+  const hourly = ensureHourly_();
+  if (hourly && on && on >= addDays_(today, -1)) return; // 1時間以内に1時間ごとの処理がする
+  dailyMaint_();
+}
+/** 1時間ごとの処理（時間主導のトリガー）があるか、1日1回確かめて、無ければ入れる */
+function ensureHourly_() {
+  const c = CacheService.getScriptCache(), today = today_();
+  if (c.get('k:trig') === today) return true;
+  try {
+    let has = ScriptApp.getProjectTriggers().some(function (t) { return t.getHandlerFunction() === 'pushHourly'; });
+    if (!has) {
+      withLock_(function () {
+        has = ScriptApp.getProjectTriggers().some(function (t) { return t.getHandlerFunction() === 'pushHourly'; });
+        if (!has) { ScriptApp.newTrigger('pushHourly').timeBased().everyHours(1).create(); has = true; }
+      });
+    }
+    c.put('k:trig', today, 21600);
+    return has;
+  } catch (x) {
+    console.error(x);
+    return false;
+  }
+}
+// ---------------------------------------------------------------------------
+// 自動バックアップ（v2.21）：毎週、別のスプレッドシート「バックアップ」に日付のタブで写しを取る。2か月より古いタブは消す
+//   タブの中は、シートごとに「■ シート名 / 行数」の行・見出し・中身を縦に並べる。ログインの情報は入れない
+//   戻すときは、スプレッドシートのメニュー「筋トレ管理」→「バックアップから戻す」
+// ---------------------------------------------------------------------------
+const BACKUP_EVERY_DAYS = 7;
+const BACKUP_KEEP_DAYS = 62;
+const BACKUP_SKIP = { sessions: 1 };
+const BACKUP_TITLE = 'KURFC 筋トレ管理 バックアップ（自動・2か月で消えます）';
+const LOG_ARCHIVE = '操作履歴（古い分）';
+const LOG_KEEP_DAYS = 366;
+
+function backupInfo_() {
+  const props = PropertiesService.getScriptProperties();
+  const id = props.getProperty('BACKUP_ID');
+  return { last: props.getProperty('BACKUP_LAST') || '', url: id ? 'https://docs.google.com/spreadsheets/d/' + id + '/edit' : '', keepDays: BACKUP_KEEP_DAYS };
+}
+function hourJST_() { return +now_().slice(11, 13); }
+/** 1時間ごとの処理から呼ぶ。前のバックアップから7日たったら、深夜（3〜5時）に取る。8日以上あいたら時間に関係なく取る */
+function weeklyBackup_() {
+  const today = today_(), last = PropertiesService.getScriptProperties().getProperty('BACKUP_LAST') || '';
+  if (last && last > addDays_(today, -BACKUP_EVERY_DAYS)) return null;
+  const h = hourJST_();
+  if (last && last > addDays_(today, -BACKUP_EVERY_DAYS - 1) && (h < 3 || h >= 6)) return null;
+  return withLock_(function () { return backupNow_(today); });
+}
+/** バックアップのスプレッドシート（無ければ作る。消されていたら作り直す） */
+function backupBook_(create) {
+  const props = PropertiesService.getScriptProperties();
+  const id = props.getProperty('BACKUP_ID');
+  if (id) { try { return SpreadsheetApp.openById(id); } catch (x) { /* 消された */ } }
+  if (!create) return null;
+  const book = SpreadsheetApp.create(BACKUP_TITLE);
+  const first = book.getSheets()[0];
+  first.setName('説明');
+  const lines = [
+    ['KURFC 筋トレ管理アプリが、毎週自動で作るバックアップです（このファイルは消さないでください）。'],
+    ['・毎週1回、日付の名前のタブに、筋トレ管理のスプレッドシートの全部のシート（ログインの情報を除く）の写しを取ります。'],
+    ['・2か月より古いタブは自動で消えます。'],
+    ['・戻すときは、筋トレ管理のスプレッドシートのメニュー「筋トレ管理」→「バックアップから戻す…」を使ってください。'],
+    ['・部員名簿は会計アプリのスプレッドシートにあるので、ここには入っていません。']
+  ];
+  first.getRange(1, 1, lines.length, 1).setValues(lines);
+  props.setProperty('BACKUP_ID', book.getId());
+  return book;
+}
+function backupCell_(v, key) {
+  let x;
+  if (v instanceof Date) x = Utilities.formatDate(v, TZ, key && DATE_COLS[key] ? 'yyyy-MM-dd' : 'yyyy-MM-dd HH:mm:ss');
+  else if (v === null || v === undefined) x = '';
+  else x = String(v);
+  return /^[=+\-@]/.test(x) ? "'" + x : x;
+}
+/** いまの状態を、name のタブに写す（同じ名前のタブがあれば作り直す）。戻り値 { name, rows, url } */
+function backupNow_(name) {
+  const src = ss_(), book = backupBook_(true);
+  const out = [];
+  let width = 3, tables = 0;
+  Object.keys(DEF).forEach(function (k) {
+    if (BACKUP_SKIP[k]) return;
+    const sh = src.getSheetByName(DEF[k].name);
+    if (!sh) return;
+    const values = sh.getDataRange().getValues();
+    const head = values.length ? values[0].map(function (h) { return String(h).trim(); }) : [];
+    const keys = head.map(function (h) { const c = DEF[k].cols.filter(function (x) { return x[1] === h; })[0]; return c ? c[0] : ''; });
+    const body = values.slice(1).filter(function (r) { return r.some(function (v) { return v !== '' && v !== null; }); });
+    out.push(['■', DEF[k].name, String(body.length)]);
+    out.push(head.map(function (h) { return backupCell_(h, ''); }));
+    body.forEach(function (r) { out.push(r.map(function (v, i) { return backupCell_(v, keys[i]); })); });
+    width = Math.max(width, head.length);
+    tables++;
+  });
+  const rows = out.map(function (r) { const a = r.slice(0, width); while (a.length < width) a.push(''); return a; });
+  let sh = book.getSheetByName(name);
+  if (sh) book.deleteSheet(sh);
+  sh = book.insertSheet(name, 1);
+  if (sh.getMaxRows() < rows.length) sh.insertRowsAfter(sh.getMaxRows(), rows.length - sh.getMaxRows());
+  if (sh.getMaxColumns() > width) sh.deleteColumns(width + 1, sh.getMaxColumns() - width);
+  const range = sh.getRange(1, 1, rows.length, width);
+  range.setNumberFormat('@');
+  range.setValues(rows);
+  pruneBackups_(book);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(name)) PropertiesService.getScriptProperties().setProperty('BACKUP_LAST', name);
+  return { name: name, rows: rows.length, tables: tables, url: 'https://docs.google.com/spreadsheets/d/' + book.getId() + '/edit' };
+}
+/** 2か月より古いタブを消す（いちばん新しいバックアップは残す） */
+function pruneBackups_(book) {
+  const limit = addDays_(today_(), -BACKUP_KEEP_DAYS);
+  const tabs = book.getSheets().filter(function (sh) { return /^\d{4}-\d{2}-\d{2}/.test(sh.getName()); })
+    .sort(function (a, b) { return a.getName() < b.getName() ? 1 : -1; });
+  tabs.forEach(function (sh, i) { if (i > 0 && sh.getName().slice(0, 10) < limit) book.deleteSheet(sh); });
+}
+/** バックアップのタブを読む { シート名: { head, rows } } */
+function readBackupTab_(sh) {
+  const v = sh.getDataRange().getValues();
+  const out = {};
+  for (let i = 0; i < v.length; i++) {
+    if (String(v[i][0]) !== '■') continue;
+    const name = String(v[i][1]), n = parseInt(v[i][2], 10) || 0;
+    const head = v[i + 1].map(function (h) { return String(h).trim(); });
+    let w = head.length;
+    while (w > 0 && !head[w - 1]) w--;
+    out[name] = { head: head.slice(0, w), rows: v.slice(i + 2, i + 2 + n).map(function (r) { return r.slice(0, w); }) };
+    i += 1 + n;
+  }
+  return out;
+}
+/** バックアップから戻す。names … 戻すシート名の配列（空ならログイン以外の全部）。戻す前の状態は「日付 戻す前」のタブに残す */
+function restoreBackup_(tabName, names) {
+  const book = backupBook_(false);
+  if (!book) throw new Error('バックアップのファイルが見つかりません。');
+  const tab = book.getSheetByName(tabName);
+  if (!tab) throw new Error('「' + tabName + '」のタブが見つかりません。');
+  const data = readBackupTab_(tab);
+  const allowed = {};
+  Object.keys(DEF).forEach(function (k) { if (!BACKUP_SKIP[k]) allowed[DEF[k].name] = 1; });
+  const list = (names && names.length ? names : Object.keys(data)).filter(function (n) { return allowed[n] && data[n]; });
+  if (!list.length) throw new Error('戻せるシートがありません。シートの名前を確かめてください。');
+  return withLock_(function () {
+    const safe = backupNow_(today_() + ' 戻す前');
+    const ss = ss_();
+    list.forEach(function (n) {
+      const d = data[n];
+      let sh = ss.getSheetByName(n);
+      if (!sh) sh = ss.insertSheet(n);
+      const lastR = sh.getLastRow(), lastC = Math.max(sh.getLastColumn(), d.head.length);
+      if (lastR > 0) sh.getRange(1, 1, lastR, lastC).clearContent();
+      const rows = [d.head].concat(d.rows).map(function (r) { return r.map(function (x) { return backupCell_(x, ''); }); });
+      if (sh.getMaxRows() < rows.length) sh.insertRowsAfter(sh.getMaxRows(), rows.length - sh.getMaxRows() + 200);
+      const range = sh.getRange(1, 1, rows.length, d.head.length);
+      range.setNumberFormat('@');
+      range.setValues(rows);
+    });
+    REQ_.tables = {};
+    log_(null, 'バックアップから戻した', tabName + '：' + list.join('、'));
+    return { restored: list, safe: safe.name };
+  });
+}
+function menuBackupNow() {
+  const ui = SpreadsheetApp.getUi();
+  REQ_ = { tables: {}, ss: null, roster: null };
+  let r;
+  try { ensureSchema_(); r = backupNow_(today_()); } finally { REQ_ = null; }
+  ui.alert('バックアップを取りました', '「' + r.name + '」のタブに写しました（' + r.tables + 'シート）。\n\n' + r.url, ui.ButtonSet.OK);
+}
+function menuRestoreBackup() {
+  const ui = SpreadsheetApp.getUi();
+  REQ_ = { tables: {}, ss: null, roster: null };
+  try {
+    ensureSchema_();
+    const book = backupBook_(false);
+    const tabs = book ? book.getSheets().map(function (sh) { return sh.getName(); }).filter(function (n) { return /^\d{4}-\d{2}-\d{2}/.test(n); }).sort().reverse() : [];
+    if (!tabs.length) { ui.alert('まだバックアップがありません。'); return; }
+    const r1 = ui.prompt('バックアップから戻す（1/2）', 'どのバックアップから戻しますか？ 下から選んで、そのまま入力してください。\n\n' + tabs.join('\n'), ui.ButtonSet.OK_CANCEL);
+    if (r1.getSelectedButton() !== ui.Button.OK) return;
+    const tabName = String(r1.getResponseText() || '').trim();
+    if (tabs.indexOf(tabName) < 0) { ui.alert('「' + tabName + '」というバックアップはありません。'); return; }
+    const inTab = Object.keys(readBackupTab_(book.getSheetByName(tabName)));
+    const r2 = ui.prompt('バックアップから戻す（2/2）', '戻すシートの名前を入力してください（いくつかなら「、」で区切る）。全部戻すときは「すべて」。\n\n' + inTab.join('、'), ui.ButtonSet.OK_CANCEL);
+    if (r2.getSelectedButton() !== ui.Button.OK) return;
+    const text = String(r2.getResponseText() || '').trim();
+    const names = text === 'すべて' ? [] : text.split(/[、,，\s]+/).filter(Boolean);
+    const bad = names.filter(function (n) { return inTab.indexOf(n) < 0; });
+    if (!text || bad.length) { ui.alert('シートの名前が違います：' + (bad.join('、') || '（空）')); return; }
+    const ok = ui.alert('確認', '「' + tabName + '」の「' + (names.length ? names.join('、') : 'すべてのシート') + '」で、今のデータを置きかえます。\n置きかえる前の状態は、バックアップに「' + today_() + ' 戻す前」として残します。\n\n戻しますか？', ui.ButtonSet.YES_NO);
+    if (ok !== ui.Button.YES) return;
+    const res = restoreBackup_(tabName, names);
+    ui.alert('戻しました', res.restored.join('、') + ' を「' + tabName + '」の状態に戻しました。\n戻す前の状態は「' + res.safe + '」のタブにあります。', ui.ButtonSet.OK);
+  } catch (x) {
+    ui.alert('戻せませんでした：' + (x && x.message ? x.message : x));
+  } finally { REQ_ = null; }
+}
+/** 月に1回、1年より前の操作の記録を「操作履歴（古い分）」のシートへ移す */
+function archiveLogs_() {
+  const month = today_().slice(0, 7);
+  if (setting_('logArchiveOn') === month) return;
+  withLock_(function () {
+    if (setting_('logArchiveOn') === month) return;
+    const t = table_('logs');
+    const limit = addDays_(today_(), -LOG_KEEP_DAYS);
+    let n = 0;
+    while (n < t.rows.length && String(t.rows[n].at).slice(0, 10) < limit) n++;
+    if (n) {
+      const last = t.rows[n - 1]._r;
+      const values = t.sheet.getRange(1, 1, last, t.width).getValues();
+      const ss = ss_();
+      let arc = ss.getSheetByName(LOG_ARCHIVE);
+      if (!arc) {
+        arc = ss.insertSheet(LOG_ARCHIVE);
+        arc.getRange(1, 1, 1, t.width).setValues([values[0].map(function (h) { return backupCell_(h, ''); })]);
+        try { arc.setFrozenRows(1); } catch (x) { /* noop */ }
+      }
+      const rows = values.slice(1).map(function (r) { return r.map(function (v) { return backupCell_(v, ''); }); });
+      const at = Math.max(arc.getLastRow(), 1);
+      if (arc.getMaxRows() < at + rows.length) arc.insertRowsAfter(arc.getMaxRows(), at + rows.length - arc.getMaxRows() + 200);
+      const range = arc.getRange(at + 1, 1, rows.length, t.width);
+      range.setNumberFormat('@');
+      range.setValues(rows);
+      t.sheet.deleteRows(2, last - 1);
+      delete REQ_.tables.logs;
+    }
+    setSetting_('logArchiveOn', month);
+  });
+}
+
 function dailyMaint_() {
   const today = today_();
   if (setting_('maintOn') === today) return;
@@ -1764,14 +2170,40 @@ function opMemberHistory_(ctx) {
   return { ok: true, memberId: m.id, records: recs, exempts: ex };
 }
 /** 部員ごとの通算の実施回数と最初の記録日 { id: [回数, 最初の日] } */
-function lifeWire_() {
-  const o = {};
-  table_('records').rows.forEach(function (r) {
+function lifeWire_() { return lifeAndPast_('').life; }
+/**
+ * 通算の回数と、読み込む範囲より前の週ごとの回数。
+ * past … { from: いちばん古い週の月曜, to: 範囲の中で最初のまるごとの週の月曜（ここから前の週）, c: { 部員ID: 週ごとの回数を1けたずつ並べた文字 } }
+ */
+function lifeAndPast_(from) {
+  const life = {};
+  const rows = table_('records').rows;
+  rows.forEach(function (r) {
     if (r.status !== 'done') return;
-    const x = o[r.memberId] || (o[r.memberId] = [0, r.date]);
+    const x = life[r.memberId] || (life[r.memberId] = [0, r.date]);
     x[0]++; if (r.date < x[1]) x[1] = r.date;
   });
-  return o;
+  if (!from) return { life: life, past: null };
+  const B = dow_(from) === 1 ? from : addDays_(weekStartOf_(from), 7);
+  let first = '';
+  rows.forEach(function (r) { if (r.status === 'done' && r.date < B && (!first || r.date < first)) first = r.date; });
+  if (!first) return { life: life, past: null };
+  const W0 = weekStartOf_(first);
+  const weeks = Math.round((Date.parse(B) - Date.parse(W0)) / 604800000);
+  const cnt = {};
+  rows.forEach(function (r) {
+    if (r.status !== 'done' || r.date >= B) return;
+    const i = Math.floor((Date.parse(r.date) - Date.parse(W0)) / 604800000);
+    const a = cnt[r.memberId] || (cnt[r.memberId] = []);
+    a[i] = (a[i] || 0) + 1;
+  });
+  const c = {};
+  Object.keys(cnt).forEach(function (id) {
+    let str = '';
+    for (let i = 0; i < weeks; i++) str += String(Math.min(9, cnt[id][i] || 0));
+    c[id] = str.replace(/0+$/, '');
+  });
+  return { life: life, past: { from: W0, to: B, c: c } };
 }
 
 // ---------------------------------------------------------------------------
@@ -1845,6 +2277,20 @@ function opDeleteBody_(ctx) {
 // ---------------------------------------------------------------------------
 const STAMP_KINDS = { clap: 1, fire: 1, muscle: 1, party: 1, hundred: 1, rugby: 1, crown: 1, star: 1, cheer: 1 };
 const STAMP_DAY_MAX = 300;
+/** 応援をまとめる（端末ごとの「自分が押した」は別に返す。作り置き用） */
+function stampsAll_(from) {
+  const by = {}, mine = {};
+  table_('stamps').rows.forEach(function (s) {
+    if (s.at.slice(0, 10) < from) return;
+    const k = s.target + '|' + s.event;
+    const o = by[k] || (by[k] = { t: s.target, e: s.event, c: {}, f: [], mine: [], at: '' });
+    o.c[s.kind] = (o.c[s.kind] || 0) + 1;
+    if (s.fromId && o.f.indexOf(s.fromId) < 0) o.f.push(s.fromId);
+    if (s.at > o.at) o.at = s.at;
+    if (s.device) { const d = mine[s.device] || (mine[s.device] = {}); (d[k] = d[k] || []).push(s.kind); }
+  });
+  return { list: Object.keys(by).map(function (k) { return by[k]; }), mine: mine };
+}
 function stampsWire_(from, device) {
   const dev = String(device || '');
   const by = {};
@@ -2270,7 +2716,7 @@ function notifyPinRequest_(m) {
 }
 /** その人の今週の回数と必要な回数（免除の日数で減らす） */
 function weekStatus_(m, ws) {
-  const we = addDays_(ws, 6), g = weekGoal_();
+  const we = addDays_(ws, 6), g = weekGoalAt_(ws);
   let c = 0;
   table_('records').rows.forEach(function (r) { if (r.memberId === m.id && r.status === 'done' && r.date >= ws && r.date <= we) c++; });
   const ex = table_('exempts').rows.filter(function (e) { return !e.deletedAt && (e.memberId === m.id || e.memberId === 'ALL') && e.from <= we && e.to >= ws; });
@@ -2284,6 +2730,8 @@ function pushHourly() {
   REQ_ = { tables: {}, ss: null, roster: null };
   try {
     ensureSchema_();
+    // 毎日の作業・毎週のバックアップ・毎月の操作の記録の整理（失敗しても通知は続ける）
+    [dailyMaint_, weeklyBackup_, archiveLogs_].forEach(function (f) { try { f(); } catch (x) { console.error(x); } });
     const now = new Date();
     const hour = +Utilities.formatDate(now, TZ, 'yyyy-MM-dd HH:mm:ss').slice(11, 13);
     const today = today_();
@@ -2342,7 +2790,6 @@ const TOTAL_MARKS_ = [10, 30, 50, 100, 200, 300, 500];
 function weekStartOf_(d) { const w = dow_(d); return addDays_(d, w === 0 ? -6 : 1 - w); }
 /** その人の、ある週までの連続達成。now … その週の時点の連続、bestBefore … その週より前でいちばん長い連続（logic.js の personal と同じ数え方） */
 function goalStreakAt_(memberId, ws0) {
-  const g = weekGoal_();
   const done = {};
   let first = '';
   table_('records').rows.forEach(function (r) {
@@ -2360,7 +2807,7 @@ function goalStreakAt_(memberId, ws0) {
       if (ex.some(function (e) { return e.from <= d && e.to >= d; })) exDays++;
       if (done[d]) cnt++;
     }
-    const need = exDays >= 7 ? 0 : Math.ceil(g * (7 - exDays) / 7);
+    const need = exDays >= 7 ? 0 : Math.ceil(weekGoalAt_(ws) * (7 - exDays) / 7);
     if (need === 0) { if (ws === ws0) now = streak; continue; } // 免除の週はとばす
     if (cnt >= need) streak++; else if (ws < ws0) streak = 0;
     if (ws < ws0) { if (streak > best) best = streak; } else now = cnt >= need ? streak : 0;
@@ -2372,7 +2819,6 @@ function milestoneNotes_(inserted) {
   const out = [];
   if (!inserted || !inserted.length) return out;
   const today = today_(), lastWs = addDays_(weekStartOf_(today), -7);
-  const g = weekGoal_();
   const byMember = {};
   inserted.forEach(function (r) { (byMember[r.memberId] = byMember[r.memberId] || []).push(r.date); });
   Object.keys(byMember).forEach(function (id) {
@@ -2391,7 +2837,7 @@ function milestoneNotes_(inserted) {
       const st = weekStatus_(m, ws);
       if (st.need === 0 || cnt < st.need || cnt - weeks[ws] >= st.need) return; // 今回で届いたときだけ
       const sk = goalStreakAt_(id, ws);
-      if (sk.now >= 2 && sk.now >= sk.bestBefore) out.push({ id: id, kind: sk.now > sk.bestBefore ? 'best' : 'tie', n: sk.now, goal: g });
+      if (sk.now >= 2 && sk.now >= sk.bestBefore) out.push({ id: id, kind: sk.now > sk.bestBefore ? 'best' : 'tie', n: sk.now, goal: st.goal });
     });
   });
   return out;
@@ -2546,6 +2992,9 @@ function onOpen() {
   SpreadsheetApp.getUi().createMenu('筋トレ管理')
     .addItem('初期設定（シートを用意する）', 'setup')
     .addItem('管理者を登録／暗証番号を出し直す', 'menuRegisterAdmin')
+    .addSeparator()
+    .addItem('いますぐバックアップを取る', 'menuBackupNow')
+    .addItem('バックアップから戻す…', 'menuRestoreBackup')
     .addToUi();
 }
 
@@ -2584,7 +3033,7 @@ function registerAdmin_(name) {
       let m = members_().filter(function (x) { return !x.gone && x.active && nameKey_(x.name) === nameKey_(name); })[0];
       const now = now_();
       if (!m) {
-        const r = rosterLib_().add([{ name: name, role: '部員' }]);
+        const r = rosterAdd_([{ name: name, role: '部員' }]);
         REQ_.roster = null; REQ_.members = null;
         m = memberById_((r.added[0] || {}).id || (r.skipped[0] || {}).id);
         if (!m) throw new Error('名簿に追加できませんでした。');

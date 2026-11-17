@@ -66,7 +66,16 @@
       var v = { id: e.id, from: e.from, to: e.to, reason: e.reason || '' };
       if (e.memberId === 'ALL') exAll.push(v); else (ex[e.memberId] = ex[e.memberId] || []).push(v);
     });
-    return { rec: rec, tgt: tgt, menusByDate: menusByDate, ex: ex, exAll: exAll };
+    var idx = { rec: rec, tgt: tgt, menusByDate: menusByDate, ex: ex, exAll: exAll };
+    // 週の目標回数の移り変わり（古い順）。あれば、それぞれの週はその週の回数で数える
+    if (state.goalHist && state.goalHist.length) {
+      idx.goals = state.goalHist.filter(function (x) { return x && x.from; }).map(function (x) { return { from: x.from, goal: goalOf(x.goal) }; })
+        .sort(function (a, b) { return a.from < b.from ? -1 : a.from > b.from ? 1 : 0; });
+    }
+    // 読み込んだ範囲より前の週ごとの回数（サーバーが数えたもの）。to より前の週はこれを使う
+    var pw = state.pastWeeks;
+    if (pw && pw.from && pw.to && pw.c) idx.past = { from: pw.from, to: pw.to, c: pw.c };
+    return idx;
   }
   /** その日が免除なら免除の内容（部全体のオフを先に見る）、違えば null */
   function exemptOn(idx, id, date) {
@@ -143,7 +152,7 @@
   }
   function periodStats(state, idx, from, to, today, opt) {
     opt = opt || {};
-    var rows = [], team = { done: 0, notDone: 0, targetDays: 0, doneT: 0, rate: null, active: 0, members: 0, leaderMembers: 0, todayOpen: 0, goal: goalOf(opt.goal), goalClosed: 0, goalHit: 0, goalNow: 0, goalNowOk: 0, goalNowEx: 0 };
+    var rows = [], team = { done: 0, notDone: 0, targetDays: 0, doneT: 0, rate: null, active: 0, members: 0, leaderMembers: 0, todayOpen: 0, goal: goalAt(idx.goals, weekStart(from), opt.goal), goalClosed: 0, goalHit: 0, goalNow: 0, goalNowOk: 0, goalNowEx: 0 };
     (state.members || []).forEach(function (m) {
       if (!inRosterRange(m, from, to)) return;
       if (!matches(m, opt)) return;
@@ -231,15 +240,28 @@
   // ---------- 週の目標（週◯回以上がマスト。週は月曜〜日曜） ----------
   var DEFAULT_GOAL = 3;
   function goalOf(g) { g = Number(g); return g >= 1 && g <= 7 ? Math.floor(g) : DEFAULT_GOAL; }
-  /** その週（月曜 ws から7日）に「実施した」日数 */
+  /** その週（月曜 ws）の目標回数。list … [{from, goal}]（古い順）。無ければ goal */
+  function goalAt(list, ws, goal) {
+    if (!list || !list.length) return goalOf(goal);
+    var g = goalOf(goal), hit = false;
+    for (var i = 0; i < list.length; i++) { if (list[i].from <= ws) { g = goalOf(list[i].goal); hit = true; } else break; }
+    return hit ? g : goalOf(list[0].goal);
+  }
+  /** その週（月曜 ws から7日）に「実施した」日数。読み込んだ範囲より前の週は、サーバーが数えた回数 */
   function weekCount(idx, m, ws) {
+    var p = idx.past;
+    if (p && ws < p.to) {
+      if (ws < p.from) return 0;
+      var s = p.c[m.id] || '', i = Math.round((parse(ws) - parse(p.from)) / 604800000);
+      return i < s.length ? +s.charAt(i) : 0;
+    }
     var n = 0;
-    for (var i = 0; i < 7; i++) { var r = getRec(idx, m.id, addDays(ws, i)); if (r && r.s === 1) n++; }
+    for (var j = 0; j < 7; j++) { var r = getRec(idx, m.id, addDays(ws, j)); if (r && r.s === 1) n++; }
     return n;
   }
   /** その週の免除の日数と、必要な回数（免除の日数に応じて減らす。7日とも免除なら0＝その週は対象外） */
   function weekNeed(idx, m, ws, goal) {
-    goal = goalOf(goal);
+    goal = goalAt(idx.goals, ws, goal);
     var ex = 0;
     for (var i = 0; i < 7; i++) if (exemptOn(idx, m.id, addDays(ws, i))) ex++;
     return { ex: ex, need: ex >= 7 ? 0 : Math.ceil(goal * (7 - ex) / 7) };
@@ -275,7 +297,8 @@
   function streakWeeks(idx, m, today, minDate, goal) {
     goal = goalOf(goal);
     var ws = weekStart(today), n = 0, first = true;
-    for (; ws >= weekStart(minDate); ws = addDays(ws, -7)) {
+    var lo = idx.past && idx.past.from < minDate ? idx.past.from : minDate; // 前の週の回数があれば、そこまでさかのぼる
+    for (; ws >= weekStart(lo); ws = addDays(ws, -7)) {
       var nd = weekNeed(idx, m, ws, goal);
       if (nd.need === 0) { first = false; continue; }
       var ok = weekCount(idx, m, ws) >= nd.need;
@@ -434,7 +457,7 @@
         for (var i = 0; i < 7; i++) { var d = addDays(ws, i), r = getRec(idx, m.id, d); if (r && r.s === 1) { cnt++; if (cnt === nd.need) hit = d; } }
         if (!hit || hit < since) return;
         var st = streakWeeks(idx, m, addDays(ws, 6) < today ? addDays(ws, 6) : today, minDate, goal);
-        out.push({ key: 'g:' + ws, id: m.id, name: m.name, sort: m.sort || 0, date: hit, kind: 'goal', streak: st, mark: STREAK_MARKS.indexOf(st) >= 0 });
+        out.push({ key: 'g:' + ws, id: m.id, name: m.name, sort: m.sort || 0, date: hit, kind: 'goal', streak: st, mark: STREAK_MARKS.indexOf(st) >= 0, goal: goalAt(idx.goals, ws, goal) });
       });
       // 通算（サーバーの通算から、読み込んだ期間の前の回数を引いて数える）
       var lf = life && life[m.id];
@@ -491,7 +514,7 @@
     prevPeriod: prevPeriod, nextPeriod: nextPeriod,
     buildIndex: buildIndex, getRec: getRec, inRoster: inRoster, inRosterRange: inRosterRange, isTarget: isTarget, hasPosition: hasPosition,
     cellState: cellState, memberStats: memberStats, periodStats: periodStats, positionStats: positionStats, rank: rank, dayStatus: dayStatus,
-    DEFAULT_GOAL: DEFAULT_GOAL, goalOf: goalOf, weekCount: weekCount, weekNeed: weekNeed, exemptOn: exemptOn, goalWeeks: goalWeeks, goalSummary: goalSummary, streakWeeks: streakWeeks, pct: pct,
+    DEFAULT_GOAL: DEFAULT_GOAL, goalOf: goalOf, goalAt: goalAt, weekCount: weekCount, weekNeed: weekNeed, exemptOn: exemptOn, goalWeeks: goalWeeks, goalSummary: goalSummary, streakWeeks: streakWeeks, pct: pct,
     personal: personal, badgeList: badgeList, pinchList: pinchList, slipList: slipList, TOTAL_MARKS: TOTAL_MARKS, feedEvents: feedEvents, doneDates: doneDates,
     exKey: exKey, exLines: exLines, exMatch: exMatch, exInText: exInText
   };
