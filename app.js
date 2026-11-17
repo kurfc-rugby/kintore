@@ -3,7 +3,7 @@
   'use strict';
   const L = window.KLogic;
   const API = window.KINTORE_API;
-  const VERSION = '2.22.0-t8';
+  const VERSION = '2.22.0-t9';
   const WD = ['日', '月', '火', '水', '木', '金', '土'];
   const PERM = { admin: '管理者', manager: 'マネージャー', leader: 'FWリーダー', member: '一般部員', guest: '見るだけ' };
   const MODE = { leader: 'メニュー参加', self: '自主トレ' };
@@ -3525,7 +3525,9 @@
 
   // ---- 動画の一覧・再生 ----
   S.clipCache = {}; S.clipThumb = {}; S.clipUrl = {};
-  async function loadClips(key, payload) {
+  /** 動画の一覧を読む。opt.ahead：先読み（画面は描き直さない・エラーも出さない・動画は先に取らない） */
+  async function loadClips(key, payload, opt) {
+    const ahead = !!(opt && opt.ahead);
     if (S.clipCache[key] && S.clipCache[key] !== 'loading') return S.clipCache[key];
     if (S.clipCache[key] === 'loading') return null;
     S.clipCache[key] = 'loading';
@@ -3533,9 +3535,39 @@
       const r = await api('clips', payload);
       r.clips.forEach((c) => { if (c.th) S.clipThumb[c.id] = c.th; });
       S.clipCache[key] = r.clips;
-    } catch (e) { S.clipCache[key] = null; toast(e.message, 'err'); }
-    render();
+      if (!ahead) prefetchClips(r.clips);
+    } catch (e) { if (ahead) delete S.clipCache[key]; else { S.clipCache[key] = null; toast(e.message, 'err'); } }
+    if (!ahead) render();
     return S.clipCache[key];
+  }
+  /** 動画を取ってきて、再生できる形（Blob の URL）にする。同じ動画を2回取りに行かない */
+  S.clipLoad = {};
+  function clipVideoUrl(c) {
+    if (S.clipUrl[c.id]) return Promise.resolve(S.clipUrl[c.id]);
+    if (S.clipLoad[c.id]) return S.clipLoad[c.id];
+    const p = api('clipVideo', { id: c.id }).then((r) => {
+      const bin = atob(r.data), u = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i);
+      return (S.clipUrl[c.id] = URL.createObjectURL(new Blob([u], { type: r.mime })));
+    }).finally(() => { delete S.clipLoad[c.id]; });
+    S.clipLoad[c.id] = p;
+    return p;
+  }
+  /** 一覧が出たら、上から3本の動画を裏で先に取っておく（押したらすぐ再生できる）。
+   *  1本ずつ順番に取る。スマホの「データセーバー」がオンのときはやめておく */
+  const prefetchQ = [];
+  let prefetching = false;
+  function prefetchClips(list, n) {
+    if (navigator.connection && navigator.connection.saveData) return;
+    (list || []).filter((c) => !c.nv && !c.gone && !c.local && c.st !== 'canceled' && !S.clipUrl[c.id]).slice(0, n || 3)
+      .forEach((c) => { if (!prefetchQ.some((x) => x.id === c.id)) prefetchQ.push(c); });
+    runPrefetch();
+  }
+  async function runPrefetch() {
+    if (prefetching) return;
+    prefetching = true;
+    try { while (prefetchQ.length) { const c = prefetchQ.shift(); try { await clipVideoUrl(c); } catch (e) { /* 押したときにもう一度 */ } } }
+    finally { prefetching = false; }
   }
   const memberName = (id) => { const m = (S.data.members || []).find((x) => x.id === id); return m ? m.name : ''; };
   function clipCard(c, opt) {
@@ -3565,6 +3597,9 @@
     }
     const list = S.clipCache['d:' + day];
     if (list === undefined) loadClips('d:' + day, { from: day, to: day });
+    // 前の日の一覧も先に取っておく（「＜」ですぐ出る）。今の日を読み終わってから
+    const prev = L.addDays(day, -1);
+    if (Array.isArray(list) && S.clipCache['d:' + prev] === undefined && prev >= L.addDays(today, -31)) setTimeout(() => loadClips('d:' + prev, { from: prev, to: prev }, { ahead: true }), 300);
     const n = Array.isArray(list) ? list.length : (S.data.clips || []).filter((c) => c.d === day && c.st !== 'canceled').length;
     h += '<div class="pbar clip-pbar"><div class="pnav"><button class="ibtn" data-act="clip-day" data-v="-1" aria-label="前の日">' + icon('back') + '</button>' +
       '<div class="plabel"><b>' + (day === today ? '今日' : day === L.addDays(today, -1) ? '昨日' : (Math.round((L.parse(today) - L.parse(day)) / 864e5)) + '日前') + '</b><span>' + mdw(day) + '・' + n + '本</span></div>' +
@@ -3631,12 +3666,7 @@
         const it = await CLIPQ.get(c.at);
         if (it && it.buf) url = S.clipUrl[c.id] = URL.createObjectURL(new Blob([it.buf], { type: it.mime }));
       }
-      if (!url) {
-        const r = await api('clipVideo', { id: c.id });
-        const bin = atob(r.data), u = new Uint8Array(bin.length);
-        for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i);
-        url = S.clipUrl[c.id] = URL.createObjectURL(new Blob([u], { type: r.mime }));
-      }
+      if (!url) url = await clipVideoUrl(c);
       const v = $('#clip-v');
       if (v) {
         v.src = url;
@@ -4084,11 +4114,19 @@
     'clip-day': (el) => { const d = L.addDays(S.clipDay || S.data.today, +el.dataset.v); if (d > S.data.today) return; S.clipDay = d; vt(render, +el.dataset.v < 0 ? 'prev' : 'next'); },
     'clip-open': (el) => openClip(el.dataset.id),
     'clip-flag': async (el) => {
-      const c = findClip(el.dataset.id); if (!c) return;
-      await busy(el, async () => {
-        try { const r = await api('clipFlag', { id: c.id, on: !c.mine }); clipUpdated(r.clip); toast(r.clip.mine ? '「気になる」を押しました。スタッフが確認します' : '「気になる」を取り消しました'); openClip(c.id); }
-        catch (e) { toast(e.message, 'err'); }
-      });
+      // 押したらすぐ画面に出す（サーバーには裏で送る。送れなかったら元に戻す）
+      const c = findClip(el.dataset.id); if (!c || S.flagBusy) return;
+      const want = !c.mine;
+      clipUpdated({ id: c.id, mine: want });
+      el.classList.toggle('on', want); el.setAttribute('aria-pressed', String(want)); el.textContent = want ? '気になるを取り消す' : '気になる';
+      toast(want ? '「気になる」を押しました。スタッフが確認します' : '「気になる」を取り消しました');
+      S.flagBusy = true;
+      try { const r = await api('clipFlag', { id: c.id, on: want }); clipUpdated(r.clip); }
+      catch (e) {
+        clipUpdated({ id: c.id, mine: !want });
+        toast('「気になる」を送れませんでした：' + e.message, 'err');
+        if ($('.sheet [data-act="clip-flag"]')) openClip(c.id);
+      } finally { S.flagBusy = false; }
     },
     'clip-approve': async (el) => {
       await busy(el, async () => {

@@ -79,20 +79,30 @@ const shot = async (p, name) => { if (SHOT) { require('fs').mkdirSync(SHOT, { re
 
   console.log('■ 別の部員が見る・気になる');
   const b = await mk();
+  const reqs = [];
+  b.p.on('request', (q) => { const d = q.postData() || ''; if (/"op":"clipVideo"/.test(d)) reqs.push('video'); else if (/"op":"clips"/.test(d)) reqs.push('clips:' + (JSON.parse(d).from || '')); });
   await b.p.goto(BASE); await b.p.waitForSelector('.login-gate');
   await pick(b.p, '石川 大地');
   await b.p.fill('form[data-form="register"] input[name="pin"]', 'ishi-pin-1'); await b.p.fill('form[data-form="register"] input[name="pin2"]', 'ishi-pin-1');
   await b.p.click('form[data-form="register"] button[type="submit"]'); await b.p.waitForSelector('.board'); await b.p.waitForTimeout(800);
-  await b.p.evaluate(() => { location.hash = '#clips'; }); await b.p.waitForTimeout(1200);
+  await b.p.evaluate(() => { location.hash = '#clips'; }); await b.p.waitForTimeout(2500);
   ok(await b.p.locator('.clip-grid .clip-card').count() >= 1, '「動画」の一覧に森さんの動画が出る');
+  ok(reqs.includes('video'), '一覧（ホームの今日の動画）が出たら、押す前に動画を先に取っておく');
+  const yday = await b.p.evaluate(() => { const d = new Date(Date.now() + 9 * 3600e3 - 864e5); return d.toISOString().slice(0, 10); });
+  ok(reqs.includes('clips:' + yday), '前の日の一覧も先に取っておく');
+  const nv0 = reqs.filter((x) => x === 'video').length;
   await shot(b.p, '07-clips');
-  await b.p.click('.clip-grid .clip-card'); await b.p.waitForTimeout(2000);
+  await b.p.click('.clip-grid .clip-card'); await b.p.waitForTimeout(400);
+  ok(await b.p.evaluate(() => { const v = document.getElementById('clip-v'); return !!(v && v.src); }), '押したらすぐ再生できる（先に取ってあった）');
+  ok(reqs.filter((x) => x === 'video').length === nv0, '先に取った動画は、もう一度取りに行かない');
+  await b.p.waitForTimeout(1600);
   const vs = await b.p.evaluate(() => { const v = document.getElementById('clip-v'); return v ? { src: !!v.src, err: !!(v.error), ready: v.readyState } : null; });
   ok(vs && vs.src && !vs.err, '押すと再生する（' + JSON.stringify(vs) + '）');
   ok(await b.p.locator('.sheet .stamps').count() === 1, '応援スタンプを押せる');
   await shot(b.p, '08-player');
-  await b.p.click('[data-act="clip-flag"]'); await b.p.waitForTimeout(1200);
-  ok(/気になるを取り消す/.test(await b.p.locator('.sheet').innerText()), '「気になる」を押せる');
+  await b.p.click('[data-act="clip-flag"]'); await b.p.waitForTimeout(150);
+  ok(/気になるを取り消す/.test(await b.p.locator('.sheet').innerText()), '「気になる」は押したらすぐ反映');
+  await b.p.waitForTimeout(1200);
 
   console.log('■ サーバーが古い（先に送れない）ときは1回で送る');
   await b.p.route('**/exec', async (r) => { const body = r.request().postData() || ''; if (/"op":"clip(Start|Draft|DraftDrop)"/.test(body)) await r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: false, error: 'unknown_op', message: '不明な操作です。' }) }); else await r.continue(); });
