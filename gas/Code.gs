@@ -306,6 +306,67 @@ function encodeField_(tkey, key, v) {
   return s;
 }
 
+/** シートの見出しだけ読む（列の場所）。行は読まない */
+function meta_(tkey) {
+  if (REQ_ && REQ_.metas && REQ_.metas[tkey]) return REQ_.metas[tkey];
+  const def = DEF[tkey];
+  const sheet = ss_().getSheetByName(def.name);
+  if (!sheet) throw err_('no_sheet', 'シート「' + def.name + '」がありません。初期設定を実行してください。');
+  const width = Math.max(sheet.getLastColumn(), 1);
+  const head = sheet.getRange(1, 1, 1, width).getValues()[0].map(function (h) { return String(h).trim(); });
+  const col = {};
+  def.cols.forEach(function (c) {
+    const i = head.indexOf(c[1]);
+    if (i < 0) throw err_('bad_sheet', 'シート「' + def.name + '」に列「' + c[1] + '」がありません。初期設定を実行してください。');
+    col[c[0]] = i;
+  });
+  const t = { key: tkey, sheet: sheet, col: col, width: head.length || width };
+  if (REQ_) { REQ_.metas = REQ_.metas || {}; REQ_.metas[tkey] = t; }
+  return t;
+}
+/** ある列が value の行だけ読む（大きいシート用）。まずその列だけ読んで行を探し、見つかった範囲だけ読む */
+function rowsWhere_(tkey, colKey, value) {
+  if (REQ_ && REQ_.tables[tkey]) return REQ_.tables[tkey].rows.filter(function (r) { return r[colKey] === value; });
+  const t = meta_(tkey);
+  const last = t.sheet.getLastRow();
+  if (last < 2) return [];
+  const colVals = t.sheet.getRange(2, t.col[colKey] + 1, last - 1, 1).getValues();
+  let lo = -1, hi = -1;
+  colVals.forEach(function (r, i) { if (decodeCell_(r[0], colKey) === value) { if (lo < 0) lo = i; hi = i; } });
+  if (lo < 0) return [];
+  const vals = t.sheet.getRange(2 + lo, 1, hi - lo + 1, t.width).getValues();
+  const def = DEF[tkey], first = def.cols[0][0], out = [];
+  vals.forEach(function (raw, i) {
+    const o = { _r: 2 + lo + i };
+    def.cols.forEach(function (c) { o[c[0]] = decodeField_(tkey, c[0], decodeCell_(raw[t.col[c[0]]], c[0])); });
+    if (o[first] && o[colKey] === value) out.push(o);
+  });
+  return out;
+}
+/** 部員の設定（筋トレのシート「部員設定」）を数分覚えておく（ログインの確認のたびに読むと遅いため）。
+ *  書きかえたら印（世代）を変える。ロックの中（fresh）ではいつも読み直す */
+function peopleGen_() {
+  if (REQ_ && REQ_.peopleGen) return REQ_.peopleGen;
+  const c = CacheService.getScriptCache();
+  let g = c.get('k:pgen');
+  if (!g) { g = Utilities.getUuid().slice(0, 8); try { c.put('k:pgen', g, 21600); } catch (x) { /* noop */ } }
+  if (REQ_) REQ_.peopleGen = g;
+  return g;
+}
+function bumpPeopleGen_() {
+  const g = Utilities.getUuid().slice(0, 8);
+  try { CacheService.getScriptCache().put('k:pgen', g, 21600); } catch (x) { /* noop */ }
+  if (REQ_) REQ_.peopleGen = g;
+}
+function peopleRows_() {
+  if ((REQ_ && REQ_.tables.people) || (REQ_ && REQ_.fresh) || !REQ_) return table_('people').rows;
+  const c = CacheService.getScriptCache(), key = 'k:people:' + peopleGen_();
+  const hit = c.get(key);
+  if (hit) { try { return JSON.parse(hit); } catch (x) { /* 読み直す */ } }
+  const rows = table_('people').rows;
+  try { c.put(key, JSON.stringify(rows), 600); } catch (x) { /* 大きすぎたら覚えない */ }
+  return rows;
+}
 function table_(tkey) {
   if (REQ_ && REQ_.tables[tkey]) return REQ_.tables[tkey];
   const def = DEF[tkey];
@@ -340,9 +401,10 @@ function rowArray_(t, o) {
   return arr;
 }
 /** 足すだけの表（操作の記録）。シート全体を読まずに、最後の行のあとへ書く */
-const APPEND_ONLY = { logs: 1, clipThumbs: 1 }; // 書き足すだけのシート（全部を読まずに最後に足す）
+const APPEND_ONLY = { logs: 1, clipThumbs: 1, records: 1 }; // 書き足すとき、まだ読んでいなければ全部を読まずに最後に足す
 function insert_(tkey, objs) {
   if (!objs.length) return;
+  if (tkey === 'people') bumpPeopleGen_();
   if (APPEND_ONLY[tkey] && !(REQ_ && REQ_.tables[tkey])) { append_(tkey, objs); return; }
   const t = table_(tkey);
   const rows = objs.map(function (o) { return rowArray_(t, o); });
@@ -378,20 +440,24 @@ function append_(tkey, objs) {
 }
 function update_(tkey, o) {
   if (tkey === 'sessions') bumpSesGen_();
-  const t = table_(tkey);
+  if (tkey === 'people') bumpPeopleGen_();
+  const t = (REQ_ && REQ_.tables[tkey]) || meta_(tkey); // 1行を書きかえるだけなので、シート全部は読まない
   const cur = t.sheet.getRange(o._r, 1, 1, t.width).getValues()[0];
   DEF[tkey].cols.forEach(function (c) { cur[t.col[c[0]]] = encodeField_(tkey, c[0], o[c[0]]); });
   for (let i = 0; i < cur.length; i++) {
     if (cur[i] instanceof Date) cur[i] = Utilities.formatDate(cur[i], TZ, 'yyyy-MM-dd HH:mm:ss');
   }
   t.sheet.getRange(o._r, 1, 1, t.width).setValues([cur]);
+  // 全部読んである表に、別に読んだ同じ行があれば中身をそろえる
+  if (t.rows) t.rows.forEach(function (x) { if (x !== o && x._r === o._r) DEF[tkey].cols.forEach(function (c) { x[c[0]] = o[c[0]]; }); });
 }
 function remove_(tkey, o) {
   if (tkey === 'sessions') bumpSesGen_(); // 行が消えると、覚えておいたログイン（行の番号つき）を使わない
+  if (tkey === 'people') bumpPeopleGen_();
   const t = table_(tkey);
   t.sheet.deleteRow(o._r);
   const r = o._r;
-  t.rows = t.rows.filter(function (x) { return x !== o; });
+  t.rows = t.rows.filter(function (x) { return x !== o && x._r !== r; }); // 一部だけ読んだ行（rowsWhere_）でも消せるよう、行の番号でも比べる
   t.rows.forEach(function (x) { if (x._r > r) x._r--; });
   t.lastRow--;
 }
@@ -525,14 +591,15 @@ function nameKey_(s) { return String(s || '').replace(/[\s　]+/g, ''); }
 function members_() {
   if (REQ_ && REQ_.members) return REQ_.members;
   const sets = {};
-  table_('people').rows.forEach(function (s) { sets[s.id] = s; });
+  const prow = peopleRows_();
+  prow.forEach(function (s) { sets[s.id] = s; });
   const seen = {};
   const list = roster_().map(function (r) {
     seen[r.id] = 1;
     return mergeMember_(r, sets[r.id] || null);
   });
   // 名簿から消された人（会計アプリで行ごと削除）は、筋トレの記録を見られるように控えの名前で残す
-  table_('people').rows.forEach(function (s) {
+  prow.forEach(function (s) {
     if (seen[s.id]) return;
     list.push(mergeMember_({ id: s.id, name: s.nameMemo || s.id, grade: '', role: '部員', active: false, order: 99999,
       group: '', position: '', subPositions: [], player: true, finance: false, gone: true }, s));
@@ -1024,7 +1091,7 @@ function menuWire_(w) {
 }
 function recordsWire_(from, to) {
   const out = [];
-  table_('records').rows.forEach(function (r) {
+  (from === to ? rowsWhere_('records', 'date', from) : table_('records').rows).forEach(function (r) {
     if (r.date < from || r.date > to) return;
     out.push([r.memberId, r.date, r.status === 'done' ? 1 : 0, r.target === '1' ? 1 : 0, r.updatedBy || r.createdBy, r.createdBy]);
   });
@@ -1194,7 +1261,7 @@ function opSaveRecordsWeek_(ctx) {
 function saveDay_(me, date, items) {
   {
     const existing = {};
-    table_('records').rows.forEach(function (r) { if (r.date === date) existing[r.memberId] = r; });
+    rowsWhere_('records', 'date', date).forEach(function (r) { existing[r.memberId] = r; }); // その日の行だけ読む
     const tgt = targetMap_(date);
     const now = now_();
     const inserts = [], removes = [], logs = [], rejected = [], seen = {};
