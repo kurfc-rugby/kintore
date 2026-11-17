@@ -10,7 +10,7 @@
  * 最初にやること：スプレッドシートのメニュー「筋トレ管理」→「管理者を登録」
  * 詳しくは 04_ドキュメント/筋トレ管理アプリ_使い方と引き継ぎ.md
  */
-const APP_VERSION = '2.21.0';
+const APP_VERSION = '2.21.1';
 const SCHEMA_VERSION = '9';
 const TZ = 'Asia/Tokyo';
 const SESSION_DAYS = 90;
@@ -1017,7 +1017,8 @@ function buildState_(ctx, today, pub) {
   let mine = null;
   if (pub) { const sw = stampsAll_(addDays_(today, -STAMP_DAYS)); base.stamps = sw.list; mine = sw.mine; }
   else base.stamps = stampsWire_(addDays_(today, -STAMP_DAYS), ctx.req.device);
-  if (me && (me.perm === 'admin' || me.perm === 'leader')) base.templates = table_('templates').rows.filter(function (t) { return !t.deletedAt; }).map(templateWire_);
+  // 型は全員が見られる（作る・直す・消すのは管理者・FWリーダーだけ）
+  base.templates = table_('templates').rows.filter(function (t) { return !t.deletedAt; }).map(templateWire_);
   if (admin) {
     base.pinRequests = pinRequests_(); base.feedbackOpen = table_('feedback').rows.filter(function (f) { return !f.doneAt; }).length;
     base.backup = backupInfo_();

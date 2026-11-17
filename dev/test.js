@@ -457,7 +457,7 @@ section('メニューの型と繰り返し');
   const tid = r.template.id;
   let st = api({ op: 'state', token: LD });
   const mine = () => api({ op: 'state', token: LD }).menus.filter((w) => w.templateId === tid);
-  ok(st.templates.some((t) => t.id === tid) && api({ op: 'state' }).templates === undefined, '型の一覧は管理者・FWリーダーにだけ返す');
+  ok(st.templates.some((t) => t.id === tid) && api({ op: 'state' }).templates.some((t) => t.id === tid), '型の一覧は全員に返す（見るだけ。作る・直すのは管理者・FWリーダー）');
   eq(mine().map((w) => w.date).slice(0, 3), ['2026-11-16', '2026-11-18', '2026-11-23'], '月曜・水曜の日付に作られる');
   ok(mine().every((w) => w.video === 'https://youtu.be/abc'), '動画リンクもメニューに入る');
   // 1つを手で直す
@@ -797,7 +797,7 @@ section('v2.9：エラーの記録・要望・目標体重・重さの目安・�
   r = api({ op: 'saveTemplate', token: LD, template: { title: '自重サーキット', group: 'ALL', content: '腕立て・スクワット・プランク', selfRec: true } });
   const r2 = api({ op: 'saveTemplate', token: LD, template: { title: 'ふつうの型', group: 'ALL', content: 'x' } });
   st = api({ op: 'state' });
-  ok(r.ok && r.template.selfRec && st.selfRecs.length === 1 && st.selfRecs[0].title === '自重サーキット' && !st.templates, '「自主トレのおすすめ」にした型は、ログインしていない部員にも見える（ほかの型は見えない）');
+  ok(r.ok && r.template.selfRec && st.selfRecs.length === 1 && st.selfRecs[0].title === '自重サーキット' && Array.isArray(st.templates), '「自主トレのおすすめ」にした型は、ログインしていない部員にも見える（型の一覧も見える）');
   api({ op: 'saveTemplate', token: LD, template: Object.assign({}, r.template, { selfRec: false }) });
   ok(api({ op: 'state' }).selfRecs.length === 0, 'おすすめを外せる');
   api({ op: 'deleteTemplate', token: LD, id: r.template.id }); api({ op: 'deleteTemplate', token: LD, id: r2.template.id });
