@@ -3,7 +3,7 @@
   'use strict';
   const L = window.KLogic;
   const API = window.KINTORE_API;
-  const VERSION = '2.22.0-t19';
+  const VERSION = '2.22.0-t20';
   const WD = ['日', '月', '火', '水', '木', '金', '土'];
   const PERM = { admin: '管理者', manager: 'マネージャー', leader: 'FWリーダー', member: '一般部員', guest: '見るだけ' };
   const MODE = { leader: 'メニュー参加', self: '自主トレ' };
@@ -3443,6 +3443,7 @@
       set('cam-meter-lab', M.pend ? '届きました（スタッフの確認待ち）' : '送り終わりました');
       set('cam-meter-left', '');
       set('cam-meter-note', M.bg ? '' : 'アプリを閉じても大丈夫です。');
+      { const btn = box.querySelector('.cam-meter-btn'); if (btn) btn.remove(); } // 終わったので「待たずに戻る」は要らない
       // かかった時間を覚えて、次の目安にする
       const e = clipEst(), mix = (old, v) => (v > 300 && v < 60000 ? Math.round(old * 0.5 + v * 0.5) : old);
       store.set('clipEst', { v: t.dDone && t.dSend ? mix(e.v, t.dDone - t.dSend) : e.v, s: t.started && t.press ? mix(e.s, t.started - t.press) : e.s });
