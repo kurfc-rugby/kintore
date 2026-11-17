@@ -410,6 +410,7 @@ function rowArray_(t, o) {
 const APPEND_ONLY = { logs: 1, clipThumbs: 1, records: 1 }; // 書き足すとき、まだ読んでいなければ全部を読まずに最後に足す
 function insert_(tkey, objs) {
   if (!objs.length) return;
+  if (tkey === 'clips' && REQ_) REQ_.clipDirty = true;
   if (tkey === 'people') bumpPeopleGen_();
   if (APPEND_ONLY[tkey] && !(REQ_ && REQ_.tables[tkey])) { append_(tkey, objs); return; }
   const t = table_(tkey);
@@ -445,6 +446,7 @@ function append_(tkey, objs) {
   range.setValues(rows);
 }
 function update_(tkey, o) {
+  if (tkey === 'clips' && REQ_) REQ_.clipDirty = true;
   if (tkey === 'sessions') bumpSesGen_();
   if (tkey === 'people') bumpPeopleGen_();
   const t = (REQ_ && REQ_.tables[tkey]) || meta_(tkey); // 1行を書きかえるだけなので、シート全部は読まない
@@ -458,6 +460,7 @@ function update_(tkey, o) {
   if (t.rows) t.rows.forEach(function (x) { if (x !== o && x._r === o._r) DEF[tkey].cols.forEach(function (c) { x[c[0]] = o[c[0]]; }); });
 }
 function remove_(tkey, o) {
+  if (tkey === 'clips' && REQ_) REQ_.clipDirty = true;
   if (tkey === 'sessions') bumpSesGen_(); // 行が消えると、覚えておいたログイン（行の番号つき）を使わない
   if (tkey === 'people') bumpPeopleGen_();
   const t = table_(tkey);
@@ -488,6 +491,7 @@ function withLock_(fn, opt) {
     const res = fn();
     SpreadsheetApp.flush();
     bumpDataVersion_();
+    if (REQ_ && REQ_.clipDirty) { REQ_.clipDirty = false; try { saveClipIndex_(); } catch (x) { console.error(x); } } // 動画の行が変わった：小さな索引を作り直す（ロックの中なので確か）
     return res;
   } finally {
     if (REQ_) { if (!keep) { REQ_.roster = null; REQ_.members = null; } REQ_.fresh = false; REQ_.goalHist = null; }
@@ -3524,6 +3528,34 @@ function clipThumbArg_(ctx) {
   if (thumb.length > 40000 || !/^[A-Za-z0-9+/=]*$/.test(thumb)) throw err_('bad_thumb', 'サムネイルが正しくありません。');
   return thumb;
 }
+/** 「送る」・下書きの確認に使う小さな索引（ここ2日分の動画の行だけ）。シートの動画の一覧を毎回読まずに済ませる。
+ *  r：「部員ID|撮影時刻」→ [状態, 動画あり(1/0), 行の数]、c：取り消しがある「部員ID|日付」。
+ *  動画の行を書いたら、ロックの中で作り直す（withLock_）。キャッシュに無ければシートから作る */
+function clipIndexBuild_() {
+  const lim = addDays_(today_(), -2), r = {}, c = {};
+  table_('clips').rows.forEach(function (x) {
+    if (x.date < lim) return;
+    const k = x.memberId + '|' + x.recordedAt, e = r[k];
+    if (!e || (e[0] === 'draft' && x.status !== 'draft')) r[k] = [x.status, x.fileId ? 1 : 0, (e ? e[2] : 0) + 1];
+    else e[2]++;
+    if (x.status === 'canceled') c[x.memberId + '|' + x.date] = 1;
+  });
+  return { r: r, c: c };
+}
+function saveClipIndex_() {
+  const idx = clipIndexBuild_();
+  if (REQ_) REQ_.clipIdx = idx;
+  CacheService.getScriptCache().put('k:clipidx', JSON.stringify(idx), 21600);
+  return idx;
+}
+function clipIndex_() {
+  if (REQ_ && REQ_.clipIdx) return REQ_.clipIdx;
+  let idx = null;
+  try { const hit = CacheService.getScriptCache().get('k:clipidx'); if (hit) idx = JSON.parse(hit); } catch (x) { /* 作り直す */ }
+  if (!idx) { try { idx = saveClipIndex_(); } catch (x) { idx = clipIndexBuild_(); } }
+  if (REQ_) REQ_.clipIdx = idx;
+  return idx;
+}
 const clipRowsFor_ = function (memberId, at) { return table_('clips').rows.filter(function (c) { return c.memberId === memberId && c.recordedAt === at; }); };
 /** 同じ人・同じ撮影時刻の行（ふつうは1つ）。下書きでない行を先に返す */
 const findClip_ = function (memberId, at) {
@@ -3723,7 +3755,9 @@ function opClipStart_(ctx) {
   const k = clipCheck_(ctx, me);
   const thumb = clipThumbArg_(ctx);
   const key = me.id + '|' + k.at;
-  const dup = findClip_(me.id, k.at);
+  const ix = clipIndex_(), e = ix.r[key];
+  // もう行がある（送り直し）・行が2つある（前の版の下書き）ときだけ、シートの一覧を読む（めったに無い）
+  const dup = e ? findClip_(me.id, k.at) : null;
   if (dup && dup.status !== 'draft' && !needHeal_(me.id, k.at)) return { ok: true, clip: clipWire_(dup, me), again: true, records: recordsWire_(k.date, k.date) };
   if (dup && needHeal_(me.id, k.at)) {
     // 行が2つある（前の版で下書きの行ができていた）：めったに無いので、ここだけロックしてまとめる
@@ -3736,7 +3770,7 @@ function opClipStart_(ctx) {
   const cm0 = commitAll_()[key];
   if (cm0) return { ok: true, clip: commitWire_(me, k, cm0), again: true };
   // 取り消された日なら確認待ち（シートに書くときにもう一度確かめる）
-  const canceledDay = table_('clips').rows.some(function (c) { return c.memberId === me.id && c.date === k.date && c.status === 'canceled'; });
+  const canceledDay = dup ? table_('clips').rows.some(function (c) { return c.memberId === me.id && c.date === k.date && c.status === 'canceled'; }) : !!ix.c[me.id + '|' + k.date];
   T.check = Date.now() - t1; T.drive = 0;
   // シートには書かない（順番待ちをしない）。メモに書いてすぐ返事。シートは次に誰かが使ったときに書く
   const t3 = Date.now();
@@ -3814,8 +3848,8 @@ function opClipDraft_(ctx) {
   let bytes;
   try { bytes = Utilities.base64Decode(String(ctx.req.data || '')); } catch (x) { throw err_('bad_data', '動画を読み取れませんでした。'); }
   if (!bytes.length || bytes.length > CLIP_MAX_BYTES) throw err_('too_big', '動画が大きすぎます（2MBまで）。');
-  const dup = findClip_(me.id, k.at);
-  if ((dup && dup.fileId) || pendGet_(me.id, k.at)) return { ok: true, again: true, saved: true };
+  const e = clipIndex_().r[me.id + '|' + k.at];
+  if ((e && e[1]) || pendGet_(me.id, k.at)) return { ok: true, again: true, saved: true };
   T.check = Date.now() - t1;
   const t2 = Date.now();
   const file = clipFolder_().createFile(Utilities.newBlob(bytes, k.mime, me.id + '_' + k.at.replace(/[^0-9]/g, '') + '.' + CLIP_MIMES[k.mime]));

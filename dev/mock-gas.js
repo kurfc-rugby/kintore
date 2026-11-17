@@ -25,7 +25,7 @@ function create(opts) {
   class Range {
     constructor(sh, r, c, nr, nc) { this.sh = sh; this.r = r; this.c = c; this.nr = nr; this.nc = nc; }
     getValues() {
-      stats.reads++;
+      stats.reads++; this.sh.reads = (this.sh.reads || 0) + 1;
       const out = [];
       for (let i = 0; i < this.nr; i++) {
         const row = this.sh.data[this.r - 1 + i] || [];

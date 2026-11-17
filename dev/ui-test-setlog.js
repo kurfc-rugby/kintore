@@ -60,11 +60,19 @@ const shot = async (p, name) => { if (SHOT) { require('fs').mkdirSync(SHOT, { re
   const cv = await p.evaluate(() => { const c = document.getElementById('cam-canvas'); return c.width + 'x' + c.height; });
   ok(cv === '720x960', '撮る画面は縦3:横4・720x960（' + cv + '）');
   await p.waitForTimeout(1500); // 動画を見ている間に下書きが届く
+  await p.evaluate(() => fetch('/__delay?clipStart=1500&' + Date.now()));
   const t0 = Date.now();
-  await p.click('[data-act="cam-send"]'); await p.waitForSelector('.cam', { state: 'detached', timeout: 15000 }).catch(() => {});
-  ok(Date.now() - t0 < 1500, '「送る」を押すとすぐ閉じる（送るのは裏で）');
-  ok(/今日の1本は出しました/.test(await p.locator('.home-clips').innerText()) && /「実施した」にしました/.test(await p.locator('#toast-root').innerText()), '押したらすぐ「実施した」（サーバーの返事を待たない）');
-  ok(/送っています/.test(await p.locator('#main').innerText()), '送っている間は「送っています」と出る');
+  await p.click('[data-act="cam-send"]'); await p.waitForSelector('#cam-meter', { timeout: 3000 });
+  const mt = await p.locator('#cam-meter').innerText();
+  ok(/送っています|記録しています|仕上げています/.test(mt) && /この画面のまま/.test(mt) && await p.locator('[data-act="cam-bg"]').count() === 0, '「送る」を押すと、送り終わるまでメーターが出る（裏で送れない端末は「この画面のまま」）（' + mt.replace(/\s+/g, ' ').slice(0, 50) + '）');
+  ok(/今日の1本は出しました/.test(await p.locator('.home-clips').innerText()) && /「実施した」にしてあります/.test(mt), '押したらすぐ「実施した」（サーバーの返事を待たない）');
+  await p.waitForTimeout(700);
+  const w1 = await p.evaluate(() => parseFloat(document.getElementById('cam-meter-fill').style.width) || 0);
+  ok(w1 > 0 && w1 < 100, 'メーターが進む（' + w1 + '%）');
+  await shot(p, '05b-meter');
+  await p.waitForSelector('.cam', { state: 'detached', timeout: 15000 }).catch(() => {});
+  ok(await p.locator('.cam').count() === 0 && Date.now() - t0 < 8000, '送り終わると「送り終わりました」を出して、自動で閉じる（' + ((Date.now() - t0) / 1000).toFixed(1) + '秒）');
+  await p.evaluate(() => fetch('/__delay?' + Date.now()));
   await p.evaluate(() => { location.hash = '#clips'; }); await p.waitForTimeout(150);
   ok(!/読み込んでいます/.test(await p.locator('#main').innerText()) && await p.locator('.clip-grid .clip-card').count() >= 1, '送った直後に「動画」を開いても、一覧が消えない（読み込み直さない）');
   await p.evaluate(() => { location.hash = ''; }); await p.waitForTimeout(150);
@@ -127,9 +135,11 @@ const shot = async (p, name) => { if (SHOT) { require('fs').mkdirSync(SHOT, { re
   ok(await b.p.evaluate(async () => { const r = navigator.serviceWorker && navigator.serviceWorker.controller ? await navigator.serviceWorker.ready : null; return !!(r && r.sync); }), 'Background Sync が使える');
   await b.p.click('.nav .shoot'); await b.p.waitForSelector('.cam'); await b.p.waitForTimeout(1200);
   await b.p.click('[data-act="cam-shoot"]'); await b.p.waitForSelector('[data-act="cam-send"]', { timeout: 8000 });
-  await b.p.click('[data-act="cam-send"]'); await b.p.waitForSelector('.cam', { state: 'detached', timeout: 5000 });
+  await b.p.click('[data-act="cam-send"]'); await b.p.waitForSelector('[data-act="cam-bg"]', { timeout: 3000 });
+  ok(!/この画面のまま/.test(await b.p.locator('#cam-meter').innerText()), 'Android（裏で送れる）は「この画面のまま」と言わず、「待たずに戻る」が出る');
+  await b.p.click('[data-act="cam-bg"]'); await b.p.waitForSelector('.cam', { state: 'detached', timeout: 3000 });
   const tt = await b.p.locator('#toast-root').innerText().catch(() => '');
-  ok(/閉じても/.test(tt), '「アプリを閉じても送ります」と出る（' + tt.replace(/\s+/g, ' ').slice(0, 60) + '）');
+  ok(/閉じても/.test(tt), '「待たずに戻る」で閉じると「アプリを閉じても送ります」と出る（' + tt.replace(/\s+/g, ' ').slice(0, 60) + '）');
   await b.p.close(); // すぐ閉じる
   await new Promise((r) => setTimeout(r, 6000));
   const b2 = await b.c.newPage(); b2.on('pageerror', (e) => errors.push(e.message));
@@ -143,7 +153,7 @@ const shot = async (p, name) => { if (SHOT) { require('fs').mkdirSync(SHOT, { re
   await b2.click('[data-act="cam-shoot"]'); await b2.waitForSelector('[data-act="cam-send"]', { timeout: 8000 });
   await b2.evaluate(() => fetch('/__ops?' + Date.now(), { cache: 'no-store' }));
   const tPress = Date.now();
-  await b2.click('[data-act="cam-send"]'); await b2.waitForSelector('.cam', { state: 'detached', timeout: 5000 });
+  await b2.click('[data-act="cam-send"]'); await b2.waitForSelector('#cam-meter', { timeout: 3000 });
   const qn = () => b2.evaluate(async () => {
     const db = await new Promise((ok, ng) => { const r = indexedDB.open('kintoreTest.clips'); r.onsuccess = () => ok(r.result); r.onerror = ng; });
     const n = await new Promise((ok) => { try { const q = db.transaction('q').objectStore('q').count(); q.onsuccess = () => ok(q.result); } catch (e) { ok(-1); } });
@@ -182,8 +192,9 @@ const shot = async (p, name) => { if (SHOT) { require('fs').mkdirSync(SHOT, { re
   ok(!/今日の1本は出しました/.test(await p.locator('.home-clips').innerText()), '取り消されると「出しました」が消える');
   await p.click('.home-clips .cam-cta'); await p.waitForSelector('.cam'); await p.waitForTimeout(1200);
   await p.click('[data-act="cam-shoot"]'); await p.waitForSelector('[data-act="cam-send"]', { timeout: 8000 });
-  await p.click('[data-act="cam-send"]'); await p.waitForTimeout(2500);
-  ok(/スタッフが確認/.test(await p.locator('#toast-root').innerText().catch(() => '')), '撮り直しは「確認待ち」と出る');
+  await p.click('[data-act="cam-send"]'); await p.waitForSelector('#cam-meter', { timeout: 3000 });
+  ok(/スタッフが確認/.test(await p.locator('#cam-meter').innerText().catch(() => '')), '撮り直しは「確認待ち」と出る');
+  await p.waitForSelector('.cam', { state: 'detached', timeout: 15000 }).catch(() => {});
 
   console.log('■ 送れないとき（電波なし）');
   ok(/確認待ちです/.test(await p.locator('.home-clips').innerText()), 'ホームに「確認待ちです」');
@@ -193,6 +204,8 @@ const shot = async (p, name) => { if (SHOT) { require('fs').mkdirSync(SHOT, { re
     await p.click('[data-act="cam-shoot"]'); await p.waitForSelector('[data-act="cam-send"]', { timeout: 8000 });
     await p.route('**/exec', (r) => r.abort('internetdisconnected'));
     await p.click('[data-act="cam-send"]'); await p.waitForTimeout(1500);
+    ok(/電波が弱くて/.test(await p.locator('#cam-meter').innerText().catch(() => '')) && await p.locator('[data-act="cam-meter-close"]').count() === 1, '送れないときは、メーターに「電波が弱くて、まだ送れていません」と「閉じる」');
+    await p.click('[data-act="cam-meter-close"]'); await p.waitForSelector('.cam', { state: 'detached', timeout: 3000 });
     ok(await p.evaluate(() => JSON.parse(localStorage.getItem('kintoreTest.clipQueue') || '[]').length) === 1, '送れなかった動画は端末に残る');
     ok(/送れていない動画が1本/.test(await p.locator('#main').innerText()), '「送れていない動画が1本あります」');
     ok(await p.evaluate(() => new Promise((ok) => { const r = indexedDB.open('kintoreTest.clips'); r.onsuccess = () => { const q = r.result.transaction('q').objectStore('q').count(); q.onsuccess = () => ok(q.result); }; r.onerror = () => ok(-1); })) === 1, '動画の中身は端末（IndexedDB）にしまってある');

@@ -6,7 +6,7 @@
  *  通知（push）… 中身は来ないので、サーバー（pushInbox）に取りに行って表示する
  *  動画（Background Sync・Android）… 画面を閉じても、端末にしまった動画をサーバーに送る
  * 版を上げるときは VERSION と、index.html の ?v= を一緒に変える。 */
-const VERSION = '2.22.0-t18';
+const VERSION = '2.22.0-t19';
 try { importScripts('config.js?v=' + VERSION); } catch (e) { /* 読めなくても画面はしまっておいたもので動く */ }
 // テスト環境（KINTORE_STORE = 'kintoreTest'）は、本番としまう場所の名前を分ける（同じ github.io の中なので）
 const CPREFIX = (self.KINTORE_STORE || 'kintore') + '-';
@@ -23,7 +23,13 @@ self.addEventListener('activate', (e) => {
   e.waitUntil(caches.keys().then((keys) => Promise.all(keys.filter((k) => k.indexOf(CPREFIX) === 0 && k !== CACHE).map((k) => caches.delete(k))))
     .then(() => self.clients.claim()));
 });
-self.addEventListener('message', (e) => { if (e.data === 'skipWaiting') self.skipWaiting(); });
+// 画面からの知らせ：skipWaiting／下書きの結果（待っている送る係をすぐ起こす）
+const DRAFT_WAIT = {};
+self.addEventListener('message', (e) => {
+  const d = e.data;
+  if (d === 'skipWaiting') { self.skipWaiting(); return; }
+  if (d && d.draftRes && d.at && DRAFT_WAIT[d.at]) DRAFT_WAIT[d.at]();
+});
 
 function fromCacheFirst(req) {
   return caches.match(req).then((hit) => hit || fetch(req).then((res) => {
@@ -170,7 +176,9 @@ async function sendClips() {
       // 画面が下書きの結果を書いてくれるのを待つ（0.3秒ごとに見る。最大15秒）
       let res = it.draftRes || '';
       for (let i = 0; i < 50 && !res; i++) {
-        await new Promise((ok) => setTimeout(ok, 300));
+        // 0.3秒ごとに見る。画面が「結果を書いた」と知らせてくれたら、すぐ見る
+        await new Promise((ok) => { const t = setTimeout(ok, 300); DRAFT_WAIT[it.at] = () => { clearTimeout(t); ok(); }; });
+        delete DRAFT_WAIT[it.at];
         const cur = await clipTx(db, 'readonly', (st) => st.get(it.at));
         res = (cur && cur.draftRes) || '';
       }

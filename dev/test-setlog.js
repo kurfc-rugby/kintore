@@ -186,6 +186,17 @@ ok(api({ op: 'clipUpload', token: ISHI, mime: 'video/mp4', data: vid, thumb, rec
   api({ op: 'clipUpload', token: ISHI, mime: 'video/mp4', data: vid, thumb: big, recordedAt: atb, code });
 }
 
+{ // 速さのため：下書きも「送る」も、動画のシート（一覧）を読まない
+  api({ op: 'state', token: ISHI });
+  const sh = gas.sheet('動画'), r0 = sh.reads || 0, atq = jst(0.65);
+  const a1 = api({ op: 'clipDraft', token: ISHI, mime: 'video/mp4', data: vid, thumb, recordedAt: atq, code });
+  const a2 = api({ op: 'clipStart', token: ISHI, mime: 'video/mp4', thumb, recordedAt: atq, code });
+  ok(a1.saved && a2.queued && a2.clip.nv === 0 && (sh.reads || 0) === r0, '下書きも「送る」も、動画のシートを読まない（小さな索引を見る）');
+  ok(api({ op: 'clipDraft', token: ISHI, mime: 'video/mp4', data: vid, thumb, recordedAt: atq, code }).again, '索引で、送り直しの下書きも二重にならない');
+  api({ op: 'state', token: ISHI });
+  ok(api({ op: 'clipDraft', token: ISHI, mime: 'video/mp4', data: vid, thumb, recordedAt: atq, code }).again && api({ op: 'clipStart', token: ISHI, mime: 'video/mp4', thumb, recordedAt: atq, code }).again, 'シートに書いたあとも（索引が作り直されて）二重にならない');
+}
+
 section('下書き：撮ってすぐ送っておく（「送る」の前）');
 const MO = id['森 健太'];
 const nf0 = Object.keys(gas.drive.files).length;
@@ -244,6 +255,7 @@ api({ op: 'state', token: ISHI }); // シートに書く
   set('動画ID', 'Cdupdraft0001'); set('部員ID', IS); set('日付', atx.slice(0, 10)); set('撮影日時', atx); set('送信日時', atx); set('ファイルID', fid);
   set('形式', 'video/mp4'); set('大きさ', '100'); set('今日の数字', String(code)); set('状態', '下書き'); set('気になる（部員ID）', '[]');
   sh.data.push(row);
+  gas.cache.remove('k:clipidx'); // シートを直接さわったので、索引を作り直させる（アプリ経由なら自動で作り直す）
 }
 const rowsOf = () => gas.sheet('動画').data.filter((x) => x.indexOf(atx) >= 0 && x.indexOf(IS) >= 0);
 ok(rowsOf().length === 2, '（行が2つある状態）');

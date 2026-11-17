@@ -3,7 +3,7 @@
   'use strict';
   const L = window.KLogic;
   const API = window.KINTORE_API;
-  const VERSION = '2.22.0-t18';
+  const VERSION = '2.22.0-t19';
   const WD = ['日', '月', '火', '水', '木', '金', '土'];
   const PERM = { admin: '管理者', manager: 'マネージャー', leader: 'FWリーダー', member: '一般部員', guest: '見るだけ' };
   const MODE = { leader: 'メニュー参加', self: '自主トレ' };
@@ -3135,6 +3135,7 @@
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia || !pickMime()) {
       toast('このブラウザでは撮影できません。iPhone は Safari、Android は Chrome の新しい版で開いてください', 'err'); return;
     }
+    camMeterStop();
     CAM.blob = null; CAM.thumb = ''; CAM.at = '';
     // 撮っている間にサーバーを起こしておく（ログインの確認も済ませておく）→「送る」が速くなる
     api('ping').catch(() => {});
@@ -3297,6 +3298,9 @@
     S.draftRes[at] = res;
     const it = await CLIPQ.get(at);
     if (it) { it.draftRes = res; await CLIPQ.put(it); }
+    // 裏で送る係（Service Worker）が待っていれば、すぐ知らせる（0.3秒ごとに見に来るのを待たない）
+    try { if (navigator.serviceWorker && navigator.serviceWorker.controller) navigator.serviceWorker.controller.postMessage({ draftRes: res, at: at }); } catch (e) { /* noop */ }
+    camMeterTick();
   }
   function dropDraft(at) {
     const p = at && S.drafts[at];
@@ -3372,19 +3376,82 @@
       await CLIPQ.put(item);
       qSet(qList().filter((x) => x.at !== item.at).concat([{ at: item.at }]).slice(-3));
     } finally { CAM.sending = false; }
-    camClose();
     const pend = markLocal(item);
-    const head = pend ? '届けています。取り消された日なので、スタッフが確認すると「実施した」になります。' : '今日は「実施した」にしました。';
-    if (await bgSync()) {
+    const bg = await bgSync();
+    // カメラの画面のまま、送り終わるまでメーターを出す（Android は「待たずに戻る」もできる）
+    camMeterStart(item, bg, pend);
+    if (bg) {
       S.bgSync = true; S.clipSending = true; render();
-      toast(head + '動画はアプリを閉じても送ります');
       // 1分たっても Service Worker から返事が無ければ、画面から送る
       setTimeout(() => { if (S.clipSending && !clipRetrying && qList().length) { S.clipSending = false; retryClips(); } }, 60000);
     } else {
       render();
-      toast(head + '動画を送り終わるまで、アプリは閉じないでください');
       retryClips();
     }
+  }
+  // ---- 送っている間のメーター ----
+  // 何％送れたかはそのまま取れない（Google の仕組み）ので、段階と、これまでにかかった時間の目安で進める。
+  // 動画（下書き）と「送る」の2つを半分ずつ。両方が本当に届いたら100％。
+  const CLIP_EST0 = { v: 5500, s: 3500 }; // 目安の初めの値（ミリ秒）：動画・「送る」
+  const clipEst = () => Object.assign({}, CLIP_EST0, store.get('clipEst', {}));
+  function camMeterStart(item, bg, pend) {
+    clearInterval(CAM.keep);
+    camStopStream();
+    CAM.meter = { at: item.at, bg: bg, pend: pend, drafting: !!item.drafting, p: 0 };
+    const b = $('#cam-bottom');
+    if (!b) return;
+    b.innerHTML = '<div class="cam-meter" id="cam-meter" role="status" aria-live="polite">' +
+      '<div class="cam-meter-top"><b id="cam-meter-lab">動画を送っています</b><span id="cam-meter-left"></span></div>' +
+      '<div class="cam-meter-bar"><span id="cam-meter-fill"></span></div>' +
+      '<p class="cam-hint" id="cam-meter-note">' + (pend ? '取り消された日なので、スタッフが確認すると「実施した」になります。' : '画面は先に「実施した」にしてあります。') +
+      (bg ? '' : '<br>送り終わるまで、この画面のままお待ちください') + '</p>' +
+      (bg ? '<button class="btn cam-meter-btn" data-act="cam-bg">待たずに戻る（あとは裏で送ります）</button>' : '') + '</div>';
+    clearInterval(CAM.meterTimer);
+    CAM.meterTimer = setInterval(camMeterTick, 200);
+    camMeterTick();
+  }
+  function camMeterStop() { clearInterval(CAM.meterTimer); CAM.meterTimer = 0; CAM.meter = null; }
+  function camMeterTick() {
+    const M = CAM.meter;
+    if (!M || M.end) return;
+    const box = $('#cam-meter');
+    if (!box) { camMeterStop(); return; }
+    const t = S.tl[M.at] || {}, now = Date.now(), est = clipEst();
+    const set = (id, v) => { const el = $('#' + id); if (el) el.textContent = v; };
+    if (t.dropped || t.queued) {
+      M.end = true; clearInterval(CAM.meterTimer);
+      set('cam-meter-lab', t.dropped ? '送れない動画でした' : '電波が弱くて、まだ送れていません');
+      set('cam-meter-left', '');
+      set('cam-meter-note', t.dropped ? 'この日の「実施した」は元に戻しました。' : 'つながったら自動で送ります。');
+      const btn = box.querySelector('.cam-meter-btn');
+      if (btn) btn.remove();
+      box.insertAdjacentHTML('beforeend', '<button class="btn cam-meter-btn" data-act="cam-meter-close">閉じる</button>');
+      return;
+    }
+    const press = t.press || now;
+    const viaDraft = M.drafting && S.draftRes[M.at] !== 'fail';
+    const vStart = viaDraft ? (t.dSend || press) : (t.started || press);
+    const recDone = !!(t.started || t.done);
+    const vidDone = !!(t.done || S.draftRes[M.at] === 'have');
+    const frac = (start, e) => Math.min(0.92, Math.max(0, (now - start) / e));
+    const p = t.done ? 1 : 0.5 * (vidDone ? 1 : frac(vStart, est.v)) + 0.5 * (recDone ? 1 : frac(press, est.s));
+    M.p = Math.max(M.p, p);
+    const fill = $('#cam-meter-fill');
+    if (fill) fill.style.width = Math.round(M.p * 100) + '%';
+    if (t.done) {
+      M.end = true; clearInterval(CAM.meterTimer);
+      set('cam-meter-lab', M.pend ? '届きました（スタッフの確認待ち）' : '送り終わりました');
+      set('cam-meter-left', '');
+      set('cam-meter-note', M.bg ? '' : 'アプリを閉じても大丈夫です。');
+      // かかった時間を覚えて、次の目安にする
+      const e = clipEst(), mix = (old, v) => (v > 300 && v < 60000 ? Math.round(old * 0.5 + v * 0.5) : old);
+      store.set('clipEst', { v: t.dDone && t.dSend ? mix(e.v, t.dDone - t.dSend) : e.v, s: t.started && t.press ? mix(e.s, t.started - t.press) : e.s });
+      setTimeout(() => { if (CAM.meter === M) { camMeterStop(); camClose(); render(); } }, 900);
+      return;
+    }
+    set('cam-meter-lab', !vidDone ? '動画を送っています' : !recDone ? '記録しています' : '仕上げています');
+    const left = Math.max(vidDone ? 0 : vStart + est.v - now, recDone ? 0 : press + est.s - now);
+    set('cam-meter-left', left > 600 ? 'あと約' + Math.ceil(left / 1000) + '秒' : 'もう少しです');
   }
   /** 「送る」を押したらすぐ、このスマホの画面では「実施した」にしておく（サーバーの返事を待たない）。
    *  送れない動画だったときは読み直して元に戻す。戻り値：取り消された日（確認待ちになる）なら true */
@@ -3475,7 +3542,7 @@
     }
     if (r.clip && item.thumb) { S.clipThumb = S.clipThumb || {}; S.clipThumb[r.clip.id] = item.thumb; }
     const day = item.at.slice(0, 10) === S.data.today ? '今日' : mdw(item.at.slice(0, 10));
-    if (stage === 'video') { toast('動画も送り終わりました'); return; }
+    if (stage === 'video') { if (!(CAM.meter && CAM.meter.at === item.at)) toast('動画も送り終わりました'); return; }
     // 「実施した」は押したときに画面で出してあるので、ここでは言わない（前に開いたときの動画を送り直したときだけ言う）
     if (r.again || S.marked[item.at]) return;
     toast(r.pending ? '届きました。取り消された日なので、スタッフが確認するまで待ちになります' : day + 'は「実施した」になりました');
@@ -3488,8 +3555,8 @@
       qSet(qList().filter((x) => x.at !== d.at));
       if (d.clip === 'started') { tlMark(d.at, 'started'); clipSentUI({ at: d.at, thumb: d.thumb }, d.r || {}, 'start'); render(); return; }
       if (d.clip === 'sent') { tlMark(d.at, 'done'); if (d.tm) saveTimes(d.tm); clipSentUI({ at: d.at, thumb: d.thumb }, d.r || {}, 'video'); }
-      else if (d.clip === 'dropped') { toast(d.message || '送れない動画でした', 'err'); unmarkLocal(d.at); }
-      else if (d.clip === 'wait') { qSet(qList().concat(qList().some((x) => x.at === d.at) ? [] : [{ at: d.at }])); }
+      else if (d.clip === 'dropped') { tlMark(d.at, 'dropped'); toast(d.message || '送れない動画でした', 'err'); unmarkLocal(d.at); }
+      else if (d.clip === 'wait') { tlMark(d.at, 'queued'); qSet(qList().concat(qList().some((x) => x.at === d.at) ? [] : [{ at: d.at }])); }
       S.clipSending = false;
       render();
     });
@@ -3526,7 +3593,8 @@
         if (!one) {
           const m = me(), c = m && (S.data.clips || []).find((x) => x.m === m.id && x.at === item.at);
           if (c) { c.nv = 0; clipUpdated(c); }
-          toast('動画も送り終わりました');
+          tlMark(item.at, 'done');
+          if (!(CAM.meter && CAM.meter.at === item.at)) toast('動画も送り終わりました');
           return 'sent';
         }
       }
@@ -3537,11 +3605,12 @@
       const s2 = Date.now();
       const r = await api('clipUpload', { mime: item.mime, data: data, thumb: item.thumb, recordedAt: item.at, code: item.code });
       TM.upload = Date.now() - s2; if (r.t) TM.uploadSrv = r.t; TM.kb = Math.round(item.buf.byteLength / 1024);
+      tlMark(item.at, 'done');
       saveTimes(TM);
       clipSentUI(item, r, one ? 'start' : 'video');
       return 'sent';
     } catch (e) {
-      if (/^(bad_|too_|not_|forbidden)/.test(String(e.code || ''))) { toast(e.message, 'err'); unmarkLocal(item.at); return 'dropped'; }
+      if (/^(bad_|too_|not_|forbidden)/.test(String(e.code || ''))) { tlMark(item.at, 'dropped'); toast(e.message, 'err'); unmarkLocal(item.at); return 'dropped'; }
       return 'queued';
     }
   }
@@ -3558,13 +3627,13 @@
         for (const q of qList()) {
           const item = await CLIPQ.get(q.at); // Service Worker が先に送っていたら、もう無い
           const r = item ? await sendClip(item) : 'gone';
-          if (r === 'queued') { left = true; break; }
+          if (r === 'queued') { left = true; tlMark(q.at, 'queued'); break; }
           await CLIPQ.del(q.at);
           qSet(qList().filter((x) => x.at !== q.at));
         }
       });
     } finally { clipRetrying = false; S.clipSending = false; render(); }
-    if (left) toast('電波が弱くて送れませんでした。つながったら自動で送ります', 'err');
+    if (left && !CAM.meter) toast('電波が弱くて送れませんでした。つながったら自動で送ります', 'err');
   }
   function queueBanner() {
     const q = qList();
@@ -4155,7 +4224,17 @@
     'rec-confirm': () => openRecConfirm(),
     'login-tab': (el) => { S.loginTab = el.dataset.v; S.loginId = ''; S.loginErr = ''; render(); },
     'cam-open': () => openCamera(),
-    'cam-close': () => { if (CAM.blob && !confirm('撮った動画を送らずに閉じますか？')) return; dropDraft(CAM.at); camClose(); },
+    'cam-close': () => {
+      const M = CAM.meter;
+      if (M) { // 送っている途中で閉じた
+        camMeterStop(); camClose(); render();
+        if (!M.end) toast(M.bg ? '動画はアプリを閉じても送ります' : '動画を送り終わるまで、アプリは閉じないでください');
+        return;
+      }
+      if (CAM.blob && !confirm('撮った動画を送らずに閉じますか？')) return; dropDraft(CAM.at); camClose();
+    },
+    'cam-bg': () => { camMeterStop(); camClose(); render(); toast('動画はアプリを閉じても送ります'); },
+    'cam-meter-close': () => { camMeterStop(); camClose(); render(); },
     'cam-flip': () => { CAM.facing = CAM.facing === 'user' ? 'environment' : 'user'; camStart(); },
     'cam-shoot': () => camShoot(),
     'cam-retake': () => { dropDraft(CAM.at); CAM.blob = null; const pv = $('#cam-preview'); if (pv) { pv.pause(); pv.hidden = true; } $('#cam-canvas').hidden = false; $('#cam-bottom').innerHTML = camButtons('ready'); camStart(); },
