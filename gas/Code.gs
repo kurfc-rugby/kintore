@@ -154,8 +154,9 @@ function handle_(req) {
     ensureSchema_(); plap('schema');
     syncRoster_(); plap('roster');
     maintFromRequest_(); plap('maint');
-    if (setlogOn_()) {
-      if (!NO_FLUSH[String(req.op || '')]) { flushCommits_(); plap('flush'); }
+    if (setlogOn_() && !NO_FLUSH[String(req.op || '')]) {
+      // 「送る」のメモをシートに書く・下書きの動画をつける・届かない動画の確認。速さが大事な操作（「送る」・下書き）ではしない（ほかの操作がする）
+      flushCommits_(); plap('flush');
       attachPendingMaybe_(); expireClipsMaybe_(); plap('expire');
     }
     const ctx = { req: req, me: null, view: false };
@@ -1869,7 +1870,7 @@ function maintFromRequest_() {
   const on = setting_('maintOn');
   if (on === today) { try { c.put('k:maint', today, 21600); } catch (x) { /* noop */ } return; }
   const hourly = ensureHourly_();
-  if (hourly && on && on >= addDays_(today, -1)) return; // 1時間以内に1時間ごとの処理がする
+  if (hourly && on && on >= addDays_(today, -1)) { try { c.put('k:maint', today, 600); } catch (x) { /* noop */ } return; } // 1時間以内に1時間ごとの処理がする（10分は確かめ直さない）
   dailyMaint_();
 }
 /** 1時間ごとの処理（時間主導のトリガー）があるか、1日1回確かめて、無ければ入れる */
