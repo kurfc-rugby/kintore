@@ -3,7 +3,7 @@
   'use strict';
   const L = window.KLogic;
   const API = window.KINTORE_API;
-  const VERSION = '2.22.0-t21';
+  const VERSION = '2.22.0-t22';
   const WD = ['日', '月', '火', '水', '木', '金', '土'];
   const PERM = { admin: '管理者', manager: 'マネージャー', leader: 'FWリーダー', member: '一般部員', guest: '見るだけ' };
   const MODE = { leader: 'メニュー参加', self: '自主トレ' };
@@ -3123,6 +3123,9 @@
   const CLIP_SEC = 2;
   // 画質。縦3:横4（スマホのカメラ（4:3）をほぼ切らずに使える）。テスト環境だけ、設定で切りかえて見比べられる
   const CLIP_Q = {
+    xlo: { w: 480, h: 640, bps: 500000, cam: [1280, 960], label: 'かなり軽く', spec: '480×640・0.5Mbps' },
+    lo: { w: 540, h: 720, bps: 800000, cam: [1280, 960], label: '軽く', spec: '540×720・0.8Mbps' },
+    lo1: { w: 720, h: 960, bps: 1000000, cam: [1280, 960], label: '少し軽く', spec: '720×960・1.0Mbps' },
     std: { w: 720, h: 960, bps: 1500000, cam: [1280, 960], label: '今のまま', spec: '720×960・1.5Mbps' },
     hi: { w: 720, h: 960, bps: 2500000, cam: [1280, 960], label: 'ビットレートだけ上げる', spec: '720×960・2.5Mbps' },
     fhd: { w: 1080, h: 1440, bps: 3500000, cam: [1920, 1440], label: '1080p', spec: '1080×1440・3.5Mbps' }
