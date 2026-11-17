@@ -12,7 +12,7 @@ const shot = async (p, name) => { if (SHOT) { require('fs').mkdirSync(SHOT, { re
 (async () => {
   const browser = await chromium.launch({ executablePath: process.env.CHROME || undefined, args: ['--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream', '--autoplay-policy=no-user-gesture-required'] });
   const mk = async () => {
-    const c = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true, reducedMotion: 'reduce', permissions: ['camera'] });
+    const c = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true, reducedMotion: 'reduce', permissions: ['camera', 'background-sync'] });
     await c.route(/fonts\.(googleapis|gstatic)\.com/, (r) => r.abort());
     await c.addInitScript(() => { localStorage.setItem('kintoreTest.guided', '1'); ['manager', 'leader', 'admin'].forEach((k) => localStorage.setItem('kintoreTest.tourAsk:' + k, '1')); });
     const p = await c.newPage();
@@ -84,6 +84,23 @@ const shot = async (p, name) => { if (SHOT) { require('fs').mkdirSync(SHOT, { re
   await shot(b.p, '08-player');
   await b.p.click('[data-act="clip-flag"]'); await b.p.waitForTimeout(1200);
   ok(/気になるを取り消す/.test(await b.p.locator('.sheet').innerText()), '「気になる」を押せる');
+
+  console.log('■ Android（Chrome）：送ってすぐ閉じても送る');
+  await b.p.evaluate(() => localStorage.setItem('kintoreTest.swdev', '1')); // 開発用サーバーでも Service Worker を使う
+  await b.p.goto(BASE); await b.p.waitForSelector('.board'); await b.p.waitForTimeout(2500);
+  await b.p.reload(); await b.p.waitForSelector('.board'); await b.p.waitForTimeout(1500);
+  ok(await b.p.evaluate(async () => { const r = navigator.serviceWorker && navigator.serviceWorker.controller ? await navigator.serviceWorker.ready : null; return !!(r && r.sync); }), 'Background Sync が使える');
+  await b.p.click('.nav .shoot'); await b.p.waitForSelector('.cam'); await b.p.waitForTimeout(1200);
+  await b.p.click('[data-act="cam-shoot"]'); await b.p.waitForSelector('[data-act="cam-send"]', { timeout: 8000 });
+  await b.p.click('[data-act="cam-send"]'); await b.p.waitForSelector('.cam', { state: 'detached', timeout: 5000 });
+  const tt = await b.p.locator('#toast-root').innerText().catch(() => '');
+  ok(/閉じても/.test(tt), '「アプリを閉じても送ります」と出る（' + tt.replace(/\s+/g, ' ').slice(0, 60) + '）');
+  await b.p.close(); // すぐ閉じる
+  await new Promise((r) => setTimeout(r, 6000));
+  const b2 = await b.c.newPage(); b2.on('pageerror', (e) => errors.push(e.message));
+  await b2.goto(BASE); await b2.waitForSelector('.board'); await b2.waitForTimeout(1500);
+  ok(/今日の1本は出しました/.test(await b2.locator('.home-clips').innerText()), '閉じたあと Service Worker が送っていた（開くと「出しました」）');
+  ok(await b2.evaluate(() => !localStorage.getItem('kintoreTest.clipQueue')), '送れていない動画は残っていない');
   await b.c.close();
 
   console.log('■ マネージャーが確認して取り消す');

@@ -4,8 +4,9 @@
  *  フォント … しまっておいたもの優先
  *  サーバー（script.google.com）への通信 … 触らない（いつもネット）
  *  通知（push）… 中身は来ないので、サーバー（pushInbox）に取りに行って表示する
+ *  動画（Background Sync・Android）… 画面を閉じても、端末にしまった動画をサーバーに送る
  * 版を上げるときは VERSION と、index.html の ?v= を一緒に変える。 */
-const VERSION = '2.22.0-t2';
+const VERSION = '2.22.0-t3';
 try { importScripts('config.js?v=' + VERSION); } catch (e) { /* 読めなくても画面はしまっておいたもので動く */ }
 // テスト環境（KINTORE_STORE = 'kintoreTest'）は、本番としまう場所の名前を分ける（同じ github.io の中なので）
 const CPREFIX = (self.KINTORE_STORE || 'kintore') + '-';
@@ -95,4 +96,74 @@ self.addEventListener('notificationclick', (e) => {
     for (const c of list) { if (c.url.indexOf(self.registration.scope) === 0 && 'focus' in c) { await c.focus(); if ('navigate' in c) { try { await c.navigate(url); } catch (x) { /* noop */ } } return; } }
     await self.clients.openWindow(url);
   })());
+});
+
+// ---------- 動画を送る（Android の Chrome。画面を閉じても送る） ----------
+// 画面が IndexedDB（<KINTORE_STORE>.clips）にしまった動画を、1本ずつ送る。送れたら消す
+const CLIP_DB = (self.KINTORE_STORE || 'kintore') + '.clips';
+function clipDb() {
+  return new Promise((ok) => {
+    try {
+      const r = indexedDB.open(CLIP_DB, 1);
+      r.onupgradeneeded = () => r.result.createObjectStore('q', { keyPath: 'at' });
+      r.onsuccess = () => ok(r.result); r.onerror = () => ok(null);
+    } catch (e) { ok(null); }
+  });
+}
+function clipTx(db, mode, fn) {
+  return new Promise((ok) => {
+    try {
+      const tx = db.transaction('q', mode), r = fn(tx.objectStore('q'));
+      tx.oncomplete = () => ok(r && 'result' in r ? r.result : undefined);
+      tx.onerror = tx.onabort = () => ok(undefined);
+    } catch (e) { ok(undefined); }
+  });
+}
+function bufToB64(buf) {
+  const a = new Uint8Array(buf); let s = '';
+  for (let i = 0; i < a.length; i += 0x8000) s += String.fromCharCode.apply(null, a.subarray(i, i + 0x8000));
+  return btoa(s);
+}
+async function clipTell(msg, note) {
+  const list = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+  const shown = list.filter((c) => c.visibilityState === 'visible');
+  list.forEach((c) => c.postMessage(msg));
+  // 画面を見ていないときは通知で知らせる（通知を許可している人だけ）
+  if (!shown.length && note && self.Notification && Notification.permission === 'granted') {
+    try { await self.registration.showNotification(note.title, { body: note.body, tag: 'clip', icon: 'icons/icon-192.png', badge: 'icons/badge-96.png', lang: 'ja', data: { url: './' } }); } catch (e) { /* noop */ }
+  }
+}
+async function sendClips() {
+  if (!self.KINTORE_API) return;
+  const db = await clipDb();
+  if (!db) return;
+  const items = (await clipTx(db, 'readonly', (st) => st.getAll())) || [];
+  let retry = false;
+  for (const it of items) {
+    if (!(await clipTx(db, 'readonly', (st) => st.get(it.at)))) continue; // 画面が先に送った
+    let j = null;
+    try {
+      const r = await fetch(self.KINTORE_API, { method: 'POST', redirect: 'follow', body: JSON.stringify({ op: 'clipUpload', device: it.device || '', token: it.token || '', mime: it.mime, data: bufToB64(it.buf), thumb: it.thumb || '', recordedAt: it.at, code: it.code }) });
+      j = await r.json();
+    } catch (e) { j = null; }
+    if (j && j.ok) {
+      await clipTx(db, 'readwrite', (st) => st.delete(it.at));
+      const day = it.at.slice(5, 7).replace(/^0/, '') + '/' + it.at.slice(8, 10).replace(/^0/, '');
+      await clipTell({ clip: 'sent', at: it.at, thumb: it.thumb, r: j }, { title: '動画を送りました', body: j.pending ? 'スタッフが確認するまで待ちです' : day + 'は「実施した」になりました' });
+    } else if (j && /^(bad_|too_|not_|forbidden)/.test(String(j.error || ''))) {
+      await clipTx(db, 'readwrite', (st) => st.delete(it.at));
+      await clipTell({ clip: 'dropped', at: it.at, message: j.message }, { title: '動画を送れませんでした', body: j.message || '' });
+    } else {
+      // 電波が無い・サーバーが混んでいる → あとでもう一度（ログインが切れたときは、開いたときに画面が送る）
+      await clipTell({ clip: 'wait', at: it.at }, null);
+      retry = !(j && j.error === 'auth');
+      break;
+    }
+  }
+  if (retry) throw new Error('あとで送り直す');
+}
+self.addEventListener('sync', (e) => {
+  if (e.tag !== 'clips') return;
+  const run = () => sendClips();
+  e.waitUntil(self.navigator && self.navigator.locks && self.navigator.locks.request ? self.navigator.locks.request((self.KINTORE_STORE || 'kintore') + '.clip-send', run) : run());
 });

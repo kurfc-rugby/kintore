@@ -145,7 +145,7 @@ function out_(obj) {
 let REQ_ = null; // 1回のリクエストの間だけ使う読み取りキャッシュ
 
 function handle_(req) {
-  REQ_ = { tables: {}, ss: null, roster: null };
+  REQ_ = { tables: {}, ss: null, roster: null, t0: Date.now() };
   try {
     if (!req || typeof req !== 'object') throw err_('bad_request', '送信内容が正しくありません。');
     ensureSchema_();
@@ -3386,6 +3386,8 @@ function clipState_(ctx, today) {
 }
 /** 動画を受け取る：撮った日を自動で「実施した」にする（取り消された日に撮り直したものは確認待ち） */
 function opClipUpload_(ctx) {
+  // どこに時間がかかったか（実行数の画面の「ログ」で見られる）
+  const T = { start: Date.now() - ((REQ_ && REQ_.t0) || Date.now()) }, t1 = Date.now();
   const me = requireRole_(ctx, ['admin', 'manager', 'leader', 'member']);
   if (!setlogOn_()) throw err_('forbidden', 'この操作はできません。');
   const m = memberById_(me.id);
@@ -3408,8 +3410,12 @@ function opClipUpload_(ctx) {
   // 同じ動画を送り直したとき（電波が切れて返事が届かなかったなど）は、前のものを返す
   const dup = table_('clips').rows.filter(function (c) { return c.memberId === me.id && c.recordedAt === at; })[0];
   if (dup) return { ok: true, clip: clipWire_(dup, me), again: true };
+  T.check = Date.now() - t1;
+  const t2 = Date.now();
   const file = clipFolder_().createFile(Utilities.newBlob(bytes, mime, me.id + '_' + at.replace(/[^0-9]/g, '') + '.' + CLIP_MIMES[mime]));
-  return withLock_(function () {
+  T.drive = Date.now() - t2;
+  const t3 = Date.now();
+  const res = withLock_(function () {
     const t = table_('clips');
     const dup2 = t.rows.filter(function (c) { return c.memberId === me.id && c.recordedAt === at; })[0];
     if (dup2) { try { file.setTrashed(true); } catch (x) { /* noop */ } return { ok: true, clip: clipWire_(dup2, me), again: true }; }
@@ -3423,6 +3429,9 @@ function opClipUpload_(ctx) {
     log_(me, '動画を出した', m.name + ' ' + date + (canceledDay ? '（確認待ち）' : ''));
     return { ok: true, clip: clipWire_(c, me), recorded: recorded, pending: canceledDay, records: recordsWire_(date, date) };
   });
+  T.save = Date.now() - t3; T.kb = Math.round(bytes.length / 1024);
+  console.log('clipUpload ' + JSON.stringify(T));
+  return res;
 }
 function clipFolder_() {
   const props = PropertiesService.getScriptProperties();
