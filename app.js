@@ -3,7 +3,7 @@
   'use strict';
   const L = window.KLogic;
   const API = window.KINTORE_API;
-  const VERSION = '2.22.0-t15';
+  const VERSION = '2.22.0-t16';
   const WD = ['日', '月', '火', '水', '木', '金', '土'];
   const PERM = { admin: '管理者', manager: 'マネージャー', leader: 'FWリーダー', member: '一般部員', guest: '見るだけ' };
   const MODE = { leader: 'メニュー参加', self: '自主トレ' };
@@ -3508,6 +3508,8 @@
         if (r0) {
           tlMark(item.at, 'started');
           item.started = true; item.startClip = r0.clip || null;
+          { const cur0 = await CLIPQ.get(item.at); if (cur0 && cur0.draftRes) item.draftRes = cur0.draftRes; } // 下書きの結果を消さない
+          if (S.draftRes[item.at]) item.draftRes = S.draftRes[item.at];
           await CLIPQ.put(item);
           clipSentUI(item, r0, 'start');
           render();

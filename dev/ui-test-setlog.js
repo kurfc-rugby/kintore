@@ -136,6 +136,27 @@ const shot = async (p, name) => { if (SHOT) { require('fs').mkdirSync(SHOT, { re
   await b2.goto(BASE); await b2.waitForSelector('.board'); await b2.waitForTimeout(1500);
   ok(/今日の1本は出しました/.test(await b2.locator('.home-clips').innerText()), '閉じたあと Service Worker が送っていた（開くと「出しました」）');
   ok(await b2.evaluate(() => !localStorage.getItem('kintoreTest.clipQueue')), '送れていない動画は残っていない');
+
+  console.log('■ Android：下書きの返事が①より先に着いても、すぐ送り終わる（取り違えで15秒待たない）');
+  await b2.evaluate(() => fetch('/__delay?clipDraft=-1500&clipStart=3500'));
+  await b2.click('.nav .shoot'); await b2.waitForSelector('.cam'); await b2.waitForTimeout(1200);
+  await b2.click('[data-act="cam-shoot"]'); await b2.waitForSelector('[data-act="cam-send"]', { timeout: 8000 });
+  await b2.evaluate(() => fetch('/__ops?' + Date.now(), { cache: 'no-store' }));
+  const tPress = Date.now();
+  await b2.click('[data-act="cam-send"]'); await b2.waitForSelector('.cam', { state: 'detached', timeout: 5000 });
+  const qn = () => b2.evaluate(async () => {
+    const db = await new Promise((ok, ng) => { const r = indexedDB.open('kintoreTest.clips'); r.onsuccess = () => ok(r.result); r.onerror = ng; });
+    const n = await new Promise((ok) => { try { const q = db.transaction('q').objectStore('q').count(); q.onsuccess = () => ok(q.result); } catch (e) { ok(-1); } });
+    db.close(); return n;
+  });
+  const seen = [];
+  let took = -1;
+  for (let i = 0; i < 80; i++) { const n = await qn(); seen.push(n); if (n === 0 && seen.some((x) => x > 0)) { took = Date.now() - tPress; break; } await b2.waitForTimeout(300); }
+  const ops = await b2.evaluate(() => fetch('/__ops?' + Date.now(), { cache: 'no-store' }).then((r) => r.json()));
+  console.log('    ', 'press@' + (tPress % 100000), seen.slice(0, 12).join(''), ops.join(','));
+  ok(took > 0 && took < 7000, '「送る」から送り終わりまで7秒以内（' + (took / 1000).toFixed(1) + '秒）');
+  ok(ops.filter((o) => /^clipStart/.test(o)).length === 1 && !ops.some((o) => /^clipUpload/.test(o)), '①は1回だけ、動画は送り直さない');
+  await b2.evaluate(() => fetch('/__delay?' + Date.now()));
   await b.c.close();
 
   console.log('■ マネージャーが確認して取り消す');

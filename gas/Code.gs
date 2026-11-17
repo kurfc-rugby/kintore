@@ -476,7 +476,7 @@ function withLock_(fn, opt) {
   try {
     SpreadsheetApp.flush(); // ほかの実行が書いた内容を読めるように（同じ実行の中で前に読んだ内容を使い回させない）
     if (REQ_) {
-      REQ_.tables = {}; REQ_.goalHist = null;
+      REQ_.tables = {}; REQ_.goalHist = null; REQ_.pend = null; // 下書きのメモもほかの実行が書いたものを読み直す
       if (!keep) { REQ_.roster = null; REQ_.members = null; REQ_.rinfo = null; REQ_.fresh = true; }
     }
     const res = fn();

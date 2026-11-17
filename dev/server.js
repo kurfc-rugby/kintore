@@ -115,16 +115,28 @@ seed();
 if (process.env.SETLOG) { gas.run('withReq', (f) => f.setupTestEnv()); console.log('setlog（テスト環境）で動かします'); }
 
 const TYPES = { '.png': 'image/png', '.webmanifest': 'application/manifest+json', '.webp': 'image/webp', '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.woff2': 'font/woff2', '.mp4': 'video/mp4', '.jpg': 'image/jpeg', '.json': 'application/json; charset=utf-8' };
+let OPDELAY = {}; const OPLOG = [];
 http.createServer((req, res) => {
+  if (req.url.split('?')[0] === '/__ops') { res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(OPLOG.splice(0))); return; }
   const url = req.url.split('?')[0];
+  if (url === '/__delay') { // テスト用：操作ごとに返事を遅らせる（例 /__delay?clipStart=3000&clipDraft=1500）
+    OPDELAY = {}; new URL(req.url, 'http://x').searchParams.forEach((v, k) => { OPDELAY[k] = +v; });
+    res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ ok: true, delay: OPDELAY })); return;
+  }
   if (url === '/exec') {
     if (req.method !== 'POST') { res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ ok: true })); return; }
     let body = '';
     req.on('data', (c) => { body += c; });
     req.on('end', () => {
-      let out;
-      try { out = gas.run('doPost', { postData: { contents: body } }).text; } catch (e) { out = JSON.stringify({ ok: false, error: 'server_error', message: String(e) }); }
-      setTimeout(() => { res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' }); res.end(out); }, +(process.env.DELAY || 120));
+      let op = ''; try { op = JSON.parse(body).op || ''; } catch (e) { /* noop */ }
+      const d = OPDELAY[op] != null ? OPDELAY[op] : +(process.env.DELAY || 120);
+      // マイナスの遅れ＝処理そのものを遅らせる（サーバーで後から着いたのと同じ）
+      setTimeout(() => {
+        let out;
+        try { out = gas.run('doPost', { postData: { contents: body } }).text; } catch (e) { out = JSON.stringify({ ok: false, error: 'server_error', message: String(e) }); }
+        OPLOG.push(op + '@' + (Date.now() % 100000));
+        setTimeout(() => { res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' }); res.end(out); }, d > 0 ? d : 0);
+      }, d < 0 ? -d : 0);
     });
     return;
   }

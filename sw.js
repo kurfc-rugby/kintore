@@ -6,7 +6,7 @@
  *  通知（push）… 中身は来ないので、サーバー（pushInbox）に取りに行って表示する
  *  動画（Background Sync・Android）… 画面を閉じても、端末にしまった動画をサーバーに送る
  * 版を上げるときは VERSION と、index.html の ?v= を一緒に変える。 */
-const VERSION = '2.22.0-t15';
+const VERSION = '2.22.0-t16';
 try { importScripts('config.js?v=' + VERSION); } catch (e) { /* 読めなくても画面はしまっておいたもので動く */ }
 // テスト環境（KINTORE_STORE = 'kintoreTest'）は、本番としまう場所の名前を分ける（同じ github.io の中なので）
 const CPREFIX = (self.KINTORE_STORE || 'kintore') + '-';
@@ -157,6 +157,9 @@ async function sendClips() {
       if (j && j.error === 'unknown_op') { it.started = true; j = null; } // サーバーが古い：動画といっしょに1回で送る
       else if (j && j.ok) {
         it.started = true;
+        // 画面がこの間に書いた下書きの結果（draftRes）を消さないよう、しまい直す前に読み直す
+        const cur0 = await clipTx(db, 'readonly', (st) => st.get(it.at));
+        if (cur0 && cur0.draftRes) it.draftRes = cur0.draftRes;
         await clipTx(db, 'readwrite', (st) => st.put(it));
         await clipTell({ clip: 'started', at: it.at, thumb: it.thumb, r: j }, null);
       }
