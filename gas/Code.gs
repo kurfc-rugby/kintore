@@ -144,6 +144,8 @@ function out_(obj) {
 
 let REQ_ = null; // 1回のリクエストの間だけ使う読み取りキャッシュ
 
+/** 「送る」のメモをシートに書かずに済ませる操作（速さが大事なもの）。ほかの操作は、読む前に必ず書く */
+const NO_FLUSH = { clipStart: 1, clipDraft: 1, clipDraftDrop: 1, ping: 1 };
 function handle_(req) {
   REQ_ = { tables: {}, ss: null, roster: null, t0: Date.now() };
   try {
@@ -152,7 +154,10 @@ function handle_(req) {
     ensureSchema_(); plap('schema');
     syncRoster_(); plap('roster');
     maintFromRequest_(); plap('maint');
-    if (setlogOn_()) { attachPendingMaybe_(); expireClipsMaybe_(); plap('expire'); }
+    if (setlogOn_()) {
+      if (!NO_FLUSH[String(req.op || '')]) { flushCommits_(); plap('flush'); }
+      attachPendingMaybe_(); expireClipsMaybe_(); plap('expire');
+    }
     const ctx = { req: req, me: null, view: false };
     resolveSession_(ctx); plap('session');
     const op = String(req.op || '');
@@ -476,7 +481,7 @@ function withLock_(fn, opt) {
   try {
     SpreadsheetApp.flush(); // ほかの実行が書いた内容を読めるように（同じ実行の中で前に読んだ内容を使い回させない）
     if (REQ_) {
-      REQ_.tables = {}; REQ_.goalHist = null; REQ_.pend = null; // 下書きのメモもほかの実行が書いたものを読み直す
+      REQ_.tables = {}; REQ_.goalHist = null; REQ_.pend = null; REQ_.props = null; REQ_.cmt = null; // 下書き・「送る」のメモも、ほかの実行が書いたものを読み直す
       if (!keep) { REQ_.roster = null; REQ_.members = null; REQ_.rinfo = null; REQ_.fresh = true; }
     }
     const res = fn();
@@ -2881,6 +2886,7 @@ function pushHourly() {
   REQ_ = { tables: {}, ss: null, roster: null };
   try {
     ensureSchema_();
+    if (setlogOn_()) flushCommits_(); // 「送る」のメモが残っていればシートに書く
     // 毎日の作業・毎週のバックアップ・毎月の操作の記録の整理（失敗しても通知は続ける）
     [dailyMaint_, weeklyBackup_, archiveLogs_].forEach(function (f) { try { f(); } catch (x) { console.error(x); } });
     const now = new Date();
@@ -3527,9 +3533,16 @@ const findClip_ = function (memberId, at) {
  *  下書きは、ドライブに置いたらここに書いてすぐ返事をする（シートの書き込みと順番待ちをしない）。
  *  シートの行につけるのは、「送る」が来たとき、またはあとでまとめて（attachPendingMaybe_）。それまでも一覧・再生はこのメモを見る */
 const PEND_PREFIX = 'CP:';
+/** スクリプトのプロパティをまとめて読む（1回の実行で1回。ロックを取ったら読み直す） */
+function propsAll_() {
+  if (REQ_ && REQ_.props) return REQ_.props;
+  const a = PropertiesService.getScriptProperties().getProperties();
+  if (REQ_) REQ_.props = a;
+  return a;
+}
 function pendAll_() {
   if (REQ_ && REQ_.pend) return REQ_.pend;
-  const all = PropertiesService.getScriptProperties().getProperties(), out = {};
+  const all = propsAll_(), out = {};
   Object.keys(all).forEach(function (k) { if (k.indexOf(PEND_PREFIX) === 0) { try { out[k.slice(PEND_PREFIX.length)] = JSON.parse(all[k]); } catch (x) { /* 壊れたメモは無視 */ } } });
   if (REQ_) REQ_.pend = out;
   return out;
@@ -3538,10 +3551,76 @@ function pendGet_(memberId, at) { return pendAll_()[memberId + '|' + at] || null
 function pendSet_(memberId, at, v) {
   PropertiesService.getScriptProperties().setProperty(PEND_PREFIX + memberId + '|' + at, JSON.stringify(v));
   if (REQ_ && REQ_.pend) REQ_.pend[memberId + '|' + at] = v;
+  if (REQ_ && REQ_.props) REQ_.props[PEND_PREFIX + memberId + '|' + at] = JSON.stringify(v);
 }
 function pendDel_(memberId, at) {
   PropertiesService.getScriptProperties().deleteProperty(PEND_PREFIX + memberId + '|' + at);
   if (REQ_ && REQ_.pend) delete REQ_.pend[memberId + '|' + at];
+  if (REQ_ && REQ_.props) delete REQ_.props[PEND_PREFIX + memberId + '|' + at];
+}
+/** 「送る」のメモ（スクリプトのプロパティ「CS:部員ID|撮影時刻」、サムネイルは「CT:部員ID|撮影時刻#番号」に分けて）。
+ *  「送る」は、ここに書いてすぐ返事をする（シートの書き込みと順番待ちをしない）。
+ *  シートに書くのは、次に誰かがアプリを使ったとき（flushCommits_。読む前に必ず書くので、ほかの人の画面がずれることはない） */
+const CMT_PREFIX = 'CS:', CTH_PREFIX = 'CT:', CTH_CHUNK = 8000;
+function commitAll_() {
+  if (REQ_ && REQ_.cmt) return REQ_.cmt;
+  const all = propsAll_(), out = {};
+  Object.keys(all).forEach(function (k) { if (k.indexOf(CMT_PREFIX) === 0) { try { out[k.slice(CMT_PREFIX.length)] = JSON.parse(all[k]); } catch (x) { /* 壊れたメモは無視 */ } } });
+  if (REQ_) REQ_.cmt = out;
+  return out;
+}
+function commitSet_(key, v, thumb) {
+  const o = {};
+  v.n = 0;
+  for (let i = 0; i < thumb.length; i += CTH_CHUNK) { o[CTH_PREFIX + key + '#' + v.n] = thumb.slice(i, i + CTH_CHUNK); v.n++; }
+  o[CMT_PREFIX + key] = JSON.stringify(v);
+  PropertiesService.getScriptProperties().setProperties(o, false);
+  if (REQ_ && REQ_.cmt) REQ_.cmt[key] = v;
+}
+function commitThumb_(key, n) {
+  const p = PropertiesService.getScriptProperties();
+  let s = '';
+  for (let i = 0; i < (n || 0); i++) s += p.getProperty(CTH_PREFIX + key + '#' + i) || '';
+  return s;
+}
+function commitDel_(key, n) {
+  const p = PropertiesService.getScriptProperties();
+  p.deleteProperty(CMT_PREFIX + key);
+  for (let i = 0; i < (n || 0); i++) p.deleteProperty(CTH_PREFIX + key + '#' + i);
+  if (REQ_ && REQ_.cmt) delete REQ_.cmt[key];
+}
+/** シートに書く前の「送る」を、画面に返す形にする */
+function commitWire_(me, k, cm) {
+  return { id: cm.id, m: me.id, d: k.date, at: k.at, st: cm.st, gone: false, nv: pendGet_(me.id, k.at) ? 0 : 1,
+    nf: STAFF[me.perm] ? 0 : undefined, mine: false, why: '' };
+}
+/** 「送る」のメモをシートに書く（行を作る・「実施した」・下書きの動画をつける）。メモが無ければ何もしない */
+function flushCommits_() {
+  try {
+    if (!Object.keys(commitAll_()).length) return 0;
+    return withLock_(function () {
+      const cms = commitAll_(), lim = nowPlusMin_(-CLIP_LATE_HOURS * 60 - 60);
+      let n = 0;
+      Object.keys(cms).forEach(function (key) {
+        const i = key.indexOf('|'), mid = key.slice(0, i), at = key.slice(i + 1), cm = cms[key];
+        try {
+          const m = memberById_(mid);
+          let c = healClip_(mid, at);
+          if (m && !(c && c.status !== 'draft')) {
+            clipAddRow_(m, { m: m, mime: cm.m, at: at, date: cm.d }, c ? '' : commitThumb_(key, cm.n), null, null, null, c && c.status === 'draft' ? c : null, cm.id);
+            c = findClip_(mid, at);
+          }
+          if (c) attachPend_(c);
+          commitDel_(key, cm.n);
+          n++;
+        } catch (x) {
+          console.error(x);
+          if (cm.t < lim) commitDel_(key, cm.n); // ずっと書けないメモは捨てる
+        }
+      });
+      return n;
+    }, { keepRoster: true });
+  } catch (x) { console.error(x); return 0; }
 }
 /** 行に動画が無く、メモにあればつける（ロックの中で呼ぶ）。つけたら true */
 function attachPend_(c) {
@@ -3562,8 +3641,7 @@ function attachPendingMaybe_() {
     if (c.get('k:pend')) return 0;
     c.put('k:pend', '1', 30);
     return withLock_(function () {
-      REQ_.pend = null;
-      const pend = pendAll_(), lim = nowPlusMin_(-60);
+      const pend = pendAll_(), cms = commitAll_(), lim = nowPlusMin_(-60);
       let n = 0;
       Object.keys(pend).forEach(function (key) {
         const i = key.indexOf('|'), mid = key.slice(0, i), at = key.slice(i + 1), p = pend[key];
@@ -3571,7 +3649,7 @@ function attachPendingMaybe_() {
         if (row && row.status !== 'draft' && !row.fileId) { attachPend_(row); n++; return; }
         if (row && row.fileId && row.fileId !== p.f) { try { DriveApp.getFileById(p.f).setTrashed(true); } catch (x) { /* noop */ } pendDel_(mid, at); return; }
         if (row && row.fileId === p.f) { pendDel_(mid, at); return; }
-        if (!row && p.t < lim) { try { DriveApp.getFileById(p.f).setTrashed(true); } catch (x) { /* noop */ } pendDel_(mid, at); }
+        if (!row && !cms[key] && p.t < lim) { try { DriveApp.getFileById(p.f).setTrashed(true); } catch (x) { /* noop */ } pendDel_(mid, at); }
       });
       return n;
     }, { keepRoster: true });
@@ -3602,7 +3680,7 @@ const needHeal_ = function (memberId, at) {
   return l.some(function (c) { return c.status !== 'draft' && !c.fileId; }) && l.some(function (c) { return c.status === 'draft' && c.fileId; });
 };
 /** 行を足して「実施した」にする（ロックの中で呼ぶ）。file が無ければ動画待ち */
-function clipAddRow_(me, k, thumb, file, bytes, T, draft) {
+function clipAddRow_(me, k, thumb, file, bytes, T, draft, presetId) {
   let tt = Date.now(); const lap = function (key) { if (!T) return; const n = Date.now(); T[key] = (T[key] || 0) + n - tt; tt = n; };
   const t = table_('clips');
   lap('read');
@@ -3614,7 +3692,7 @@ function clipAddRow_(me, k, thumb, file, bytes, T, draft) {
     c.status = canceledDay ? 'pending' : 'ok';
     update_('clips', c);
   } else {
-    c = { id: 'C' + Utilities.getUuid().replace(/-/g, '').slice(0, 12), memberId: me.id, date: k.date, recordedAt: k.at, uploadedAt: file ? now : '', fileId: file ? file.getId() : '',
+    c = { id: presetId || ('C' + Utilities.getUuid().replace(/-/g, '').slice(0, 12)), memberId: me.id, date: k.date, recordedAt: k.at, uploadedAt: file ? now : '', fileId: file ? file.getId() : '',
       mime: k.mime, size: bytes ? String(bytes.length) : '', code: String(clipCode_(k.date)), status: canceledDay ? 'pending' : 'ok', flags: '[]', canceledBy: '', canceledAt: '', reason: '', checkedBy: '', deletedAt: '' };
     insert_('clips', [c]);
     if (thumb) insert_('clipThumbs', [{ id: c.id, thumb: thumb }]);
@@ -3643,22 +3721,29 @@ function opClipStart_(ctx) {
   const me = requireRole_(ctx, ['admin', 'manager', 'leader', 'member']);
   const k = clipCheck_(ctx, me);
   const thumb = clipThumbArg_(ctx);
+  const key = me.id + '|' + k.at;
   const dup = findClip_(me.id, k.at);
   if (dup && dup.status !== 'draft' && !needHeal_(me.id, k.at)) return { ok: true, clip: clipWire_(dup, me), again: true, records: recordsWire_(k.date, k.date) };
+  if (dup && needHeal_(me.id, k.at)) {
+    // 行が2つある（前の版で下書きの行ができていた）：めったに無いので、ここだけロックしてまとめる
+    return withLock_(function () {
+      const d2 = healClip_(me.id, k.at);
+      if (d2 && d2.status !== 'draft') { attachPend_(d2); return { ok: true, clip: clipWire_(d2, me), again: true, records: recordsWire_(k.date, k.date) }; }
+      return clipAddRow_(me, k, d2 ? '' : thumb, null, null, null, d2);
+    }, { keepRoster: true });
+  }
+  const cm0 = commitAll_()[key];
+  if (cm0) return { ok: true, clip: commitWire_(me, k, cm0), again: true };
+  // 取り消された日なら確認待ち（シートに書くときにもう一度確かめる）
+  const canceledDay = table_('clips').rows.some(function (c) { return c.memberId === me.id && c.date === k.date && c.status === 'canceled'; });
   T.check = Date.now() - t1; T.drive = 0;
+  // シートには書かない（順番待ちをしない）。メモに書いてすぐ返事。シートは次に誰かが使ったときに書く
   const t3 = Date.now();
-  const res = withLock_(function () {
-    T.wait = Date.now() - t3;
-    const d2 = healClip_(me.id, k.at);
-    if (d2 && d2.status !== 'draft') { attachPend_(d2); return { ok: true, clip: clipWire_(d2, me), again: true, records: recordsWire_(k.date, k.date) }; }
-    const out = clipAddRow_(me, k, d2 ? '' : thumb, null, null, T, d2);
-    // 下書きの動画がもう届いていれば（メモがあれば）、作った行にすぐつける
-    const row = findClip_(me.id, k.at);
-    if (attachPend_(row)) out.clip = clipWire_(row, me);
-    return out;
-  }, { keepRoster: true });
+  const cm = { id: 'C' + Utilities.getUuid().replace(/-/g, '').slice(0, 12), d: k.date, m: k.mime, st: canceledDay ? 'pending' : 'ok', t: now_() };
+  commitSet_(key, cm, dup ? '' : thumb);
   T.save = Date.now() - t3;
   clipTimesSave_(T);
+  const res = { ok: true, queued: true, clip: commitWire_(me, k, cm), recorded: !canceledDay, pending: canceledDay };
   if (isTestEnv_()) res.t = T;
   return res;
 }

@@ -3,7 +3,7 @@
   'use strict';
   const L = window.KLogic;
   const API = window.KINTORE_API;
-  const VERSION = '2.22.0-t16';
+  const VERSION = '2.22.0-t17';
   const WD = ['日', '月', '火', '水', '木', '金', '土'];
   const PERM = { admin: '管理者', manager: 'マネージャー', leader: 'FWリーダー', member: '一般部員', guest: '見るだけ' };
   const MODE = { leader: 'メニュー参加', self: '自主トレ' };
@@ -3433,7 +3433,7 @@
     const l = store.get('clipTimes', []);
     const sec = (ms) => (ms == null ? '—' : (ms / 1000).toFixed(1) + '秒');
     const srvSum = (t) => t ? (t.start || 0) + (t.check || 0) + (t.drive || 0) + (t.save || 0) : null;
-    const PRE = { schema: '準備', roster: '名簿の確認', maint: '毎日の片づけ', expire: '届かない動画の確認', session: 'ログインの確認', sesFind: '（うちログインの行を探す）' };
+    const PRE = { schema: '準備', roster: '名簿の確認', maint: '毎日の片づけ', flush: 'ほかの人の「送る」をシートに書く', expire: '届かない動画の確認', session: 'ログインの確認', sesFind: '（うちログインの行を探す）' };
     const IN = { wait: '順番待ち', read: '一覧を読む', ins: '動画の行を足す', day: '「実施した」を書く', log: '操作の記録' };
     const srvRows = (t) => {
       if (!t) return '<li class="muted">サーバーの内訳なし（サーバーが古い版）</li>';

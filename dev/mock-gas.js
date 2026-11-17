@@ -100,7 +100,7 @@ function create(opts) {
   // ---------- サービス ----------
   function propStore() {
     const props = {};
-    return { getProperty: (k) => (k in props ? props[k] : null), setProperty: (k, v) => { props[k] = String(v); }, deleteProperty: (k) => { delete props[k]; }, getProperties: () => Object.assign({}, props), _all: props };
+    return { getProperty: (k) => (k in props ? props[k] : null), setProperty: (k, v) => { if (String(v).length > 9000) throw new Error('プロパティの値が大きすぎます'); props[k] = String(v); }, deleteProperty: (k) => { delete props[k]; }, getProperties: () => Object.assign({}, props), setProperties: (o, del) => { if (del) Object.keys(props).forEach((k) => delete props[k]); Object.keys(o).forEach((k) => { if (String(o[k]).length > 9000) throw new Error('プロパティの値が大きすぎます'); props[k] = String(o[k]); }); }, _all: props };
   }
   function cacheStore() {
     const c = {};
