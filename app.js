@@ -3,7 +3,7 @@
   'use strict';
   const L = window.KLogic;
   const API = window.KINTORE_API;
-  const VERSION = '2.22.0-t5';
+  const VERSION = '2.22.0-t6';
   const WD = ['日', '月', '火', '水', '木', '金', '土'];
   const PERM = { admin: '管理者', manager: 'マネージャー', leader: 'FWリーダー', member: '一般部員', guest: '見るだけ' };
   const MODE = { leader: 'メニュー参加', self: '自主トレ' };
@@ -3314,28 +3314,57 @@
   async function camSend() {
     if (!CAM.blob || CAM.sending) return;
     CAM.sending = true;
+    let item;
     try {
       // token・device も入れておく（Service Worker が画面なしで送るときに使う）
-      const item = { at: CAM.at, mime: CAM.mime, buf: await CAM.blob.arrayBuffer(), thumb: CAM.thumb, code: S.data.clipCode, token: S.token || '', device: DEVICE };
+      item = { at: CAM.at, mime: CAM.mime, buf: await CAM.blob.arrayBuffer(), thumb: CAM.thumb, code: S.data.clipCode, token: S.token || '', device: DEVICE };
       await CLIPQ.put(item);
       qSet(qList().filter((x) => x.at !== item.at).concat([{ at: item.at }]).slice(-3));
     } finally { CAM.sending = false; }
     camClose();
+    const pend = markLocal(item);
+    const head = pend ? '届けています。取り消された日なので、スタッフが確認すると「実施した」になります。' : '今日は「実施した」にしました。';
     if (await bgSync()) {
       S.bgSync = true; S.clipSending = true; render();
-      toast('送っています。アプリを閉じても、電波があれば送ります');
+      toast(head + '動画はアプリを閉じても送ります');
       // 1分たっても Service Worker から返事が無ければ、画面から送る
       setTimeout(() => { if (S.clipSending && !clipRetrying && qList().length) { S.clipSending = false; retryClips(); } }, 60000);
     } else {
-      toast('送っています…');
+      render();
+      toast(head + '動画を送り終わるまで、アプリは閉じないでください');
       retryClips();
     }
+  }
+  /** 「送る」を押したらすぐ、このスマホの画面では「実施した」にしておく（サーバーの返事を待たない）。
+   *  送れない動画だったときは読み直して元に戻す。戻り値：取り消された日（確認待ちになる）なら true */
+  S.marked = {};
+  function markLocal(item) {
+    const m = me(); if (!m) return false;
+    const d = item.at.slice(0, 10), lid = 'local:' + item.at;
+    S.marked[item.at] = 1;
+    const list = S.data.clips || (S.data.clips = []);
+    const pend = list.some((c) => c.m === m.id && c.d === d && c.st === 'canceled');
+    if (!list.some((c) => c.id === lid)) list.unshift({ id: lid, m: m.id, d: d, at: item.at, st: pend ? 'pending' : 'ok', nv: 1, local: 1 });
+    if (item.thumb) S.clipThumb[lid] = item.thumb;
+    if (!pend) {
+      const day = S.data.records.filter((x) => x[1] === d);
+      if (!day.some((x) => x[0] === m.id && +x[2] === 1)) { replaceDay(d, day.filter((x) => x[0] !== m.id).concat([[m.id, d, 1, 0, m.id, m.id]])); setData(S.data); }
+    }
+    S.clipCache = {};
+    return pend;
+  }
+  /** 送れない動画だった：画面の仮の「実施した」をやめて、サーバーの内容で読み直す */
+  function unmarkLocal(at) {
+    if (S.data && S.data.clips) S.data.clips = S.data.clips.filter((c) => c.id !== 'local:' + at);
+    S.clipCache = {};
+    loadState().catch(() => {});
   }
   /** 送れたあとの画面（自分で送ったとき・Service Worker が送ったとき）
    *  stage：start（先に送った小さいデータが届いた＝「実施した」）／ video（動画も届いた） */
   function clipSentUI(item, r, stage) {
     if (r.records) { replaceDay(item.at.slice(0, 10), r.records); setData(S.data); }
-    const list = S.data.clips || (S.data.clips = []);
+    S.data.clips = (S.data.clips || []).filter((c) => c.id !== 'local:' + item.at); // 仮の行は、サーバーの行に置きかえる
+    const list = S.data.clips;
     if (r.clip) {
       const i = list.findIndex((c) => c.id === r.clip.id);
       if (i >= 0) list[i] = Object.assign({}, list[i], r.clip); else list.unshift(r.clip);
@@ -3345,9 +3374,9 @@
     if (r.clip && item.thumb) { S.clipThumb = S.clipThumb || {}; S.clipThumb[r.clip.id] = item.thumb; }
     const day = item.at.slice(0, 10) === S.data.today ? '今日' : mdw(item.at.slice(0, 10));
     if (stage === 'video') { toast('動画も送り終わりました'); return; }
-    if (r.again && stage === 'start') return;
-    toast(r.pending ? '届きました。取り消された日なので、スタッフが確認するまで待ちになります' :
-      day + 'は「実施した」になりました。' + (S.bgSync ? '動画はこのまま送ります' : '動画を送り終わるまで、アプリは閉じないでください'));
+    // 「実施した」は押したときに画面で出してあるので、ここでは言わない（前に開いたときの動画を送り直したときだけ言う）
+    if (r.again || S.marked[item.at]) return;
+    toast(r.pending ? '届きました。取り消された日なので、スタッフが確認するまで待ちになります' : day + 'は「実施した」になりました');
   }
   // Service Worker からの知らせ（送れた・送れない動画だった・電波待ち）
   if ('serviceWorker' in navigator) {
@@ -3357,7 +3386,7 @@
       qSet(qList().filter((x) => x.at !== d.at));
       if (d.clip === 'started') { clipSentUI({ at: d.at, thumb: d.thumb }, d.r || {}, 'start'); render(); return; }
       if (d.clip === 'sent') clipSentUI({ at: d.at, thumb: d.thumb }, d.r || {}, 'video');
-      else if (d.clip === 'dropped') toast(d.message || '送れない動画でした', 'err');
+      else if (d.clip === 'dropped') { toast(d.message || '送れない動画でした', 'err'); unmarkLocal(d.at); }
       else if (d.clip === 'wait') { qSet(qList().concat(qList().some((x) => x.at === d.at) ? [] : [{ at: d.at }])); }
       S.clipSending = false;
       render();
@@ -3384,7 +3413,7 @@
       clipSentUI(item, r, one ? 'start' : 'video');
       return 'sent';
     } catch (e) {
-      if (/^(bad_|too_|not_|forbidden)/.test(String(e.code || ''))) { toast(e.message, 'err'); return 'dropped'; }
+      if (/^(bad_|too_|not_|forbidden)/.test(String(e.code || ''))) { toast(e.message, 'err'); unmarkLocal(item.at); return 'dropped'; }
       return 'queued';
     }
   }
@@ -3477,10 +3506,12 @@
     const own = me() ? (S.data.clips || []).filter((c) => c.m === me().id && c.d === today && c.st !== 'canceled') : [];
     const mine = own.some((c) => c.st === 'ok'), wait = !mine && own.length > 0;
     const held = !mine && !wait && qList().some((x) => x.at.slice(0, 10) === today);
+    // 送っている途中の自分の動画（仮の行）も先頭に出す
+    const strip = (S.data.clips || []).filter((c) => c.local && c.d === today).concat(Array.isArray(list) ? list : []);
     const q = can('anyStaff') && S.data.clipQueue ? '<a class="banner warn" href="#clips/queue">' + icon('alert') + '<span>確認が要る動画が' + S.data.clipQueue + '本あります</span></a>' : '';
     return q + '<section class="block home-clips"><div class="block-h"><h2>今日の動画</h2><a class="more" href="#clips">すべて見る</a></div>' +
       (mePlayer() ? (mine ? '<p class="clip-done">' + icon('check') + '今日の1本は出しました' + (qList().some((x) => x.at.slice(0, 10) === today) ? '<small>' + (S.clipSending ? '<span class="spin"></span>動画を送っています…' : '動画はまだ送れていません') + '</small>' : '') + '</p>' : wait ? '<p class="clip-done wait">確認待ちです。スタッフが確認すると「実施した」になります</p>' : held ? '<p class="clip-done wait">' + (S.clipSending ? '<span class="spin"></span>今日の1本を送っています…' : '今日の1本はまだ送れていません。電波のよい所で「送る」を押してください') + '</p>' : '<button class="btn primary wide cam-cta" data-act="cam-open">' + icon('cam') + '今日の1本を撮る（' + CLIP_SEC + '秒）</button>') : '') +
-      (Array.isArray(list) && list.length ? '<div class="clip-strip">' + list.slice(0, 12).map((c) => clipCard(c)).join('') + '</div>' : Array.isArray(list) ? '<p class="empty small">まだだれも出していません。</p>' : '') + '</section>';
+      (strip.length ? '<div class="clip-strip">' + strip.slice(0, 12).map((c) => clipCard(c)).join('') + '</div>' : Array.isArray(list) ? '<p class="empty small">まだだれも出していません。</p>' : '') + '</section>';
   }
   /** 部員ページの動画（1か月） */
   function memberClips(id) {
@@ -3501,7 +3532,7 @@
     const m = me(), staff = can('anyStaff'), own = m && m.id === c.m;
     const name = memberName(c.m);
     const acts = [];
-    if (m && m.perm !== 'guest' && !own && c.st !== 'canceled') acts.push('<button class="btn' + (c.mine ? ' on' : '') + '" data-act="clip-flag" data-id="' + esc(c.id) + '" aria-pressed="' + !!c.mine + '">' + (c.mine ? '気になるを取り消す' : '気になる') + '</button>');
+    if (m && m.perm !== 'guest' && !own && c.st !== 'canceled' && !c.local) acts.push('<button class="btn' + (c.mine ? ' on' : '') + '" data-act="clip-flag" data-id="' + esc(c.id) + '" aria-pressed="' + !!c.mine + '">' + (c.mine ? '気になるを取り消す' : '気になる') + '</button>');
     if (staff && c.st !== 'canceled') {
       if (c.st === 'pending' || c.nf) acts.push('<button class="btn primary" data-act="clip-approve" data-id="' + esc(c.id) + '">' + (c.st === 'pending' ? '確認して「実施した」に' : '問題なし') + '</button>');
       acts.push('<button class="btn danger" data-act="clip-cancel-open" data-id="' + esc(c.id) + '">取り消す</button>');
@@ -3510,7 +3541,7 @@
       '<div class="clip-player"><video id="clip-v" playsinline muted loop autoplay' + (S.clipThumb[c.id] ? ' poster="data:image/jpeg;base64,' + S.clipThumb[c.id] + '"' : '') + '></video><p class="clip-load" id="clip-load"><span class="spin"></span>読み込んでいます…</p></div>' +
       (c.st === 'pending' ? '<p class="note">取り消された日に撮り直した動画です。スタッフが確認すると「実施した」になります。</p>' : '') +
       (c.st === 'canceled' ? '<p class="note err">取り消されました' + (c.why ? '（' + esc(c.why) + '）' : '') + '。</p>' : '') +
-      (c.st !== 'canceled' ? stampBar(c.m, 'c:' + c.id) : '') +
+      (c.st !== 'canceled' && !c.local ? stampBar(c.m, 'c:' + c.id) : '') +
       (acts.length ? '<div class="toolbar clip-acts">' + acts.join('') + '</div>' : '') +
       '<div class="clip-cancel" id="clip-cancel" hidden><form data-form="clipcancel" class="form"><input type="hidden" name="id" value="' + esc(c.id) + '">' +
       '<label>取り消す理由<span class="opt">本人に届きます（なくてもよい）</span><input name="reason" maxlength="80" placeholder="例：ジムで撮った動画ではない"></label>' +

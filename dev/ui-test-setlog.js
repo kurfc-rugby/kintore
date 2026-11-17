@@ -62,6 +62,7 @@ const shot = async (p, name) => { if (SHOT) { require('fs').mkdirSync(SHOT, { re
   const t0 = Date.now();
   await p.click('[data-act="cam-send"]'); await p.waitForSelector('.cam', { state: 'detached', timeout: 15000 }).catch(() => {});
   ok(Date.now() - t0 < 1500, '「送る」を押すとすぐ閉じる（送るのは裏で）');
+  ok(/今日の1本は出しました/.test(await p.locator('.home-clips').innerText()) && /「実施した」にしました/.test(await p.locator('#toast-root').innerText()), '押したらすぐ「実施した」（サーバーの返事を待たない）');
   ok(/送っています/.test(await p.locator('#main').innerText()), '送っている間は「送っています」と出る');
   await p.waitForFunction(() => !localStorage.getItem('kintoreTest.clipQueue'), null, { timeout: 15000 }).catch(() => {});
   await p.waitForTimeout(800);
@@ -139,7 +140,7 @@ const shot = async (p, name) => { if (SHOT) { require('fs').mkdirSync(SHOT, { re
   await p.click('.home-clips .cam-cta'); await p.waitForSelector('.cam'); await p.waitForTimeout(1200);
   await p.click('[data-act="cam-shoot"]'); await p.waitForSelector('[data-act="cam-send"]', { timeout: 8000 });
   await p.click('[data-act="cam-send"]'); await p.waitForTimeout(2500);
-  ok(/確認するまで待ち/.test(await p.locator('#toast-root').innerText().catch(() => '')), '撮り直しは「確認待ち」と出る');
+  ok(/スタッフが確認/.test(await p.locator('#toast-root').innerText().catch(() => '')), '撮り直しは「確認待ち」と出る');
 
   console.log('■ 送れないとき（電波なし）');
   ok(/確認待ちです/.test(await p.locator('.home-clips').innerText()), 'ホームに「確認待ちです」');
