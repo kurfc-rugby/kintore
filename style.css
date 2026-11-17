@@ -1515,3 +1515,7 @@ body.cam-open { overflow: hidden; }
 .times:first-of-type { border-top: 0; }
 .times p { margin: 6px 0 2px; }
 .times ul { margin: 0; padding-left: 1.2em; color: var(--muted, #555); }
+
+.qsw { display: flex; flex-direction: column; gap: 8px; }
+.qsw .btn { justify-content: flex-start; text-align: left; flex-wrap: wrap; gap: 2px 10px; min-height: 48px; }
+.qsw .btn small { font-weight: 400; opacity: .8; }

@@ -88,6 +88,14 @@ const shot = async (p, name) => { if (SHOT) { require('fs').mkdirSync(SHOT, { re
   ok(/下書き/.test(tb) && /送っていません/.test(tb), '撮ってすぐ下書きを送り、「送る」のあとは動画を送らない');
   ok(/撮り終わり/.test(tb) && /「送る」を押した/.test(tb) && /完了/.test(tb), 'スマホ側の流れ（撮り終わりから完了まで）が出る');
   await shot(p, '06b-times');
+  ok(await p.locator('[data-act="clip-q"]').count() === 3 && /撮る画質/.test(await p.locator('#main').innerText()), '設定に「撮る画質」の切りかえ（テスト環境だけ・3つ）');
+  await p.click('[data-act="clip-q"][data-q="fhd"]'); await p.waitForTimeout(300);
+  await p.click('.nav .shoot'); await p.waitForSelector('.cam'); await p.waitForTimeout(800);
+  const cv2 = await p.evaluate(() => { const c = document.getElementById('cam-canvas'); return c.width + 'x' + c.height; });
+  ok(cv2 === '1080x1440', '1080p にすると、撮る大きさが 1080×1440 になる（' + cv2 + '）');
+  await p.click('[data-act="cam-close"]'); await p.waitForSelector('.cam', { state: 'detached', timeout: 3000 });
+  await p.evaluate(() => { location.hash = '#settings'; }); await p.waitForTimeout(400);
+  await p.click('[data-act="clip-q"][data-q="std"]'); await p.waitForTimeout(300);
   await p.evaluate(() => { location.hash = ''; }); await p.waitForTimeout(500);
 
   console.log('■ 別の部員が見る・気になる');

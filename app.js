@@ -3,7 +3,7 @@
   'use strict';
   const L = window.KLogic;
   const API = window.KINTORE_API;
-  const VERSION = '2.22.0-t20';
+  const VERSION = '2.22.0-t21';
   const WD = ['日', '月', '火', '水', '木', '金', '土'];
   const PERM = { admin: '管理者', manager: 'マネージャー', leader: 'FWリーダー', member: '一般部員', guest: '見るだけ' };
   const MODE = { leader: 'メニュー参加', self: '自主トレ' };
@@ -3120,9 +3120,16 @@
 
   // ---- 撮る（アプリの中のカメラだけ。音なし2秒。日時と今日の数字を動画に入れる） ----
   const CAM = { stream: null, facing: 'environment', raf: 0, rec: null, blob: null, url: '', thumb: '', at: '', mime: '', busy: false };
-  const CLIP_SEC = 2, CW = 720, CH = 960; // 縦3:横4。スマホのカメラ（4:3）をほぼ切らずに使える
-  const CU = CW / 360; // 文字や帯は幅360のつもりで描いて、この倍率で大きくする
-  const CLIP_BPS = 1500000; // 2秒でおよそ0.35MB
+  const CLIP_SEC = 2;
+  // 画質。縦3:横4（スマホのカメラ（4:3）をほぼ切らずに使える）。テスト環境だけ、設定で切りかえて見比べられる
+  const CLIP_Q = {
+    std: { w: 720, h: 960, bps: 1500000, cam: [1280, 960], label: '今のまま', spec: '720×960・1.5Mbps' },
+    hi: { w: 720, h: 960, bps: 2500000, cam: [1280, 960], label: 'ビットレートだけ上げる', spec: '720×960・2.5Mbps' },
+    fhd: { w: 1080, h: 1440, bps: 3500000, cam: [1920, 1440], label: '1080p', spec: '1080×1440・3.5Mbps' }
+  };
+  const clipQ = () => { const k = isTestSite() ? store.get('clipQ', 'std') : 'std'; return CLIP_Q[k] ? k : 'std'; };
+  let CW = 720, CH = 960, CU = 2, CLIP_BPS = 1500000, CAM_IDEAL = [1280, 960]; // CU：文字や帯は幅360のつもりで描いて、この倍率で大きくする
+  function applyClipQ() { const q = CLIP_Q[clipQ()]; CW = q.w; CH = q.h; CU = CW / 360; CLIP_BPS = q.bps; CAM_IDEAL = q.cam; }
   function pickMime() {
     if (typeof MediaRecorder === 'undefined') return '';
     const list = ['video/mp4;codecs=avc1', 'video/mp4', 'video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm'];
@@ -3136,6 +3143,7 @@
       toast('このブラウザでは撮影できません。iPhone は Safari、Android は Chrome の新しい版で開いてください', 'err'); return;
     }
     camMeterStop();
+    applyClipQ();
     CAM.blob = null; CAM.thumb = ''; CAM.at = '';
     // 撮っている間にサーバーを起こしておく（ログインの確認も済ませておく）→「送る」が速くなる
     api('ping').catch(() => {});
@@ -3166,7 +3174,7 @@
     const v = $('#cam-v');
     try {
       // 4:3 で頼むと、センターの全体を使うので画角が広くなる（16:9 だと上下が切られて近く見える）
-      CAM.stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: CAM.facing, width: { ideal: 1280 }, height: { ideal: 960 } }, audio: false });
+      CAM.stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: CAM.facing, width: { ideal: CAM_IDEAL[0] }, height: { ideal: CAM_IDEAL[1] } }, audio: false });
     } catch (e) {
       camMsg('カメラを使えませんでした。ブラウザの設定でカメラを許可してください。');
       return;
@@ -3368,6 +3376,7 @@
   async function camSend() {
     if (!CAM.blob || CAM.sending) return;
     tlMark(CAM.at, 'press');
+    S.qAt = S.qAt || {}; S.qAt[CAM.at] = clipQ();
     CAM.sending = true;
     let item;
     try {
@@ -3494,6 +3503,7 @@
     if (!isTestSite()) return;
     if (tm.at && S.tl[tm.at]) tm.tl = Object.assign({}, S.tl[tm.at], { done: S.tl[tm.at].done || Date.now() });
     if (tm.at && S.draftTimes[tm.at] && !tm.draft) tm.draft = S.draftTimes[tm.at];
+    if (!tm.q && S.qAt && S.qAt[tm.at]) tm.q = S.qAt[tm.at];
     store.set('clipTimes', [tm].concat(store.get('clipTimes', [])).slice(0, 5));
   }
   function timesBlock() {
@@ -3520,13 +3530,20 @@
     };
     const one = (tm) => {
       const a = srvSum(tm.startSrv), b = srvSum(tm.uploadSrv);
-      return '<div class="times"><b>' + esc((tm.at || '').slice(5, 16).replace('-', '/')) + '（' + esc(tm.by || '') + 'から・' + (tm.kb || '?') + 'KB）</b>' + flow(tm.tl) +
+      const q = CLIP_Q[tm.q];
+      return '<div class="times"><b>' + esc((tm.at || '').slice(5, 16).replace('-', '/')) + '（' + esc(tm.by || '') + 'から・' + (tm.kb || '?') + 'KB）</b>' +
+        (q ? '<p>画質：' + esc(q.label + '（' + q.spec + '）') + '</p>' : '') + flow(tm.tl) +
         (tm.start != null ? '<p>① 先に送る（「実施した」）：往復 ' + sec(tm.start) + '＝サーバー ' + sec(a) + '＋通信やGoogleの起動など ' + (a != null ? sec(tm.start - a) : '—') + '</p><ul>' + srvRows(tm.startSrv) + '</ul>' : '') +
         (tm.draft ? '<p>⓪ 下書き（撮り終わってすぐ・「送る」の前）：往復 ' + sec(tm.draft.ms) + '＝サーバー ' + sec(srvSum(tm.draft.t)) + '＋通信など ' + (tm.draft.t ? sec(tm.draft.ms - srvSum(tm.draft.t)) : '—') + '</p><ul>' + srvRows(tm.draft.t) + '</ul>' : '') +
         (tm.skip ? '<p>② 動画：下書きで届いていたので、「送る」のあとは送っていません</p>' :
         '<p>② 動画：スマホで変換 ' + sec(tm.prep) + '、往復 ' + sec(tm.upload) + '＝サーバー ' + sec(b) + '＋通信やGoogleの起動など ' + (b != null ? sec(tm.upload - b) : '—') + '</p><ul>' + srvRows(tm.uploadSrv) + '</ul>') + '</div>';
     };
-    return '<section class="block"><div class="block-h"><h2>送った時間の内訳</h2><span class="count">テスト環境だけ</span></div>' +
+    const cur = clipQ();
+    const qsw = '<section class="block"><div class="block-h"><h2>撮る画質</h2><span class="count">テスト環境だけ</span></div>' +
+      '<p class="small muted">切りかえると、次に撮る動画から変わります。撮って見え方と送った時間を比べてください。</p><div class="qsw">' +
+      Object.keys(CLIP_Q).map((k) => '<button class="btn small' + (k === cur ? ' primary' : '') + '" data-act="clip-q" data-q="' + k + '" aria-pressed="' + (k === cur) + '">' +
+        esc(CLIP_Q[k].label) + '<small>' + esc(CLIP_Q[k].spec) + '</small></button>').join('') + '</div></section>';
+    return qsw + '<section class="block"><div class="block-h"><h2>送った時間の内訳</h2><span class="count">テスト環境だけ</span></div>' +
       (l.length ? l.map(one).join('') : '<p class="empty small">まだありません。動画を送るとここに出ます。</p>') + '</section>';
   }
   /** 送れたあとの画面（自分で送ったとき・Service Worker が送ったとき）
@@ -4241,6 +4258,7 @@
     'cam-retake': () => { dropDraft(CAM.at); CAM.blob = null; const pv = $('#cam-preview'); if (pv) { pv.pause(); pv.hidden = true; } $('#cam-canvas').hidden = false; $('#cam-bottom').innerHTML = camButtons('ready'); camStart(); },
     'cam-send': (el) => busy(el, camSend),
     'clip-retry': (el) => busy(el, () => retryClips(true)),
+    'clip-q': (el) => { const k = el.dataset.q; if (!CLIP_Q[k]) return; store.set('clipQ', k); render(); toast('画質を「' + CLIP_Q[k].label + '」にしました。次に撮る動画から変わります'); },
     'clip-drop': () => { if (!confirm('送れていない動画を捨てますか？（その日の「実施した」は付きません）')) return; store.del('clipQueue'); CLIPQ.clear(); render(); },
     'clips-tab': (el) => { location.hash = el.dataset.v === 'queue' ? '#clips/queue' : '#clips'; },
     'clip-day': (el) => { const d = L.addDays(S.clipDay || S.data.today, +el.dataset.v); if (d > S.data.today) return; S.clipDay = d; vt(render, +el.dataset.v < 0 ? 'prev' : 'next'); },
