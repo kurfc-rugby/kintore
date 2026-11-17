@@ -1032,7 +1032,7 @@ function computeTargets_(date, group, positions, hist) {
 function menuPositions_(w) { return w.positions ? w.positions.split(',').filter(Boolean) : []; }
 function targetMap_(date) {
   const map = {};
-  table_('menus').rows.forEach(function (w) {
+  rowsWhere_('menus', 'date', date).forEach(function (w) { // その日のメニューだけ読む
     if (w.deletedAt || w.date !== date) return;
     w.targets.split(',').forEach(function (id) { if (id) (map[id] = map[id] || []).push(w.id); });
   });
@@ -3538,7 +3538,7 @@ function clipAddRow_(me, k, thumb, file, bytes, T, draft) {
   let recorded = false;
   if (!canceledDay) { const r = saveDay_(me, k.date, [{ memberId: me.id, done: true }]); recorded = r.saved + r.updated > 0 || r.unchanged > 0; }
   lap('day');
-  log_(me, '動画を出した', k.m.name + ' ' + k.date + (canceledDay ? '（確認待ち）' : ''));
+  if (canceledDay) log_(me, '動画を出した', k.m.name + ' ' + k.date + '（確認待ち）'); // 「実施した」にしたときは、記録の追加の履歴が残るので書かない
   const out = { ok: true, clip: clipWire_(c, me), recorded: recorded, pending: canceledDay, records: recordsWire_(k.date, k.date) };
   lap('log');
   return out;

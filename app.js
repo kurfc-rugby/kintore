@@ -3,7 +3,7 @@
   'use strict';
   const L = window.KLogic;
   const API = window.KINTORE_API;
-  const VERSION = '2.22.0-t9';
+  const VERSION = '2.22.0-t10';
   const WD = ['日', '月', '火', '水', '木', '金', '土'];
   const PERM = { admin: '管理者', manager: 'マネージャー', leader: 'FWリーダー', member: '一般部員', guest: '見るだけ' };
   const MODE = { leader: 'メニュー参加', self: '自主トレ' };
@@ -111,7 +111,12 @@
     let reloaded = false;
     navigator.serviceWorker.addEventListener('controllerchange', () => { if (PWA.waiting && !reloaded) { reloaded = true; location.reload(); } });
   }
+  // 開いた直後（まだ何も触っていない・送っている途中でない）なら、新しい版にすぐ切りかえる（裏で送る係も新しくなる）
+  const BOOT_AT = Date.now();
+  let touched = false;
+  ['pointerdown', 'keydown'].forEach((t) => window.addEventListener(t, () => { touched = true; }, { once: true, capture: true }));
   function showUpdate() {
+    if (PWA.waiting && !touched && Date.now() - BOOT_AT < 8000 && !(store.get('clipQueue', []) || []).length) { PWA.waiting.postMessage('skipWaiting'); return; }
     if ($('#update-bar')) return;
     const el = document.createElement('div');
     el.id = 'update-bar'; el.className = 'update-bar'; el.setAttribute('role', 'status');
