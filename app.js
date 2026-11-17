@@ -3,7 +3,7 @@
   'use strict';
   const L = window.KLogic;
   const API = window.KINTORE_API;
-  const VERSION = '2.22.0-t22';
+  const VERSION = '2.22.0-t23';
   const WD = ['日', '月', '火', '水', '木', '金', '土'];
   const PERM = { admin: '管理者', manager: 'マネージャー', leader: 'FWリーダー', member: '一般部員', guest: '見るだけ' };
   const MODE = { leader: 'メニュー参加', self: '自主トレ' };
@@ -3307,8 +3307,7 @@
   S.draftRes = {};
   async function noteDraft(at, res) {
     S.draftRes[at] = res;
-    const it = await CLIPQ.get(at);
-    if (it) { it.draftRes = res; await CLIPQ.put(it); }
+    await CLIPQ.patch(at, (it) => Object.assign(it, { draftRes: res }));
     // 裏で送る係（Service Worker）が待っていれば、すぐ知らせる（0.3秒ごとに見に来るのを待たない）
     try { if (navigator.serviceWorker && navigator.serviceWorker.controller) navigator.serviceWorker.controller.postMessage({ draftRes: res, at: at }); } catch (e) { /* noop */ }
     camMeterTick();
@@ -3349,6 +3348,11 @@
     },
     // ふだんは IndexedDB だけを見る（Service Worker も同じ場所を読み書きする）。使えない端末だけメモリに置く
     async put(item) { if (!await this.open()) { this.mem[item.at] = item; return; } await this.run('readwrite', (st) => st.put(item)); },
+    /** 1つの取引の中で読んで書く（Service Worker が同じ動画を書きかえていても、取り違えない） */
+    async patch(at, fn) {
+      if (!await this.open()) { if (this.mem[at]) this.mem[at] = fn(this.mem[at]); return; }
+      await this.run('readwrite', (st) => { const g = st.get(at); g.onsuccess = () => { if (g.result) st.put(fn(g.result)); }; return null; });
+    },
     async get(at) { if (!await this.open()) return this.mem[at] || null; return (await this.run('readonly', (st) => st.get(at))) || null; },
     async del(at) { delete this.mem[at]; if (await this.open()) await this.run('readwrite', (st) => st.delete(at)); },
     async keys() { if (!await this.open()) return Object.keys(this.mem); return (await this.run('readonly', (st) => st.getAllKeys())) || []; },
@@ -3596,9 +3600,9 @@
         if (r0) {
           tlMark(item.at, 'started');
           item.started = true; item.startClip = r0.clip || null;
-          { const cur0 = await CLIPQ.get(item.at); if (cur0 && cur0.draftRes) item.draftRes = cur0.draftRes; } // 下書きの結果を消さない
           if (S.draftRes[item.at]) item.draftRes = S.draftRes[item.at];
-          await CLIPQ.put(item);
+          // 下書きの結果（draftRes）を消さないよう、1つの取引の中で読んでから書く
+          await CLIPQ.patch(item.at, (cur) => Object.assign(cur, { started: true, startClip: item.startClip, draftRes: cur.draftRes || item.draftRes || '' }));
           clipSentUI(item, r0, 'start');
           render();
         }

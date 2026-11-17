@@ -6,7 +6,7 @@
  *  通知（push）… 中身は来ないので、サーバー（pushInbox）に取りに行って表示する
  *  動画（Background Sync・Android）… 画面を閉じても、端末にしまった動画をサーバーに送る
  * 版を上げるときは VERSION と、index.html の ?v= を一緒に変える。 */
-const VERSION = '2.22.0-t22';
+const VERSION = '2.22.0-t23';
 try { importScripts('config.js?v=' + VERSION); } catch (e) { /* 読めなくても画面はしまっておいたもので動く */ }
 // テスト環境（KINTORE_STORE = 'kintoreTest'）は、本番としまう場所の名前を分ける（同じ github.io の中なので）
 const CPREFIX = (self.KINTORE_STORE || 'kintore') + '-';
@@ -24,11 +24,11 @@ self.addEventListener('activate', (e) => {
     .then(() => self.clients.claim()));
 });
 // 画面からの知らせ：skipWaiting／下書きの結果（待っている送る係をすぐ起こす）
-const DRAFT_WAIT = {};
+const DRAFT_WAIT = {}, DRAFT_SEEN = {};
 self.addEventListener('message', (e) => {
   const d = e.data;
   if (d === 'skipWaiting') { self.skipWaiting(); return; }
-  if (d && d.draftRes && d.at && DRAFT_WAIT[d.at]) DRAFT_WAIT[d.at]();
+  if (d && d.draftRes && d.at) { DRAFT_SEEN[d.at] = d.draftRes; if (DRAFT_WAIT[d.at]) DRAFT_WAIT[d.at](); } // 待つ前に届いた知らせも覚えておく
 });
 
 function fromCacheFirst(req) {
@@ -163,10 +163,12 @@ async function sendClips() {
       if (j && j.error === 'unknown_op') { it.started = true; j = null; } // サーバーが古い：動画といっしょに1回で送る
       else if (j && j.ok) {
         it.started = true;
-        // 画面がこの間に書いた下書きの結果（draftRes）を消さないよう、しまい直す前に読み直す
-        const cur0 = await clipTx(db, 'readonly', (st) => st.get(it.at));
-        if (cur0 && cur0.draftRes) it.draftRes = cur0.draftRes;
-        await clipTx(db, 'readwrite', (st) => st.put(it));
+        // 画面がこの間に書いた下書きの結果（draftRes）を消さないよう、1つの取引の中で読んでから書く
+        await clipTx(db, 'readwrite', (st) => {
+          const g = st.get(it.at);
+          g.onsuccess = () => { if (g.result) { if (g.result.draftRes) it.draftRes = g.result.draftRes; st.put(Object.assign(g.result, { started: true })); } };
+          return null;
+        });
         await clipTell({ clip: 'started', at: it.at, thumb: it.thumb, r: j }, null);
       }
     }
@@ -174,13 +176,13 @@ async function sendClips() {
     let have = !!(j && j.ok && j.clip && j.clip.nv === 0);
     if (!have && it.started && it.drafting) {
       // 画面が下書きの結果を書いてくれるのを待つ（0.3秒ごとに見る。最大15秒）
-      let res = it.draftRes || '';
+      let res = it.draftRes || DRAFT_SEEN[it.at] || '';
       for (let i = 0; i < 50 && !res; i++) {
         // 0.3秒ごとに見る。画面が「結果を書いた」と知らせてくれたら、すぐ見る
         await new Promise((ok) => { const t = setTimeout(ok, 300); DRAFT_WAIT[it.at] = () => { clearTimeout(t); ok(); }; });
         delete DRAFT_WAIT[it.at];
         const cur = await clipTx(db, 'readonly', (st) => st.get(it.at));
-        res = (cur && cur.draftRes) || '';
+        res = (cur && cur.draftRes) || DRAFT_SEEN[it.at] || '';
       }
       if (res === 'have') { // 下書きの動画が、出した行についた
         have = true;

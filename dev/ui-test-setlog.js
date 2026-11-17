@@ -180,6 +180,16 @@ const shot = async (p, name) => { if (SHOT) { require('fs').mkdirSync(SHOT, { re
   console.log('    ', 'press@' + (tPress % 100000), seen.slice(0, 12).join(''), ops.join(','));
   ok(took > 0 && took < 7000, '「送る」から送り終わりまで7秒以内（' + (took / 1000).toFixed(1) + '秒）');
   ok(ops.filter((o) => /^clipStart/.test(o)).length === 1 && !ops.some((o) => /^clipUpload/.test(o)), '①は1回だけ、動画は送り直さない');
+  for (const [dd, ss] of [[-1100, 1200], [-1300, 1300], [-900, 1100]]) {
+    await b2.evaluate((q) => fetch('/__delay?' + q + '&' + Date.now()), 'clipDraft=' + dd + '&clipStart=' + ss);
+    await b2.click('.nav .shoot'); await b2.waitForSelector('.cam'); await b2.waitForTimeout(1200);
+    await b2.click('[data-act="cam-shoot"]'); await b2.waitForSelector('[data-act="cam-send"]', { timeout: 8000 });
+    const tp = Date.now();
+    await b2.click('[data-act="cam-send"]'); await b2.waitForSelector('#cam-meter', { timeout: 3000 });
+    await b2.waitForSelector('.cam', { state: 'detached', timeout: 20000 }).catch(() => {});
+    const took2 = Date.now() - tp;
+    ok(took2 < 6000, '下書きと①の返事がほぼ同時でも、すぐ送り終わる（下書き' + dd + '・①' + ss + '：' + (took2 / 1000).toFixed(1) + '秒）');
+  }
   await b2.evaluate(() => fetch('/__delay?' + Date.now()));
   await b.c.close();
 
