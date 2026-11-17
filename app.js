@@ -3,7 +3,7 @@
   'use strict';
   const L = window.KLogic;
   const API = window.KINTORE_API;
-  const VERSION = '2.22.0-t14';
+  const VERSION = '2.22.0-t15';
   const WD = ['日', '月', '火', '水', '木', '金', '土'];
   const PERM = { admin: '管理者', manager: 'マネージャー', leader: 'FWリーダー', member: '一般部員', guest: '見るだけ' };
   const MODE = { leader: 'メニュー参加', self: '自主トレ' };
@@ -3286,7 +3286,7 @@
         const r = await api('clipDraft', { mime: mime, data: data, thumb: thumb, recordedAt: at, code: code });
         tlMark(at, 'dDone');
         S.draftTimes[at] = { ms: Date.now() - t0, t: r.t || null, kb: Math.round(blob.size / 1024) };
-        noteDraft(at, r.attached || r.again ? 'have' : 'draft');
+        noteDraft(at, r.saved || r.attached || r.again ? 'have' : 'draft'); // saved：サーバーが動画を置いた（行につけるのはサーバーがあとでする）
         return true;
       } catch (e) { tlMark(at, 'dFail'); noteDraft(at, 'fail'); return false; }
     })();

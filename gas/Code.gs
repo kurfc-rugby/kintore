@@ -152,7 +152,7 @@ function handle_(req) {
     ensureSchema_(); plap('schema');
     syncRoster_(); plap('roster');
     maintFromRequest_(); plap('maint');
-    if (setlogOn_()) { expireClipsMaybe_(); plap('expire'); }
+    if (setlogOn_()) { attachPendingMaybe_(); expireClipsMaybe_(); plap('expire'); }
     const ctx = { req: req, me: null, view: false };
     resolveSession_(ctx); plap('session');
     const op = String(req.op || '');
@@ -3472,7 +3472,7 @@ function clipCode_(date) {
 function clipWire_(c, me) {
   const staff = !!(me && STAFF[me.perm]);
   const flags = clipFlags_(c);
-  return { id: c.id, m: c.memberId, d: c.date, at: c.recordedAt, st: c.status, gone: !!c.deletedAt, nv: !c.fileId && !c.deletedAt ? 1 : 0,
+  return { id: c.id, m: c.memberId, d: c.date, at: c.recordedAt, st: c.status, gone: !!c.deletedAt, nv: !c.fileId && !c.deletedAt && !pendGet_(c.memberId, c.recordedAt) ? 1 : 0,
     nf: staff ? flags.length : undefined, mine: !!(me && flags.indexOf(me.id) >= 0), why: (staff || (me && me.id === c.memberId)) ? (c.reason || '') : '' };
 }
 function clipFlags_(c) { try { const a = JSON.parse(c.flags || '[]'); return Array.isArray(a) ? a : []; } catch (x) { return []; } }
@@ -3523,6 +3523,60 @@ const findClip_ = function (memberId, at) {
   const l = clipRowsFor_(memberId, at);
   return l.filter(function (c) { return c.status !== 'draft'; })[0] || l[0] || null;
 };
+/** 下書きで届いた動画のメモ（スクリプトのプロパティ「CP:部員ID|撮影時刻」）。
+ *  下書きは、ドライブに置いたらここに書いてすぐ返事をする（シートの書き込みと順番待ちをしない）。
+ *  シートの行につけるのは、「送る」が来たとき、またはあとでまとめて（attachPendingMaybe_）。それまでも一覧・再生はこのメモを見る */
+const PEND_PREFIX = 'CP:';
+function pendAll_() {
+  if (REQ_ && REQ_.pend) return REQ_.pend;
+  const all = PropertiesService.getScriptProperties().getProperties(), out = {};
+  Object.keys(all).forEach(function (k) { if (k.indexOf(PEND_PREFIX) === 0) { try { out[k.slice(PEND_PREFIX.length)] = JSON.parse(all[k]); } catch (x) { /* 壊れたメモは無視 */ } } });
+  if (REQ_) REQ_.pend = out;
+  return out;
+}
+function pendGet_(memberId, at) { return pendAll_()[memberId + '|' + at] || null; }
+function pendSet_(memberId, at, v) {
+  PropertiesService.getScriptProperties().setProperty(PEND_PREFIX + memberId + '|' + at, JSON.stringify(v));
+  if (REQ_ && REQ_.pend) REQ_.pend[memberId + '|' + at] = v;
+}
+function pendDel_(memberId, at) {
+  PropertiesService.getScriptProperties().deleteProperty(PEND_PREFIX + memberId + '|' + at);
+  if (REQ_ && REQ_.pend) delete REQ_.pend[memberId + '|' + at];
+}
+/** 行に動画が無く、メモにあればつける（ロックの中で呼ぶ）。つけたら true */
+function attachPend_(c) {
+  if (!c || c.fileId || c.status === 'draft') return false;
+  const p = pendGet_(c.memberId, c.recordedAt);
+  if (!p) return false;
+  c.fileId = p.f; c.mime = p.m; c.size = String(p.s); c.uploadedAt = p.t;
+  update_('clips', c);
+  pendDel_(c.memberId, c.recordedAt);
+  return true;
+}
+/** メモの動画をシートの行にまとめてつける。行が無いまま1時間たったメモ（撮ったけど出さなかった）は動画ごと消す。30秒に1回まで */
+function attachPendingMaybe_() {
+  try {
+    const keys = Object.keys(pendAll_());
+    if (!keys.length) return 0;
+    const c = CacheService.getScriptCache();
+    if (c.get('k:pend')) return 0;
+    c.put('k:pend', '1', 30);
+    return withLock_(function () {
+      REQ_.pend = null;
+      const pend = pendAll_(), lim = nowPlusMin_(-60);
+      let n = 0;
+      Object.keys(pend).forEach(function (key) {
+        const i = key.indexOf('|'), mid = key.slice(0, i), at = key.slice(i + 1), p = pend[key];
+        const row = findClip_(mid, at);
+        if (row && row.status !== 'draft' && !row.fileId) { attachPend_(row); n++; return; }
+        if (row && row.fileId && row.fileId !== p.f) { try { DriveApp.getFileById(p.f).setTrashed(true); } catch (x) { /* noop */ } pendDel_(mid, at); return; }
+        if (row && row.fileId === p.f) { pendDel_(mid, at); return; }
+        if (!row && p.t < lim) { try { DriveApp.getFileById(p.f).setTrashed(true); } catch (x) { /* noop */ } pendDel_(mid, at); }
+      });
+      return n;
+    }, { keepRoster: true });
+  } catch (x) { console.error(x); return 0; }
+}
 /** 同じ動画の行が2つできてしまったとき（「送る」と下書きがほぼ同時に着いたとき）に1つにまとめる。ロックの中で呼ぶ。
  *  下書きの動画を、出した行（「実施した」の行）につけて、下書きの行は消す（動画のファイルは残す） */
 function healClip_(memberId, at) {
@@ -3596,8 +3650,12 @@ function opClipStart_(ctx) {
   const res = withLock_(function () {
     T.wait = Date.now() - t3;
     const d2 = healClip_(me.id, k.at);
-    if (d2 && d2.status !== 'draft') return { ok: true, clip: clipWire_(d2, me), again: true, records: recordsWire_(k.date, k.date) };
-    return clipAddRow_(me, k, d2 ? '' : thumb, null, null, T, d2);
+    if (d2 && d2.status !== 'draft') { attachPend_(d2); return { ok: true, clip: clipWire_(d2, me), again: true, records: recordsWire_(k.date, k.date) }; }
+    const out = clipAddRow_(me, k, d2 ? '' : thumb, null, null, T, d2);
+    // 下書きの動画がもう届いていれば（メモがあれば）、作った行にすぐつける
+    const row = findClip_(me.id, k.at);
+    if (attachPend_(row)) out.clip = clipWire_(row, me);
+    return out;
   }, { keepRoster: true });
   T.save = Date.now() - t3;
   clipTimesSave_(T);
@@ -3613,6 +3671,15 @@ function opClipUpload_(ctx) {
   try { bytes = Utilities.base64Decode(String(ctx.req.data || '')); } catch (x) { throw err_('bad_data', '動画を読み取れませんでした。'); }
   if (!bytes.length || bytes.length > CLIP_MAX_BYTES) throw err_('too_big', '動画が大きすぎます（2MBまで）。');
   // 同じ動画を送り直したとき（電波が切れて返事が届かなかったなど）は、前のものを返す
+  // 下書きの動画がもう届いている（メモがある）：送られた分は使わず、出す／つける
+  if (pendGet_(me.id, k.at)) {
+    return withLock_(function () {
+      let c = healClip_(me.id, k.at);
+      if (!c || c.status === 'draft') { const o = clipAddRow_(me, k, clipThumbArg_(ctx), null, null, null, c && c.status === 'draft' ? c : null); c = findClip_(me.id, k.at); attachPend_(c); o.clip = clipWire_(c, me); o.again = true; return o; }
+      attachPend_(c);
+      return { ok: true, clip: clipWire_(c, me), again: true };
+    }, { keepRoster: true });
+  }
   // 行が2つできていたら（下書きに動画がある）まとめる。動画はもう届いているので送られた分は使わない
   if (needHeal_(me.id, k.at)) {
     return withLock_(function () { const c = healClip_(me.id, k.at); return { ok: true, clip: clipWire_(c, me), again: true }; }, { keepRoster: true });
@@ -3661,38 +3728,26 @@ function opClipDraft_(ctx) {
   let bytes;
   try { bytes = Utilities.base64Decode(String(ctx.req.data || '')); } catch (x) { throw err_('bad_data', '動画を読み取れませんでした。'); }
   if (!bytes.length || bytes.length > CLIP_MAX_BYTES) throw err_('too_big', '動画が大きすぎます（2MBまで）。');
-  const thumb = clipThumbArg_(ctx);
   const dup = findClip_(me.id, k.at);
-  if (dup && dup.fileId) return { ok: true, clip: dup.status === 'draft' ? null : clipWire_(dup, me), again: true };
+  if ((dup && dup.fileId) || pendGet_(me.id, k.at)) return { ok: true, again: true, saved: true };
   T.check = Date.now() - t1;
   const t2 = Date.now();
   const file = clipFolder_().createFile(Utilities.newBlob(bytes, k.mime, me.id + '_' + k.at.replace(/[^0-9]/g, '') + '.' + CLIP_MIMES[k.mime]));
   T.drive = Date.now() - t2;
+  // シートには書かない（順番待ちをしない）。メモに書いてすぐ返事
   const t3 = Date.now();
-  const res = withLock_(function () {
-    const c = healClip_(me.id, k.at);
-    if (c && c.fileId) { try { file.setTrashed(true); } catch (x) { /* noop */ } return { ok: true, clip: c.status === 'draft' ? null : clipWire_(c, me), again: true }; }
-    const now = now_();
-    if (c) {
-      // 「送る」が先に着いていた：その行に動画をつける
-      c.fileId = file.getId(); c.mime = k.mime; c.size = String(bytes.length); c.uploadedAt = now;
-      update_('clips', c);
-      return { ok: true, clip: clipWire_(c, me), attached: true };
-    }
-    const d = { id: 'C' + Utilities.getUuid().replace(/-/g, '').slice(0, 12), memberId: me.id, date: k.date, recordedAt: k.at, uploadedAt: now, fileId: file.getId(),
-      mime: k.mime, size: String(bytes.length), code: String(clipCode_(k.date)), status: 'draft', flags: '[]', canceledBy: '', canceledAt: '', reason: '', checkedBy: '', deletedAt: '' };
-    insert_('clips', [d]);
-    insert_('clipThumbs', [{ id: d.id, thumb: thumb }]);
-    return { ok: true, draft: true };
-  }, { keepRoster: true });
+  pendSet_(me.id, k.at, { f: file.getId(), m: k.mime, s: bytes.length, t: now_() });
   T.save = Date.now() - t3; T.kb = Math.round(bytes.length / 1024);
   clipTimesSave_(T);
+  const res = { ok: true, saved: true };
   if (isTestEnv_()) res.t = T;
   return res;
 }
 function opClipDraftDrop_(ctx) {
   const me = requireRole_(ctx, ['admin', 'manager', 'leader', 'member']);
   const at = String(ctx.req.recordedAt || '');
+  const p = pendGet_(me.id, at);
+  if (p && !findClip_(me.id, at)) { try { DriveApp.getFileById(p.f).setTrashed(true); } catch (x) { /* noop */ } pendDel_(me.id, at); return { ok: true }; }
   const c = findClip_(me.id, at);
   if (!c || c.status !== 'draft') return { ok: true, none: true };
   return withLock_(function () { dropDrafts_([findClip_(me.id, at)].filter(function (x) { return x && x.status === 'draft'; })); return { ok: true }; }, { keepRoster: true });
@@ -3723,7 +3778,7 @@ function expireClips_() {
     withLock_(function () { dropDrafts_(table_('clips').rows.filter(function (c) { return c.status === 'draft' && c.uploadedAt < dlim; })); }, { keepRoster: true });
   }
   const limit = nowPlusMin_(-(CLIP_LATE_HOURS + 1) * 60); // 送り直しの時間（24時間）＋少しの余裕
-  const late = function (c) { return !c.fileId && !c.deletedAt && c.status !== 'canceled' && c.status !== 'draft' && c.recordedAt < limit; };
+  const late = function (c) { return !c.fileId && !pendGet_(c.memberId, c.recordedAt) && !c.deletedAt && c.status !== 'canceled' && c.status !== 'draft' && c.recordedAt < limit; };
   if (!table_('clips').rows.some(late)) return 0;
   const sys = { id: 'system', name: '自動', perm: 'admin' };
   const done = withLock_(function () {
@@ -3810,9 +3865,10 @@ function opClipVideo_(ctx) {
   if (!c) throw err_('not_found', 'その動画は見つかりません。');
   if (c.status === 'canceled' && !STAFF[me.perm] && c.memberId !== me.id) throw err_('not_found', 'その動画は見つかりません。');
   if (c.deletedAt) throw err_('gone', '1か月たったので、この動画は消えました。');
-  if (!c.fileId) throw err_('not_yet', 'この動画はまだ届いていません（撮った人のスマホから送っているところです）。');
+  const fid = c.fileId || (pendGet_(c.memberId, c.recordedAt) || {}).f;
+  if (!fid) throw err_('not_yet', 'この動画はまだ届いていません（撮った人のスマホから送っているところです）。');
   let blob;
-  try { blob = DriveApp.getFileById(c.fileId).getBlob(); } catch (x) { throw err_('gone', 'この動画は見つかりませんでした。'); }
+  try { blob = DriveApp.getFileById(fid).getBlob(); } catch (x) { throw err_('gone', 'この動画は見つかりませんでした。'); }
   return { ok: true, id: c.id, mime: c.mime, data: Utilities.base64Encode(blob.getBytes()) };
 }
 /** 部員の「気になる」（押す・やめる）。自分の動画には押せない */
