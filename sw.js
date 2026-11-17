@@ -6,7 +6,7 @@
  *  通知（push）… 中身は来ないので、サーバー（pushInbox）に取りに行って表示する
  *  動画（Background Sync・Android）… 画面を閉じても、端末にしまった動画をサーバーに送る
  * 版を上げるときは VERSION と、index.html の ?v= を一緒に変える。 */
-const VERSION = '2.22.0-t7';
+const VERSION = '2.22.0-t8';
 try { importScripts('config.js?v=' + VERSION); } catch (e) { /* 読めなくても画面はしまっておいたもので動く */ }
 // テスト環境（KINTORE_STORE = 'kintoreTest'）は、本番としまう場所の名前を分ける（同じ github.io の中なので）
 const CPREFIX = (self.KINTORE_STORE || 'kintore') + '-';
@@ -161,6 +161,14 @@ async function sendClips() {
         await clipTell({ clip: 'started', at: it.at, thumb: it.thumb, r: j }, null);
       }
     }
+    // 下書き（撮ってすぐ画面が送った分）で動画がもう届いていれば、送らない
+    let have = !!(j && j.ok && j.clip && j.clip.nv === 0);
+    if (!have && it.started && it.drafting) {
+      await new Promise((ok) => setTimeout(ok, 8000)); // 画面の下書きが着くのを少し待って、確かめ直す
+      const j2 = await post({ op: 'clipStart' });
+      if (j2 && j2.ok && j2.clip && j2.clip.nv === 0) { have = true; j = j2; }
+    }
+    if (have) { tm.skip = true; it.started = false; }
     // 2. 動画を送る
     if (it.started) {
       const s1 = Date.now(); const data = bufToB64(it.buf); tm.prep = Date.now() - s1;

@@ -59,6 +59,7 @@ const shot = async (p, name) => { if (SHOT) { require('fs').mkdirSync(SHOT, { re
   await shot(p, '05-preview');
   const cv = await p.evaluate(() => { const c = document.getElementById('cam-canvas'); return c.width + 'x' + c.height; });
   ok(cv === '720x960', '撮る画面は縦3:横4・720x960（' + cv + '）');
+  await p.waitForTimeout(1500); // 動画を見ている間に下書きが届く
   const t0 = Date.now();
   await p.click('[data-act="cam-send"]'); await p.waitForSelector('.cam', { state: 'detached', timeout: 15000 }).catch(() => {});
   ok(Date.now() - t0 < 1500, '「送る」を押すとすぐ閉じる（送るのは裏で）');
@@ -72,6 +73,7 @@ const shot = async (p, name) => { if (SHOT) { require('fs').mkdirSync(SHOT, { re
   await p.evaluate(() => { location.hash = '#settings'; }); await p.waitForTimeout(600);
   const tb = await p.locator('.times').first().innerText().catch(() => '');
   ok(/往復/.test(tb) && /ドライブに保存/.test(tb) && /名簿の確認/.test(tb), '設定に「送った時間の内訳」（テスト環境だけ）');
+  ok(/下書き/.test(tb) && /送っていません/.test(tb), '撮ってすぐ下書きを送り、「送る」のあとは動画を送らない');
   await shot(p, '06b-times');
   await p.evaluate(() => { location.hash = ''; }); await p.waitForTimeout(500);
 
@@ -93,7 +95,7 @@ const shot = async (p, name) => { if (SHOT) { require('fs').mkdirSync(SHOT, { re
   ok(/気になるを取り消す/.test(await b.p.locator('.sheet').innerText()), '「気になる」を押せる');
 
   console.log('■ サーバーが古い（先に送れない）ときは1回で送る');
-  await b.p.route('**/exec', async (r) => { const body = r.request().postData() || ''; if (body.includes('"op":"clipStart"')) await r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: false, error: 'unknown_op', message: '不明な操作です。' }) }); else await r.continue(); });
+  await b.p.route('**/exec', async (r) => { const body = r.request().postData() || ''; if (/"op":"clip(Start|Draft|DraftDrop)"/.test(body)) await r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: false, error: 'unknown_op', message: '不明な操作です。' }) }); else await r.continue(); });
   await b.p.goto(BASE); await b.p.waitForSelector('.board'); await b.p.waitForTimeout(800);
   await b.p.click('.home-clips .cam-cta'); await b.p.waitForSelector('.cam'); await b.p.waitForTimeout(1200);
   await b.p.click('[data-act="cam-shoot"]'); await b.p.waitForSelector('[data-act="cam-send"]', { timeout: 8000 });

@@ -105,7 +105,7 @@ const ENC = {
   status: { done: '実施した', not: '実施していない' },
   mgroup: { FW: 'FW', BK: 'BK', ALL: '全体' },
   fbkind: { idea: '要望', bug: '不具合', other: 'その他' },
-  clipst: { ok: '実施した', pending: '確認待ち', canceled: '取り消し' },
+  clipst: { ok: '実施した', pending: '確認待ち', canceled: '取り消し', draft: '下書き' },
   bool: { '1': 'はい', '0': 'いいえ' }
 };
 const FIELD_ENC = {
@@ -165,6 +165,8 @@ function handle_(req) {
       case 'ping': return { ok: true, version: APP_VERSION, today: today_() };
       case 'register': return opRegister_(ctx);
       case 'clipStart': return opClipStart_(ctx);
+      case 'clipDraft': return opClipDraft_(ctx);
+      case 'clipDraftDrop': return opClipDraftDrop_(ctx);
       case 'clipUpload': return opClipUpload_(ctx);
       case 'clips': return opClips_(ctx);
       case 'clipVideo': return opClipVideo_(ctx);
@@ -375,6 +377,7 @@ function append_(tkey, objs) {
   range.setValues(rows);
 }
 function update_(tkey, o) {
+  if (tkey === 'sessions') bumpSesGen_();
   const t = table_(tkey);
   const cur = t.sheet.getRange(o._r, 1, 1, t.width).getValues()[0];
   DEF[tkey].cols.forEach(function (c) { cur[t.col[c[0]]] = encodeField_(tkey, c[0], o[c[0]]); });
@@ -384,6 +387,7 @@ function update_(tkey, o) {
   t.sheet.getRange(o._r, 1, 1, t.width).setValues([cur]);
 }
 function remove_(tkey, o) {
+  if (tkey === 'sessions') bumpSesGen_(); // 行が消えると、覚えておいたログイン（行の番号つき）を使わない
   const t = table_(tkey);
   t.sheet.deleteRow(o._r);
   const r = o._r;
@@ -769,12 +773,38 @@ function canLogin_(m) {
   return !!(m && m.active && !m.gone && (STAFF[m.perm] || setlogOn_()) && m.set && m.set.pinHash);
 }
 
+/** ログインの行を数分覚えておく（毎回ログインのシートを全部読むと遅いため）。
+ *  ログインの行が消えたり変わったりしたら印（世代）を変えて、覚えたものを全部使わなくする */
+const SES_CACHE_SEC = 600;
+function sesGen_() {
+  if (REQ_ && REQ_.sesGen) return REQ_.sesGen;
+  const c = CacheService.getScriptCache();
+  let g = c.get('k:sesgen');
+  if (!g) { g = Utilities.getUuid().slice(0, 8); try { c.put('k:sesgen', g, 21600); } catch (x) { /* noop */ } }
+  if (REQ_) REQ_.sesGen = g;
+  return g;
+}
+function bumpSesGen_() {
+  const g = Utilities.getUuid().slice(0, 8);
+  try { CacheService.getScriptCache().put('k:sesgen', g, 21600); } catch (x) { /* noop */ }
+  if (REQ_) REQ_.sesGen = g;
+}
+function findSession_(h) {
+  const c = CacheService.getScriptCache(), key = 'k:s:' + sesGen_() + ':' + h.slice(0, 40);
+  const hit = c.get(key);
+  if (hit) { try { const o = JSON.parse(hit); if (o && o.tokenHash === h) return o; } catch (x) { /* 読み直す */ } }
+  const s = table_('sessions').rows.filter(function (r) { return r.tokenHash === h && r.kind === 'staff'; })[0];
+  if (s) { try { c.put(key, JSON.stringify(s), SES_CACHE_SEC); } catch (x) { /* noop */ } }
+  return s || null;
+}
 function resolveSession_(ctx) {
   const req = ctx.req;
   const now = now_();
   if (req.token && typeof req.token === 'string') {
     const h = sha256Hex_(req.token);
-    const s = table_('sessions').rows.filter(function (r) { return r.tokenHash === h && r.kind === 'staff'; })[0];
+    const t0 = Date.now();
+    const s = findSession_(h);
+    if (REQ_ && REQ_.pre) REQ_.pre.sesFind = Date.now() - t0;
     if (s && s.expiresAt > now) {
       if (isGuestId_(s.memberId)) {
         const g = guestById_(s.memberId);
@@ -3209,6 +3239,7 @@ function extendSession_(s) {
     if (!s._r) return;
     t.sheet.getRange(s._r, t.col.expiresAt + 1).setValue(want);
     s.expiresAt = want;
+    bumpSesGen_();
   } catch (x) { console.error(x); }
 }
 
@@ -3381,7 +3412,7 @@ function clipState_(ctx, today) {
   const from = addDays_(today, -35);
   const me = ctx.me;
   const staff = !!(me && STAFF[me.perm]);
-  const list = table_('clips').rows.filter(function (c) { return c.date >= from && (c.status !== 'canceled' || staff || (me && c.memberId === me.id)); });
+  const list = table_('clips').rows.filter(function (c) { return shown_(c) && c.date >= from && (c.status !== 'canceled' || staff || (me && c.memberId === me.id)); });
   const out = { loginAll: true, clipCode: clipCode_(today), clips: list.map(function (c) { return clipWire_(c, me); }) };
   if (me && me.perm === 'admin') {
     out.regs = {};
@@ -3419,18 +3450,31 @@ function clipThumbArg_(ctx) {
 }
 const findClip_ = function (memberId, at) { return table_('clips').rows.filter(function (c) { return c.memberId === memberId && c.recordedAt === at; })[0] || null; };
 /** 行を足して「実施した」にする（ロックの中で呼ぶ）。file が無ければ動画待ち */
-function clipAddRow_(me, k, thumb, file, bytes) {
+function clipAddRow_(me, k, thumb, file, bytes, T, draft) {
+  let tt = Date.now(); const lap = function (key) { if (!T) return; const n = Date.now(); T[key] = (T[key] || 0) + n - tt; tt = n; };
   const t = table_('clips');
+  lap('read');
   const canceledDay = t.rows.some(function (c) { return c.memberId === me.id && c.date === k.date && c.status === 'canceled'; });
   const now = now_();
-  const c = { id: 'C' + Utilities.getUuid().replace(/-/g, '').slice(0, 12), memberId: me.id, date: k.date, recordedAt: k.at, uploadedAt: file ? now : '', fileId: file ? file.getId() : '',
-    mime: k.mime, size: bytes ? String(bytes.length) : '', code: String(clipCode_(k.date)), status: canceledDay ? 'pending' : 'ok', flags: '[]', canceledBy: '', canceledAt: '', reason: '', checkedBy: '', deletedAt: '' };
-  insert_('clips', [c]);
-  insert_('clipThumbs', [{ id: c.id, thumb: thumb }]);
+  let c = draft || null;
+  if (c) {
+    // 下書き（撮ってすぐ送っておいた動画）を出す
+    c.status = canceledDay ? 'pending' : 'ok';
+    update_('clips', c);
+  } else {
+    c = { id: 'C' + Utilities.getUuid().replace(/-/g, '').slice(0, 12), memberId: me.id, date: k.date, recordedAt: k.at, uploadedAt: file ? now : '', fileId: file ? file.getId() : '',
+      mime: k.mime, size: bytes ? String(bytes.length) : '', code: String(clipCode_(k.date)), status: canceledDay ? 'pending' : 'ok', flags: '[]', canceledBy: '', canceledAt: '', reason: '', checkedBy: '', deletedAt: '' };
+    insert_('clips', [c]);
+    if (thumb) insert_('clipThumbs', [{ id: c.id, thumb: thumb }]);
+  }
+  lap('ins');
   let recorded = false;
   if (!canceledDay) { const r = saveDay_(me, k.date, [{ memberId: me.id, done: true }]); recorded = r.saved + r.updated > 0 || r.unchanged > 0; }
+  lap('day');
   log_(me, '動画を出した', k.m.name + ' ' + k.date + (canceledDay ? '（確認待ち）' : ''));
-  return { ok: true, clip: clipWire_(c, me), recorded: recorded, pending: canceledDay, records: recordsWire_(k.date, k.date) };
+  const out = { ok: true, clip: clipWire_(c, me), recorded: recorded, pending: canceledDay, records: recordsWire_(k.date, k.date) };
+  lap('log');
+  return out;
 }
 function clipTimesSave_(T) {
   if (REQ_ && REQ_.pre) T.pre = REQ_.pre;
@@ -3448,13 +3492,14 @@ function opClipStart_(ctx) {
   const k = clipCheck_(ctx, me);
   const thumb = clipThumbArg_(ctx);
   const dup = findClip_(me.id, k.at);
-  if (dup) return { ok: true, clip: clipWire_(dup, me), again: true, records: recordsWire_(k.date, k.date) };
+  if (dup && dup.status !== 'draft') return { ok: true, clip: clipWire_(dup, me), again: true, records: recordsWire_(k.date, k.date) };
   T.check = Date.now() - t1; T.drive = 0;
   const t3 = Date.now();
   const res = withLock_(function () {
+    T.wait = Date.now() - t3;
     const d2 = findClip_(me.id, k.at);
-    if (d2) return { ok: true, clip: clipWire_(d2, me), again: true, records: recordsWire_(k.date, k.date) };
-    return clipAddRow_(me, k, thumb, null, null);
+    if (d2 && d2.status !== 'draft') return { ok: true, clip: clipWire_(d2, me), again: true, records: recordsWire_(k.date, k.date) };
+    return clipAddRow_(me, k, d2 ? '' : thumb, null, null, T, d2);
   }, { keepRoster: true });
   T.save = Date.now() - t3;
   clipTimesSave_(T);
@@ -3471,6 +3516,15 @@ function opClipUpload_(ctx) {
   if (!bytes.length || bytes.length > CLIP_MAX_BYTES) throw err_('too_big', '動画が大きすぎます（2MBまで）。');
   // 同じ動画を送り直したとき（電波が切れて返事が届かなかったなど）は、前のものを返す
   const dup = findClip_(me.id, k.at);
+  if (dup && dup.status === 'draft' && dup.fileId) {
+    // 下書きで動画はもう届いている：動画を送ってきた＝「出す」とみなす
+    const res0 = withLock_(function () {
+      const c = findClip_(me.id, k.at);
+      if (c && c.status !== 'draft') return { ok: true, clip: clipWire_(c, me), again: true };
+      return clipAddRow_(me, k, '', null, null, null, c);
+    }, { keepRoster: true });
+    return res0;
+  }
   if (dup && dup.fileId) return { ok: true, clip: clipWire_(dup, me), again: true };
   if (dup && dup.deletedAt) throw err_('too_late', 'この動画は受け付けが終わりました。');
   const thumb = dup ? '' : clipThumbArg_(ctx);
@@ -3488,13 +3542,69 @@ function opClipUpload_(ctx) {
       update_('clips', c);
       return { ok: true, clip: clipWire_(c, me), attached: true };
     }
-    return clipAddRow_(me, k, thumb, file, bytes);
+    return clipAddRow_(me, k, thumb, file, bytes, T);
   }, { keepRoster: true });
   T.save = Date.now() - t3; T.kb = Math.round(bytes.length / 1024);
   clipTimesSave_(T);
   if (isTestEnv_()) res.t = T;
   return res;
 }
+/** 下書き：撮り終わったらすぐ（「送る」を押す前に）動画を送っておく。だれにも見えない。
+ *  「送る」（clipStart）で出す／撮り直し・閉じる（clipDraftDrop）で消す／1時間たったら消す。
+ *  先に clipStart が着いていたら（動画待ちの行がある）、その行に動画をつける */
+function opClipDraft_(ctx) {
+  const T = { op: 'draft', start: Date.now() - ((REQ_ && REQ_.t0) || Date.now()) }, t1 = Date.now();
+  const me = requireRole_(ctx, ['admin', 'manager', 'leader', 'member']);
+  const k = clipCheck_(ctx, me);
+  let bytes;
+  try { bytes = Utilities.base64Decode(String(ctx.req.data || '')); } catch (x) { throw err_('bad_data', '動画を読み取れませんでした。'); }
+  if (!bytes.length || bytes.length > CLIP_MAX_BYTES) throw err_('too_big', '動画が大きすぎます（2MBまで）。');
+  const thumb = clipThumbArg_(ctx);
+  const dup = findClip_(me.id, k.at);
+  if (dup && dup.fileId) return { ok: true, clip: dup.status === 'draft' ? null : clipWire_(dup, me), again: true };
+  T.check = Date.now() - t1;
+  const t2 = Date.now();
+  const file = clipFolder_().createFile(Utilities.newBlob(bytes, k.mime, me.id + '_' + k.at.replace(/[^0-9]/g, '') + '.' + CLIP_MIMES[k.mime]));
+  T.drive = Date.now() - t2;
+  const t3 = Date.now();
+  const res = withLock_(function () {
+    const c = findClip_(me.id, k.at);
+    if (c && c.fileId) { try { file.setTrashed(true); } catch (x) { /* noop */ } return { ok: true, clip: c.status === 'draft' ? null : clipWire_(c, me), again: true }; }
+    const now = now_();
+    if (c) {
+      // 「送る」が先に着いていた：その行に動画をつける
+      c.fileId = file.getId(); c.mime = k.mime; c.size = String(bytes.length); c.uploadedAt = now;
+      update_('clips', c);
+      return { ok: true, clip: clipWire_(c, me), attached: true };
+    }
+    const d = { id: 'C' + Utilities.getUuid().replace(/-/g, '').slice(0, 12), memberId: me.id, date: k.date, recordedAt: k.at, uploadedAt: now, fileId: file.getId(),
+      mime: k.mime, size: String(bytes.length), code: String(clipCode_(k.date)), status: 'draft', flags: '[]', canceledBy: '', canceledAt: '', reason: '', checkedBy: '', deletedAt: '' };
+    insert_('clips', [d]);
+    insert_('clipThumbs', [{ id: d.id, thumb: thumb }]);
+    return { ok: true, draft: true };
+  }, { keepRoster: true });
+  T.save = Date.now() - t3; T.kb = Math.round(bytes.length / 1024);
+  clipTimesSave_(T);
+  if (isTestEnv_()) res.t = T;
+  return res;
+}
+function opClipDraftDrop_(ctx) {
+  const me = requireRole_(ctx, ['admin', 'manager', 'leader', 'member']);
+  const at = String(ctx.req.recordedAt || '');
+  const c = findClip_(me.id, at);
+  if (!c || c.status !== 'draft') return { ok: true, none: true };
+  return withLock_(function () { dropDrafts_([findClip_(me.id, at)].filter(function (x) { return x && x.status === 'draft'; })); return { ok: true }; }, { keepRoster: true });
+}
+/** 下書きを消す（ロックの中で呼ぶ）：ドライブの動画・行・サムネイル */
+function dropDrafts_(list) {
+  if (!list.length) return 0;
+  const ids = {};
+  list.forEach(function (c) { try { DriveApp.getFileById(c.fileId).setTrashed(true); } catch (x) { /* もう無い */ } ids[c.id] = 1; });
+  removeMany_('clips', list);
+  removeMany_('clipThumbs', table_('clipThumbs').rows.filter(function (t) { return ids[t.id]; }));
+  return list.length;
+}
+const shown_ = function (c) { return c.status !== 'draft'; }; // 下書きはだれにも見せない
 /** 動画が届かないまま24時間たった行を取り消す（その日のほかの動画が無ければ「実施した」も外す）。10分に1回まで */
 function expireClipsMaybe_() {
   try {
@@ -3505,8 +3615,13 @@ function expireClipsMaybe_() {
   } catch (x) { console.error(x); }
 }
 function expireClips_() {
+  // 1時間たった下書き（撮ったけど出さなかった動画）を消す
+  const dlim = nowPlusMin_(-60);
+  if (table_('clips').rows.some(function (c) { return c.status === 'draft' && c.uploadedAt < dlim; })) {
+    withLock_(function () { dropDrafts_(table_('clips').rows.filter(function (c) { return c.status === 'draft' && c.uploadedAt < dlim; })); }, { keepRoster: true });
+  }
   const limit = nowPlusMin_(-(CLIP_LATE_HOURS + 1) * 60); // 送り直しの時間（24時間）＋少しの余裕
-  const late = function (c) { return !c.fileId && !c.deletedAt && c.status !== 'canceled' && c.recordedAt < limit; };
+  const late = function (c) { return !c.fileId && !c.deletedAt && c.status !== 'canceled' && c.status !== 'draft' && c.recordedAt < limit; };
   if (!table_('clips').rows.some(late)) return 0;
   const sys = { id: 'system', name: '自動', perm: 'admin' };
   const done = withLock_(function () {
@@ -3578,7 +3693,7 @@ function opClips_(ctx) {
   const staff = !!STAFF[me.perm];
   const mid = String(ctx.req.memberId || '');
   let list = table_('clips').rows.filter(function (c) {
-    return c.date >= from && c.date <= to && (!mid || c.memberId === mid) && (c.status !== 'canceled' || staff || c.memberId === me.id);
+    return shown_(c) && c.date >= from && c.date <= to && (!mid || c.memberId === mid) && (c.status !== 'canceled' || staff || c.memberId === me.id);
   });
   if (ctx.req.queue && staff) list = list.filter(function (c) { return c.status === 'pending' || (c.status === 'ok' && !c.checkedBy && clipFlags_(c).length); });
   list = list.sort(function (a, b) { return a.recordedAt < b.recordedAt ? 1 : -1; }).slice(0, 200);
@@ -3589,7 +3704,7 @@ function opClips_(ctx) {
 }
 function opClipVideo_(ctx) {
   const me = requireRole_(ctx, ['admin', 'manager', 'leader', 'member', 'guest']);
-  const c = table_('clips').rows.filter(function (x) { return x.id === String(ctx.req.id || ''); })[0];
+  const c = table_('clips').rows.filter(function (x) { return x.id === String(ctx.req.id || '') && shown_(x); })[0];
   if (!c) throw err_('not_found', 'その動画は見つかりません。');
   if (c.status === 'canceled' && !STAFF[me.perm] && c.memberId !== me.id) throw err_('not_found', 'その動画は見つかりません。');
   if (c.deletedAt) throw err_('gone', '1か月たったので、この動画は消えました。');
@@ -3603,7 +3718,7 @@ function opClipFlag_(ctx) {
   const me = requireRole_(ctx, ['admin', 'manager', 'leader', 'member']);
   const on = ctx.req.on !== false;
   return withLock_(function () {
-    const c = table_('clips').rows.filter(function (x) { return x.id === String(ctx.req.id || ''); })[0];
+    const c = table_('clips').rows.filter(function (x) { return x.id === String(ctx.req.id || '') && shown_(x); })[0];
     if (!c || c.status === 'canceled') throw err_('not_found', 'その動画は見つかりません。');
     if (c.memberId === me.id) throw err_('own', '自分の動画には押せません。');
     const f = clipFlags_(c).filter(function (x) { return x !== me.id; });
@@ -3630,7 +3745,7 @@ function opClipCancel_(ctx) {
   const me = requireRole_(ctx, ['admin', 'manager', 'leader']);
   const reason = text_(ctx.req.reason, 80, '理由', false);
   const res = withLock_(function () {
-    const c = table_('clips').rows.filter(function (x) { return x.id === String(ctx.req.id || ''); })[0];
+    const c = table_('clips').rows.filter(function (x) { return x.id === String(ctx.req.id || '') && shown_(x); })[0];
     if (!c) throw err_('not_found', 'その動画は見つかりません。');
     if (c.status === 'canceled') return { ok: true, clip: clipWire_(c, me), already: true };
     const now = now_();
@@ -3659,7 +3774,7 @@ function opClipCancel_(ctx) {
 function opClipApprove_(ctx) {
   const me = requireRole_(ctx, ['admin', 'manager', 'leader']);
   return withLock_(function () {
-    const c = table_('clips').rows.filter(function (x) { return x.id === String(ctx.req.id || ''); })[0];
+    const c = table_('clips').rows.filter(function (x) { return x.id === String(ctx.req.id || '') && shown_(x); })[0];
     if (!c || c.status === 'canceled') throw err_('not_found', 'その動画は見つかりません。');
     c.checkedBy = me.id;
     let recorded = false;

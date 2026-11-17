@@ -172,6 +172,53 @@ ok(r.ok && r.attached && r.clip.id === c3 && r.clip.nv === 0 && Object.keys(gas.
 ok(api({ op: 'clipVideo', token: G, id: c3 }).data === vid, '届いたら見られる');
 ok(api({ op: 'clipUpload', token: ISHI, mime: 'video/mp4', data: vid, thumb, recordedAt: at3, code }).again && Object.keys(gas.drive.files).length === nfiles + 1, '動画を送り直しても二重にならない');
 
+section('下書き：撮ってすぐ送っておく（「送る」の前）');
+const MO = id['森 健太'];
+const nf0 = Object.keys(gas.drive.files).length;
+const at5 = jst(0.5);
+r = api({ op: 'clipDraft', token: MORI2, mime: 'video/mp4', data: vid, thumb, recordedAt: at5, code });
+ok(r.ok && r.draft && Object.keys(gas.drive.files).length === nf0 + 1, '下書きは動画をドライブに置く');
+ok(!api({ op: 'state', token: ISHI }).clips.some((c) => c.at === at5) && !api({ op: 'state', token: MORI2 }).clips.some((c) => c.at === at5), '下書きはだれにも（本人にも）見えない');
+ok(!api({ op: 'clips', token: MG }).clips.some((c) => c.at === at5), '下書きは一覧にも出ない');
+ok(api({ op: 'clipDraft', token: MORI2, mime: 'video/mp4', data: vid, thumb, recordedAt: at5, code }).again && Object.keys(gas.drive.files).length === nf0 + 1, '下書きを送り直しても二重にならない');
+r = api({ op: 'clipStart', token: MORI2, mime: 'video/mp4', thumb, recordedAt: at5, code });
+ok(r.ok && !r.again && r.clip.nv === 0 && r.clip.st === 'pending', '「送る」で下書きが出る（動画はもう届いている。この日は取り消しがあったので確認待ち）');
+ok(api({ op: 'state', token: ISHI }).clips.some((c) => c.at === at5), '出したら見える');
+ok(api({ op: 'clipUpload', token: MORI2, mime: 'video/mp4', data: vid, thumb, recordedAt: at5, code }).again, '出したあと動画を送っても二重にならない');
+const at6 = jst(0.4);
+api({ op: 'clipDraft', token: MORI2, mime: 'video/mp4', data: vid, thumb, recordedAt: at6, code });
+const thumbsBefore = gas.sheet('動画のサムネイル').data.length;
+r = api({ op: 'clipDraftDrop', token: MORI2, recordedAt: at6 });
+ok(r.ok && gas.sheet('動画のサムネイル').data.length === thumbsBefore - 1 && !gas.sheet('動画').data.some((row) => row.indexOf(at6) >= 0), '撮り直すと下書きは消える（行・サムネイル）');
+ok(Object.values(gas.drive.files).filter((f) => f.trashed).length >= 1, '下書きの動画はドライブのゴミ箱へ');
+ok(api({ op: 'clipDraftDrop', token: MORI2, recordedAt: at5 }).none, '出したものは「下書きを消す」で消えない');
+const at7 = jst(0.3);
+r = api({ op: 'clipStart', token: MORI2, mime: 'video/mp4', thumb, recordedAt: at7, code });
+ok(r.ok && r.clip.nv === 1, '「送る」が下書きより先に着くと動画待ち');
+r = api({ op: 'clipDraft', token: MORI2, mime: 'video/mp4', data: vid, thumb, recordedAt: at7, code });
+ok(r.ok && r.attached && r.clip.nv === 0, 'あとから着いた下書きの動画が、その行につく');
+const at8 = jst(0.2);
+api({ op: 'clipDraft', token: MORI2, mime: 'video/mp4', data: vid, thumb, recordedAt: at8, code });
+gas.clock.offset += 61 * 60000;
+gas.run('withReq', (f) => f.expireClips_());
+ok(!gas.sheet('動画').data.some((row) => row.indexOf(at8) >= 0), '1時間たった下書きは消える');
+gas.clock.offset -= 61 * 60000;
+
+const at9 = jst(0.1);
+api({ op: 'clipDraft', token: ISHI, mime: 'video/mp4', data: vid, thumb, recordedAt: at9, code });
+r = api({ op: 'clipUpload', token: ISHI, mime: 'video/mp4', data: vid, thumb, recordedAt: at9, code });
+ok(r.ok && r.clip.st === 'ok' && r.clip.nv === 0, '下書きのあとに動画を送ってきたら「出す」とみなす');
+
+section('ログインを覚えておく（速くするため）');
+const L1 = api({ op: 'login', memberId: MO, pin: 'mori-pin-1' }).token;
+ok(api({ op: 'state', token: L1 }).me && api({ op: 'state', token: L1 }).me.id === MO, '覚えたログインで使える');
+api({ op: 'logout', token: L1 });
+ok(!api({ op: 'state', token: L1 }).me, 'ログアウトしたら、覚えていても使えない（すぐ効く）');
+const L2 = api({ op: 'login', memberId: MO, pin: 'mori-pin-1' }).token;
+api({ op: 'state', token: L2 });
+api({ op: 'unregister', token: A, id: id['小川 陽向'] });
+ok(api({ op: 'state', token: L2 }).me.id === MO, 'ほかの人のログインが消えても、自分は使える');
+
 section('動画が24時間届かないと取り消す');
 gas.shiftDays(1);
 const d4 = gas.run('today_'), at4 = jst(1), code4 = gas.run('withReq', (f) => f.clipCode_(d4));

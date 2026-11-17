@@ -3,7 +3,7 @@
   'use strict';
   const L = window.KLogic;
   const API = window.KINTORE_API;
-  const VERSION = '2.22.0-t7';
+  const VERSION = '2.22.0-t8';
   const WD = ['日', '月', '火', '水', '木', '金', '土'];
   const PERM = { admin: '管理者', manager: 'マネージャー', leader: 'FWリーダー', member: '一般部員', guest: '見るだけ' };
   const MODE = { leader: 'メニュー参加', self: '自主トレ' };
@@ -3130,6 +3130,8 @@
       toast('このブラウザでは撮影できません。iPhone は Safari、Android は Chrome の新しい版で開いてください', 'err'); return;
     }
     CAM.blob = null; CAM.thumb = ''; CAM.at = '';
+    // 撮っている間にサーバーを起こしておく（ログインの確認も済ませておく）→「送る」が速くなる
+    api('ping').catch(() => {});
     $('#cam-root').innerHTML = camHtml();
     document.body.classList.add('cam-open');
     await camStart();
@@ -3233,6 +3235,7 @@
       CAM.busy = false;
       if (!$('#cam-root .cam')) return;
       CAM.blob = new Blob(chunks, { type: CAM.mime });
+      startDraft();
       if (CAM.url) URL.revokeObjectURL(CAM.url);
       CAM.url = URL.createObjectURL(CAM.blob);
       camStopStream();
@@ -3255,6 +3258,28 @@
       } catch (e) { CAM.thumb = ''; }
     }, CLIP_SEC * 500);
     setTimeout(() => { if (rec.state === 'recording') rec.stop(); }, CLIP_SEC * 1000);
+  }
+  /** 撮り終わったらすぐ、動画を下書きとしてサーバーに送っておく（だれにも見えない）。
+   *  「送る」を押したら小さい知らせだけで済む。撮り直す・閉じるで消す。消し損ねても1時間でサーバーが消す */
+  S.drafts = {}; S.draftTimes = {};
+  function startDraft() {
+    const at = CAM.at, mime = CAM.mime, blob = CAM.blob, thumb = CAM.thumb, code = S.data.clipCode;
+    if (!at || !blob) return;
+    S.drafts[at] = (async () => {
+      try {
+        const data = await blobToB64(blob);
+        const t0 = Date.now();
+        const r = await api('clipDraft', { mime: mime, data: data, thumb: thumb, recordedAt: at, code: code });
+        S.draftTimes[at] = { ms: Date.now() - t0, t: r.t || null };
+        return true;
+      } catch (e) { return false; }
+    })();
+  }
+  function dropDraft(at) {
+    const p = at && S.drafts[at];
+    if (!p) return;
+    delete S.drafts[at];
+    p.then((okd) => { if (okd) api('clipDraftDrop', { recordedAt: at }).catch(() => {}); });
   }
   const blobToB64 = (blob) => new Promise((ok, ng) => { const r = new FileReader(); r.onload = () => ok(String(r.result).split(',')[1] || ''); r.onerror = ng; r.readAsDataURL(blob); });
   /** 送る前の動画を端末にしまっておく場所（IndexedDB）。localStorage は本番と共用で小さいので使わない。
@@ -3319,7 +3344,7 @@
     let item;
     try {
       // token・device も入れておく（Service Worker が画面なしで送るときに使う）
-      item = { at: CAM.at, mime: CAM.mime, buf: await CAM.blob.arrayBuffer(), thumb: CAM.thumb, code: S.data.clipCode, token: S.token || '', device: DEVICE };
+      item = { at: CAM.at, mime: CAM.mime, buf: await CAM.blob.arrayBuffer(), thumb: CAM.thumb, code: S.data.clipCode, token: S.token || '', device: DEVICE, drafting: !!S.drafts[CAM.at] };
       await CLIPQ.put(item);
       qSet(qList().filter((x) => x.at !== item.at).concat([{ at: item.at }]).slice(-3));
     } finally { CAM.sending = false; }
@@ -3368,7 +3393,7 @@
     const l = store.get('clipTimes', []);
     const sec = (ms) => (ms == null ? '—' : (ms / 1000).toFixed(1) + '秒');
     const srvSum = (t) => t ? (t.start || 0) + (t.check || 0) + (t.drive || 0) + (t.save || 0) : null;
-    const PRE = { schema: '準備', roster: '名簿の確認', maint: '毎日の片づけ', expire: '届かない動画の確認', session: 'ログインの確認' };
+    const PRE = { schema: '準備', roster: '名簿の確認', maint: '毎日の片づけ', expire: '届かない動画の確認', session: 'ログインの確認', sesFind: '（うちログインの行を探す）' };
     const IN = { wait: '順番待ち', read: '一覧を読む', ins: '動画の行を足す', day: '「実施した」を書く', log: '操作の記録' };
     const srvRows = (t) => {
       if (!t) return '<li class="muted">サーバーの内訳なし（サーバーが古い版）</li>';
@@ -3381,7 +3406,9 @@
       const a = srvSum(tm.startSrv), b = srvSum(tm.uploadSrv);
       return '<div class="times"><b>' + esc((tm.at || '').slice(5, 16).replace('-', '/')) + '（' + esc(tm.by || '') + 'から・' + (tm.kb || '?') + 'KB）</b>' +
         (tm.start != null ? '<p>① 先に送る（「実施した」）：往復 ' + sec(tm.start) + '＝サーバー ' + sec(a) + '＋通信やGoogleの起動など ' + (a != null ? sec(tm.start - a) : '—') + '</p><ul>' + srvRows(tm.startSrv) + '</ul>' : '') +
-        '<p>② 動画：スマホで変換 ' + sec(tm.prep) + '、往復 ' + sec(tm.upload) + '＝サーバー ' + sec(b) + '＋通信やGoogleの起動など ' + (b != null ? sec(tm.upload - b) : '—') + '</p><ul>' + srvRows(tm.uploadSrv) + '</ul></div>';
+        (tm.draft ? '<p>⓪ 下書き（撮り終わってすぐ・「送る」の前）：往復 ' + sec(tm.draft.ms) + '＝サーバー ' + sec(srvSum(tm.draft.t)) + '＋通信など ' + (tm.draft.t ? sec(tm.draft.ms - srvSum(tm.draft.t)) : '—') + '</p><ul>' + srvRows(tm.draft.t) + '</ul>' : '') +
+        (tm.skip ? '<p>② 動画：下書きで届いていたので、「送る」のあとは送っていません</p>' :
+        '<p>② 動画：スマホで変換 ' + sec(tm.prep) + '、往復 ' + sec(tm.upload) + '＝サーバー ' + sec(b) + '＋通信やGoogleの起動など ' + (b != null ? sec(tm.upload - b) : '—') + '</p><ul>' + srvRows(tm.uploadSrv) + '</ul>') + '</div>';
     };
     return '<section class="block"><div class="block-h"><h2>送った時間の内訳</h2><span class="count">テスト環境だけ</span></div>' +
       (l.length ? l.map(one).join('') : '<p class="empty small">まだありません。動画を送るとここに出ます。</p>') + '</section>';
@@ -3431,10 +3458,25 @@
         try { r0 = await api('clipStart', { mime: item.mime, thumb: item.thumb, recordedAt: item.at, code: item.code }); } catch (e) { if (e.code !== 'unknown_op') throw e; one = true; }
         TM.start = Date.now() - s0; if (r0 && r0.t) TM.startSrv = r0.t;
         if (r0) {
-          item.started = true;
+          item.started = true; item.startClip = r0.clip || null;
           await CLIPQ.put(item);
           clipSentUI(item, r0, 'start');
           render();
+        }
+      }
+      if (S.draftTimes[item.at]) TM.draft = S.draftTimes[item.at];
+      // 下書きで動画がもう届いていれば、送らなくてよい
+      let have = !!(item.startClip && item.startClip.nv === 0);
+      if (!have && S.drafts[item.at]) { have = await S.drafts[item.at]; if (S.draftTimes[item.at]) TM.draft = S.draftTimes[item.at]; }
+      if (have) {
+        TM.skip = true; TM.kb = Math.round(item.buf.byteLength / 1024);
+        saveTimes(TM);
+        delete S.drafts[item.at];
+        if (!one) {
+          const m = me(), c = m && (S.data.clips || []).find((x) => x.m === m.id && x.at === item.at);
+          if (c) { c.nv = 0; clipUpdated(c); S.clipCache = {}; }
+          toast('動画も送り終わりました');
+          return 'sent';
         }
       }
       // 2. 動画を送る
@@ -4031,10 +4073,10 @@
     'rec-confirm': () => openRecConfirm(),
     'login-tab': (el) => { S.loginTab = el.dataset.v; S.loginId = ''; S.loginErr = ''; render(); },
     'cam-open': () => openCamera(),
-    'cam-close': () => { if (CAM.blob && !confirm('撮った動画を送らずに閉じますか？')) return; camClose(); },
+    'cam-close': () => { if (CAM.blob && !confirm('撮った動画を送らずに閉じますか？')) return; dropDraft(CAM.at); camClose(); },
     'cam-flip': () => { CAM.facing = CAM.facing === 'user' ? 'environment' : 'user'; camStart(); },
     'cam-shoot': () => camShoot(),
-    'cam-retake': () => { CAM.blob = null; const pv = $('#cam-preview'); if (pv) { pv.pause(); pv.hidden = true; } $('#cam-canvas').hidden = false; $('#cam-bottom').innerHTML = camButtons('ready'); camStart(); },
+    'cam-retake': () => { dropDraft(CAM.at); CAM.blob = null; const pv = $('#cam-preview'); if (pv) { pv.pause(); pv.hidden = true; } $('#cam-canvas').hidden = false; $('#cam-bottom').innerHTML = camButtons('ready'); camStart(); },
     'cam-send': (el) => busy(el, camSend),
     'clip-retry': (el) => busy(el, () => retryClips(true)),
     'clip-drop': () => { if (!confirm('送れていない動画を捨てますか？（その日の「実施した」は付きません）')) return; store.del('clipQueue'); CLIPQ.clear(); render(); },
