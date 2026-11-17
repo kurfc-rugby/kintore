@@ -74,6 +74,7 @@ const shot = async (p, name) => { if (SHOT) { require('fs').mkdirSync(SHOT, { re
   const tb = await p.locator('.times').first().innerText().catch(() => '');
   ok(/往復/.test(tb) && /ドライブに保存/.test(tb) && /名簿の確認/.test(tb), '設定に「送った時間の内訳」（テスト環境だけ）');
   ok(/下書き/.test(tb) && /送っていません/.test(tb), '撮ってすぐ下書きを送り、「送る」のあとは動画を送らない');
+  ok(/撮り終わり/.test(tb) && /「送る」を押した/.test(tb) && /完了/.test(tb), 'スマホ側の流れ（撮り終わりから完了まで）が出る');
   await shot(p, '06b-times');
   await p.evaluate(() => { location.hash = ''; }); await p.waitForTimeout(500);
 
