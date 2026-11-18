@@ -3,7 +3,7 @@
   'use strict';
   const L = window.KLogic;
   const API = window.KINTORE_API;
-  const VERSION = '2.23.0-t33';
+  const VERSION = '2.23.0-t34';
   const WD = ['日', '月', '火', '水', '木', '金', '土'];
   const PERM = { admin: '管理者', manager: 'マネージャー', leader: 'FW・BKリーダー', member: '一般部員', guest: '見るだけ' };
   // その人の権限の呼び方：リーダーは、グループで FW・BKリーダー／BKリーダー（副主将は自動でリーダー）
@@ -287,6 +287,11 @@
   // 待つ時間の上限（電波が弱くて返事が来ないとき、ずっと待たない）。読むだけは15秒、保存などは30秒
   const READ_OPS = { state: 1, memberHistory: 1, logs: 1, feedbackList: 1, sessions: 1, trash: 1, menuArchive: 1, clips: 1, clipVideo: 1 };
   const RESEND_OK = { saveRecords: 1, saveRecordsWeek: 1 }; // 送り直しても二重にならない
+  // 書いたあとに画面を読み直す操作。サーバーに「書いたあとの最新の情報」も一緒に返してもらい、読み直しの往復を省く
+  const AFTER_OPS = { bulkMembers: 1, bulkPerms: 1, clipCancel: 1, copyMenu: 1, deleteExempt: 1, deleteMenu: 1, deleteTemplate: 1, dismissPinRequest: 1,
+    exemptCancel: 1, exemptDecide: 1, exemptRequest: 1, guestDelete: 1, guestSave: 1, importMembers: 1, promote: 1, resetPin: 1, saveExempt: 1,
+    saveMember: 1, saveMenu: 1, saveSettings: 1, saveTemplate: 1, setMemberActive: 1, unregister: 1 };
+  const AFTER_FRESH_MS = 20000;
   function timeoutError(op) {
     return { code: 'timeout', message: READ_OPS[op] ? 'つながりにくいため、時間内に読み込めませんでした。電波のよい所でもう一度試してください。'
       : RESEND_OK[op] ? '時間内に返事がありませんでした。電波のよい所で、もう一度「保存」を押してください（同じ記録が二重になることはありません）。'
@@ -296,6 +301,8 @@
     const body = Object.assign({ op: op, device: DEVICE }, payload || {});
     if (S.token) body.token = S.token;
     if (S.viewToken) body.viewToken = S.viewToken;
+    S.after = null;
+    if (AFTER_OPS[op] && S.data && S.data.range && S.data.today === L.todayJST()) body.after = { from: S.data.range.from, to: S.data.range.to };
     const ctl = typeof AbortController === 'function' ? new AbortController() : null;
     const timer = ctl ? setTimeout(() => ctl.abort(), op === 'clipUpload' || op === 'clipVideo' ? 60000 : READ_OPS[op] ? 15000 : 30000) : 0;
     let res, j;
@@ -312,6 +319,7 @@
       }
     } finally { clearTimeout(timer); }
     if (!j.ok) throw { code: j.error, message: j.message || 'エラーが起きました。' };
+    if (j._state) { if (j._state.ok) S.after = { d: j._state, at: Date.now() }; delete j._state; }
     return j;
   }
 
@@ -361,6 +369,14 @@
     S.data.records = S.data.records.filter((x) => x[1] !== date).concat(recs);
   }
   async function loadState(range) {
+    // 直前に書いた操作の返事に、最新の情報が付いていた：読み直さずにそれを使う
+    if (!range && S.after && Date.now() - S.after.at < AFTER_FRESH_MS && S.after.d.today === L.todayJST()) {
+      const d = S.after.d;
+      S.after = null; S.loadError = ''; S.loadCode = '';
+      setData(d); S.stale = false; S.loading = false;
+      return;
+    }
+    S.after = null;
     S.loading = true; S.loadError = ''; S.loadCode = '';
     try {
       // 日付が変わっていたら、今日を中心にした範囲で読み直す（1回で済むよう、先に今日の日付で比べる）

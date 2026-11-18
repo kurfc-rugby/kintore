@@ -177,6 +177,7 @@ function handle_(req) {
   try {
     if (!req || typeof req !== 'object') throw err_('bad_request', '送信内容が正しくありません。');
     const P = REQ_.pre = {}; let pt = Date.now(); const plap = function (k) { const n = Date.now(); P[k] = n - pt; pt = n; };
+    cachePre_(); propsAll_(); plap('pre');
     ensureSchema_(); plap('schema');
     syncRoster_(); plap('roster');
     maintFromRequest_(); plap('maint');
@@ -193,77 +194,17 @@ function handle_(req) {
     if (!open[op] && ctx.me && ctx.me.mustChange) {
       throw err_('must_change_pin', '先に暗証番号を変更してください。');
     }
-    switch (op) {
-      case 'ping': return { ok: true, version: APP_VERSION, today: today_() };
-      case 'register': return opRegister_(ctx);
-      case 'clipStart': return opClipStart_(ctx);
-      case 'clipDraft': return opClipDraft_(ctx);
-      case 'clipDraftDrop': return opClipDraftDrop_(ctx);
-      case 'clipUpload': return opClipUpload_(ctx);
-      case 'clips': return opClips_(ctx);
-      case 'clipVideo': return opClipVideo_(ctx);
-      case 'clipFlag': return opClipFlag_(ctx);
-      case 'clipCancel': return opClipCancel_(ctx);
-      case 'clipApprove': return opClipApprove_(ctx);
-      case 'setIcon': return opSetIcon_(ctx);
-      case 'icons': return opIcons_(ctx);
-      case 'resetIcon': return opResetIcon_(ctx);
-      case 'unregister': return opUnregister_(ctx);
-      case 'exemptRequest': return opExemptRequest_(ctx);
-      case 'exemptDecide': return opExemptDecide_(ctx);
-      case 'exemptCancel': return opExemptCancel_(ctx);
-      case 'guestSave': return opGuestSave_(ctx);
-      case 'guestDelete': return opGuestDelete_(ctx);
-      case 'state': return opState_(ctx);
-      case 'viewLogin': return opViewLogin_(ctx);
-      case 'login': return opLogin_(ctx);
-      case 'logout': return opLogout_(ctx);
-      case 'changePin': return opChangePin_(ctx);
-      case 'saveRecords': return opSaveRecords_(ctx);
-      case 'saveRecordsWeek': return opSaveRecordsWeek_(ctx);
-      case 'deleteRecord': return opDeleteRecord_(ctx);
-      case 'saveMenu': return opSaveMenu_(ctx);
-      case 'deleteMenu': return opDeleteMenu_(ctx);
-      case 'saveMember': return opSaveMember_(ctx);
-      case 'bulkMembers': return opBulkMembers_(ctx);
-      case 'importMembers': return opImportMembers_(ctx);
-      case 'setMemberActive': return opSetMemberActive_(ctx);
-      case 'promote': return opPromote_(ctx);
-      case 'saveExempt': return opSaveExempt_(ctx);
-      case 'deleteExempt': return opDeleteExempt_(ctx);
-      case 'resetPin': return opResetPin_(ctx);
-      case 'logs': return opLogs_(ctx);
-      case 'saveSettings': return opSaveSettings_(ctx);
-      case 'memberHistory': return opMemberHistory_(ctx);
-      case 'saveTemplate': return opSaveTemplate_(ctx);
-      case 'deleteTemplate': return opDeleteTemplate_(ctx);
-      case 'copyMenu': return opCopyMenu_(ctx);
-      case 'menuArchive': return opMenuArchive_(ctx);
-      case 'trash': return opTrash_(ctx);
-      case 'restoreRecord': return opRestoreRecord_(ctx);
-      case 'saveBody': return opSaveBody_(ctx);
-      case 'deleteBody': return opDeleteBody_(ctx);
-      case 'stamp': return opStamp_(ctx);
-      case 'pinRequest': return opPinRequest_(ctx);
-      case 'dismissPinRequest': return opDismissPinRequest_(ctx);
-      case 'sessions': return opSessions_(ctx);
-      case 'logoutSession': return opLogoutSession_(ctx);
-      case 'bulkPerms': return opBulkPerms_(ctx);
-      case 'pushRegister': return opPushRegister_(ctx);
-      case 'pushUnregister': return opPushUnregister_(ctx);
-      case 'pushTest': return opPushTest_(ctx);
-      case 'pushInbox': return opPushInbox_(ctx);
-      case 'pushMove': return opPushMove_(ctx);
-      case 'clientError': return opClientError_(ctx);
-      case 'feedback': return opFeedback_(ctx);
-      case 'feedbackList': return opFeedbackList_(ctx);
-      case 'feedbackDone': return opFeedbackDone_(ctx);
-      case 'saveBodyGoal': return opSaveBodyGoal_(ctx);
-      case 'saveExercise': return opSaveExercise_(ctx);
-      case 'deleteExercise': return opDeleteExercise_(ctx);
-      case 'importExercises': return opImportExercises_(ctx);
-      default: throw err_('unknown_op', '不明な操作です。');
+    const res = dispatch_(op, ctx);
+    // 書いたあとの最新の情報も一緒に返す（画面が「書く→読み直す」の2往復をしなくて済む）。頼まれたときだけ
+    if (req.after && typeof req.after === 'object' && res && res.ok !== false && !NO_AFTER[op]) {
+      try {
+        const c2 = { req: { token: req.token, viewToken: req.viewToken, device: req.device, from: req.after.from, to: req.after.to }, me: null, view: false };
+        resolveSession_(c2);
+        res._state = opState_(c2);
+      } catch (x) { console.error(x); } // 作れなくても、書いた結果は返す（画面が読み直す）
     }
+    lap_('after');
+    return res;
   } catch (x) {
     if (x && x.appError) return { ok: false, error: x.code, message: x.message };
     try { console.error(x && x.stack ? x.stack : x); } catch (y) { /* noop */ }
@@ -278,6 +219,83 @@ function handle_(req) {
     REQ_ = null;
   }
 }
+
+/** 操作ごとの処理へ振り分ける */
+function dispatch_(op, ctx) {
+  switch (op) {
+    case 'ping': return { ok: true, version: APP_VERSION, today: today_() };
+    case 'register': return opRegister_(ctx);
+    case 'clipStart': return opClipStart_(ctx);
+    case 'clipDraft': return opClipDraft_(ctx);
+    case 'clipDraftDrop': return opClipDraftDrop_(ctx);
+    case 'clipUpload': return opClipUpload_(ctx);
+    case 'clips': return opClips_(ctx);
+    case 'clipVideo': return opClipVideo_(ctx);
+    case 'clipFlag': return opClipFlag_(ctx);
+    case 'clipCancel': return opClipCancel_(ctx);
+    case 'clipApprove': return opClipApprove_(ctx);
+    case 'setIcon': return opSetIcon_(ctx);
+    case 'icons': return opIcons_(ctx);
+    case 'resetIcon': return opResetIcon_(ctx);
+    case 'unregister': return opUnregister_(ctx);
+    case 'exemptRequest': return opExemptRequest_(ctx);
+    case 'exemptDecide': return opExemptDecide_(ctx);
+    case 'exemptCancel': return opExemptCancel_(ctx);
+    case 'guestSave': return opGuestSave_(ctx);
+    case 'guestDelete': return opGuestDelete_(ctx);
+    case 'state': return opState_(ctx);
+    case 'viewLogin': return opViewLogin_(ctx);
+    case 'login': return opLogin_(ctx);
+    case 'logout': return opLogout_(ctx);
+    case 'changePin': return opChangePin_(ctx);
+    case 'saveRecords': return opSaveRecords_(ctx);
+    case 'saveRecordsWeek': return opSaveRecordsWeek_(ctx);
+    case 'deleteRecord': return opDeleteRecord_(ctx);
+    case 'saveMenu': return opSaveMenu_(ctx);
+    case 'deleteMenu': return opDeleteMenu_(ctx);
+    case 'saveMember': return opSaveMember_(ctx);
+    case 'bulkMembers': return opBulkMembers_(ctx);
+    case 'importMembers': return opImportMembers_(ctx);
+    case 'setMemberActive': return opSetMemberActive_(ctx);
+    case 'promote': return opPromote_(ctx);
+    case 'saveExempt': return opSaveExempt_(ctx);
+    case 'deleteExempt': return opDeleteExempt_(ctx);
+    case 'resetPin': return opResetPin_(ctx);
+    case 'logs': return opLogs_(ctx);
+    case 'saveSettings': return opSaveSettings_(ctx);
+    case 'memberHistory': return opMemberHistory_(ctx);
+    case 'saveTemplate': return opSaveTemplate_(ctx);
+    case 'deleteTemplate': return opDeleteTemplate_(ctx);
+    case 'copyMenu': return opCopyMenu_(ctx);
+    case 'menuArchive': return opMenuArchive_(ctx);
+    case 'trash': return opTrash_(ctx);
+    case 'restoreRecord': return opRestoreRecord_(ctx);
+    case 'saveBody': return opSaveBody_(ctx);
+    case 'deleteBody': return opDeleteBody_(ctx);
+    case 'stamp': return opStamp_(ctx);
+    case 'pinRequest': return opPinRequest_(ctx);
+    case 'dismissPinRequest': return opDismissPinRequest_(ctx);
+    case 'sessions': return opSessions_(ctx);
+    case 'logoutSession': return opLogoutSession_(ctx);
+    case 'bulkPerms': return opBulkPerms_(ctx);
+    case 'pushRegister': return opPushRegister_(ctx);
+    case 'pushUnregister': return opPushUnregister_(ctx);
+    case 'pushTest': return opPushTest_(ctx);
+    case 'pushInbox': return opPushInbox_(ctx);
+    case 'pushMove': return opPushMove_(ctx);
+    case 'clientError': return opClientError_(ctx);
+    case 'feedback': return opFeedback_(ctx);
+    case 'feedbackList': return opFeedbackList_(ctx);
+    case 'feedbackDone': return opFeedbackDone_(ctx);
+    case 'saveBodyGoal': return opSaveBodyGoal_(ctx);
+    case 'saveExercise': return opSaveExercise_(ctx);
+    case 'deleteExercise': return opDeleteExercise_(ctx);
+    case 'importExercises': return opImportExercises_(ctx);
+    default: throw err_('unknown_op', '不明な操作です。');
+  }
+}
+/** 書いたあとの最新の情報を付けない操作（読むだけ・ログインまわり・動画を送るなど） */
+const NO_AFTER = { ping: 1, state: 1, login: 1, logout: 1, register: 1, viewLogin: 1, changePin: 1, clipStart: 1, clipDraft: 1, clipDraftDrop: 1, clipUpload: 1, clipVideo: 1, clips: 1, icons: 1, logs: 1, sessions: 1, trash: 1, feedbackList: 1, memberHistory: 1, menuArchive: 1, pushInbox: 1, pushMove: 1, clientError: 1 };
 
 function err_(code, message) {
   const e = new Error(message);
@@ -382,13 +400,34 @@ function rowsWhere_(tkey, colKey, value) {
   });
   return out;
 }
+/** リクエストの最初に、毎回見るキャッシュの印をまとめて1回で読む（1つずつ読むと、そのたびに待つ） */
+const CPRE_KEYS = ['k:roster', 'k:synced', 'k:maint', 'k:trig', 'k:clipexp', 'k:pend', 'k:pgen', 'k:sesgen'];
+function cachePre_() {
+  if (!REQ_) return;
+  const keys = CPRE_KEYS.concat(Object.keys(DEF).map(tgenKey_));
+  try { REQ_.cpre = CacheService.getScriptCache().getAll(keys) || {}; REQ_.cpreSet = {}; keys.forEach(function (k) { REQ_.cpreSet[k] = 1; }); } catch (x) { REQ_.cpre = null; }
+}
+/** キャッシュを読む（まとめて読んだものがあれば、それを使う） */
+function cget_(k) {
+  if (REQ_ && REQ_.cpre && REQ_.cpreSet[k]) return REQ_.cpre[k] || null;
+  return CacheService.getScriptCache().get(k);
+}
+function cput_(k, v, ttl) {
+  if (REQ_ && REQ_.cpre && REQ_.cpreSet[k]) REQ_.cpre[k] = v;
+  CacheService.getScriptCache().put(k, v, ttl);
+}
+function cdel_(keys) {
+  if (REQ_ && REQ_.cpre) keys.forEach(function (k) { delete REQ_.cpre[k]; });
+  CacheService.getScriptCache().removeAll(keys);
+}
+/** スクリプトのプロパティを読む（1回のリクエストでまとめて1回だけ読む） */
+function prop_(k) { const v = propsAll_()[k]; return v === undefined ? null : v; }
 /** 部員の設定（筋トレのシート「部員設定」）を数分覚えておく（ログインの確認のたびに読むと遅いため）。
  *  書きかえたら印（世代）を変える。ロックの中（fresh）ではいつも読み直す */
 function peopleGen_() {
   if (REQ_ && REQ_.peopleGen) return REQ_.peopleGen;
-  const c = CacheService.getScriptCache();
-  let g = c.get('k:pgen');
-  if (!g) { g = Utilities.getUuid().slice(0, 8); try { c.put('k:pgen', g, 21600); } catch (x) { /* noop */ } }
+  let g = cget_('k:pgen');
+  if (!g) { g = Utilities.getUuid().slice(0, 8); try { cput_('k:pgen', g, 21600); } catch (x) { /* noop */ } }
   if (REQ_) REQ_.peopleGen = g;
   return g;
 }
@@ -408,6 +447,9 @@ function peopleRows_() {
 }
 function table_(tkey) {
   if (REQ_ && REQ_.tables[tkey]) return REQ_.tables[tkey];
+  const useC = tcacheOk_(tkey);
+  const gen = useC ? tgens_()[tkey] : '';
+  if (useC) { const hit = tcacheGet_(tkey, gen); if (hit) { REQ_.tables[tkey] = hit; return hit; } }
   const def = DEF[tkey];
   const sheet = ss_().getSheetByName(def.name);
   if (!sheet) throw err_('no_sheet', 'シート「' + def.name + '」がありません。初期設定を実行してください。');
@@ -432,7 +474,125 @@ function table_(tkey) {
   }
   const t = { key: tkey, sheet: sheet, col: col, width: head.length, rows: rows, lastRow: values.length };
   if (REQ_) REQ_.tables[tkey] = t;
+  if (useC) tcachePut_(tkey, gen, t);
   return t;
+}
+/** 書きかえる前に：キャッシュから出した表なら、シートから読み直す（行の番号・最後の行を確かにする） */
+function tableW_(tkey) {
+  if (REQ_ && REQ_.tables[tkey] && REQ_.tables[tkey].cached) delete REQ_.tables[tkey];
+  if (REQ_) { const d = REQ_.lockDepth; REQ_.lockDepth = d || 1; try { return table_(tkey); } finally { REQ_.lockDepth = d; } }
+  return table_(tkey);
+}
+
+// ---------------------------------------------------------------------------
+// シートの中身のキャッシュ（シートを1枚読むと、中身が少なくても約0.3秒かかるため）
+//   - 表ごとに「世代」の印を持ち、書いたら印を変える（古い中身は使われなくなる）。印はキャッシュに置く
+//   - 読むときは、先に印を読んでからシートを読み、その印で覚える（あとから書かれたら、その印は使われない）
+//   - ロックの中（書くとき）は、いつもシートから読む。書くための行の番号を確かにするため
+//   - 手でシートを直したときは onEdit が印を変える。念のため1時間で忘れる
+// ---------------------------------------------------------------------------
+const TCACHE_TTL = 3600;
+const TCACHE_SKIP = { logs: 1, clipThumbs: 1, clipsOld: 1 }; // 大きくて、ふだん読まない表
+const TCACHE_CHUNK = 90000;
+function tcacheOk_(tkey) { return !!(REQ_ && !REQ_.lockDepth && !REQ_.fresh && !REQ_.noTcache && !TCACHE_SKIP[tkey] && DEF[tkey]); }
+const tgenKey_ = function (k) { return 'k:tg:' + k; };
+function tgens_() {
+  if (REQ_ && REQ_.tg) return REQ_.tg;
+  const keys = Object.keys(DEF), out = {}, put = {};
+  let got = {};
+  if (REQ_ && REQ_.cpre) got = REQ_.cpre;
+  else { try { got = CacheService.getScriptCache().getAll(keys.map(tgenKey_)) || {}; } catch (x) { got = {}; } }
+  keys.forEach(function (k) {
+    let g = got[tgenKey_(k)];
+    if (!g) { g = Utilities.getUuid().slice(0, 8); put[tgenKey_(k)] = g; }
+    out[k] = g;
+  });
+  if (Object.keys(put).length) { try { CacheService.getScriptCache().putAll(put, 21600); } catch (x) { /* 覚えられなくても、毎回シートを読むだけ */ } }
+  if (REQ_) REQ_.tg = out;
+  return out;
+}
+/** 表が書きかわった：印を変える（ロックの中なら、ロックを出るときにまとめて） */
+function touch_(tkey) {
+  if (REQ_ && REQ_.lockDepth) { (REQ_.touched || (REQ_.touched = {}))[tkey] = 1; return; }
+  try { SpreadsheetApp.flush(); } catch (x) { /* noop */ } // 書いた内容がほかの実行から読めるようになってから印を変える
+  bumpTables_([tkey]);
+}
+function bumpTables_(keys) {
+  if (!keys.length) return;
+  const o = {};
+  keys.forEach(function (k) { o[tgenKey_(k)] = Utilities.getUuid().slice(0, 8); });
+  try { CacheService.getScriptCache().putAll(o, 21600); } catch (x) {
+    console.error(x);
+    try { CacheService.getScriptCache().removeAll(Object.keys(o)); } catch (y) { /* noop */ }
+  }
+  if (REQ_ && REQ_.tg) keys.forEach(function (k) { REQ_.tg[k] = o[tgenKey_(k)]; });
+  if (REQ_ && REQ_.cpre) Object.keys(o).forEach(function (k) { REQ_.cpre[k] = o[k]; });
+}
+function bumpAllTables_() { bumpTables_(Object.keys(DEF)); }
+const tdataKey_ = function (k, gen) { return 't:' + k + ':' + gen; };
+/** 1回目に表が要るとき、覚えてある表をまとめて取り出す（キャッシュへの問い合わせを1〜2回で済ませる） */
+function tcachePrefetch_() {
+  if (REQ_.tpre) return REQ_.tpre;
+  const g = tgens_(), keys = Object.keys(DEF).filter(function (k) { return !TCACHE_SKIP[k]; });
+  const out = {};
+  try {
+    const c = CacheService.getScriptCache();
+    const got = c.getAll(keys.map(function (k) { return tdataKey_(k, g[k]); })) || {};
+    const more = [];
+    keys.forEach(function (k) {
+      const v = got[tdataKey_(k, g[k])];
+      if (!v) return;
+      if (v.charAt(0) === 'Z') out[k] = v.slice(1);
+      else if (v.charAt(0) === 'N') { const n = parseInt(v.slice(1), 10); for (let i = 0; i < n; i++) more.push(tdataKey_(k, g[k]) + ':' + i); out[k] = { n: n }; }
+    });
+    if (more.length) {
+      const got2 = c.getAll(more) || {};
+      keys.forEach(function (k) {
+        if (!out[k] || typeof out[k] === 'string') return;
+        let z = '';
+        for (let i = 0; i < out[k].n; i++) { const v = got2[tdataKey_(k, g[k]) + ':' + i]; if (!v) { z = null; break; } z += v; }
+        if (z) out[k] = z; else delete out[k];
+      });
+    }
+    Object.keys(out).forEach(function (k) { out[k] = { g: g[k], z: out[k] }; }); // どの印のときの中身か
+  } catch (x) { console.error(x); }
+  REQ_.tpre = out;
+  return out;
+}
+function tcacheGet_(tkey, gen) {
+  const p = tcachePrefetch_()[tkey];
+  if (!p || p.g !== gen || typeof p.z !== 'string') return null;
+  const z = p.z;
+  try {
+    const o = JSON.parse(Utilities.ungzip(Utilities.newBlob(Utilities.base64Decode(z), 'application/x-gzip')).getDataAsString());
+    const t = { key: tkey, col: o.col, width: o.width, rows: o.rows, lastRow: o.lastRow, cached: true };
+    Object.defineProperty(t, 'sheet', { get: function () { return ss_().getSheetByName(DEF[tkey].name); }, configurable: true, enumerable: false });
+    if (REQ_.wantT) (REQ_.reads || (REQ_.reads = [])).push(tkey + ':c');
+    return t;
+  } catch (x) { console.error(x); return null; }
+}
+function tcachePut_(tkey, gen, t) {
+  try {
+    const s = JSON.stringify({ col: t.col, width: t.width, rows: t.rows, lastRow: t.lastRow });
+    const z = Utilities.base64Encode(Utilities.gzip(Utilities.newBlob(s, 'application/json')).getBytes());
+    const key = tdataKey_(tkey, gen), o = {};
+    if (z.length <= TCACHE_CHUNK) o[key] = 'Z' + z;
+    else {
+      const n = Math.ceil(z.length / TCACHE_CHUNK);
+      if (n > 20) return;
+      for (let i = 0; i < n; i++) o[key + ':' + i] = z.slice(i * TCACHE_CHUNK, (i + 1) * TCACHE_CHUNK);
+      o[key] = 'N' + n;
+    }
+    CacheService.getScriptCache().putAll(o, TCACHE_TTL);
+  } catch (x) { console.error(x); }
+}
+/** シートを手で直したとき：その表の印を変える（簡単なトリガー。ほかのことはしない） */
+function onEdit(e) {
+  try {
+    const name = e && e.range ? e.range.getSheet().getName() : '';
+    const keys = Object.keys(DEF).filter(function (k) { return DEF[k].name === name; });
+    if (keys.length) bumpTables_(keys);
+  } catch (x) { /* noop */ }
 }
 
 function rowArray_(t, o) {
@@ -447,8 +607,8 @@ function insert_(tkey, objs) {
   if (!objs.length) return;
   if (tkey === 'clips' && REQ_) REQ_.clipDirty = true;
   if (tkey === 'people') bumpPeopleGen_();
-  if (APPEND_ONLY[tkey] && !(REQ_ && REQ_.tables[tkey])) { append_(tkey, objs); return; }
-  const t = table_(tkey);
+  if (APPEND_ONLY[tkey] && !(REQ_ && REQ_.tables[tkey] && !REQ_.tables[tkey].cached)) { if (REQ_ && REQ_.tables[tkey]) delete REQ_.tables[tkey]; append_(tkey, objs); return; }
+  const t = tableW_(tkey);
   const rows = objs.map(function (o) { return rowArray_(t, o); });
   // シートの行が足りなければ足す（新しいシートは1000行。足りないまま書くとエラーになる）
   const lack = t.lastRow + rows.length - t.sheet.getMaxRows();
@@ -458,6 +618,7 @@ function insert_(tkey, objs) {
   range.setValues(rows);
   objs.forEach(function (o, i) { o._r = t.lastRow + 1 + i; t.rows.push(o); });
   t.lastRow += rows.length;
+  touch_(tkey);
 }
 function append_(tkey, objs) {
   const def = DEF[tkey];
@@ -479,12 +640,14 @@ function append_(tkey, objs) {
   const range = sheet.getRange(last + 1, 1, rows.length, width);
   range.setNumberFormat('@');
   range.setValues(rows);
+  touch_(tkey);
 }
 function update_(tkey, o) {
   if (tkey === 'clips' && REQ_) REQ_.clipDirty = true;
   if (tkey === 'sessions') bumpSesGen_();
   if (tkey === 'people') bumpPeopleGen_();
-  const t = (REQ_ && REQ_.tables[tkey]) || meta_(tkey); // 1行を書きかえるだけなので、シート全部は読まない
+  const t0 = REQ_ && REQ_.tables[tkey];
+  const t = (t0 && !t0.cached) ? t0 : meta_(tkey); // 1行を書きかえるだけなので、シート全部は読まない
   const cur = t.sheet.getRange(o._r, 1, 1, t.width).getValues()[0];
   DEF[tkey].cols.forEach(function (c) { cur[t.col[c[0]]] = encodeField_(tkey, c[0], o[c[0]]); });
   for (let i = 0; i < cur.length; i++) {
@@ -492,18 +655,20 @@ function update_(tkey, o) {
   }
   t.sheet.getRange(o._r, 1, 1, t.width).setValues([cur]);
   // 全部読んである表に、別に読んだ同じ行があれば中身をそろえる
-  if (t.rows) t.rows.forEach(function (x) { if (x !== o && x._r === o._r) DEF[tkey].cols.forEach(function (c) { x[c[0]] = o[c[0]]; }); });
+  if (t0 && t0.rows) t0.rows.forEach(function (x) { if (x !== o && x._r === o._r) DEF[tkey].cols.forEach(function (c) { x[c[0]] = o[c[0]]; }); });
+  touch_(tkey);
 }
 function remove_(tkey, o) {
   if (tkey === 'clips' && REQ_) REQ_.clipDirty = true;
   if (tkey === 'sessions') bumpSesGen_(); // 行が消えると、覚えておいたログイン（行の番号つき）を使わない
   if (tkey === 'people') bumpPeopleGen_();
-  const t = table_(tkey);
+  const t = tableW_(tkey);
   t.sheet.deleteRow(o._r);
   const r = o._r;
   t.rows = t.rows.filter(function (x) { return x !== o && x._r !== r; }); // 一部だけ読んだ行（rowsWhere_）でも消せるよう、行の番号でも比べる
   t.rows.forEach(function (x) { if (x._r > r) x._r--; });
   t.lastRow--;
+  touch_(tkey);
 }
 function removeMany_(tkey, list) {
   list.slice().sort(function (a, b) { return b._r - a._r; }).forEach(function (o) { remove_(tkey, o); });
@@ -517,6 +682,8 @@ function withLock_(fn, opt) {
   } catch (x) {
     throw err_('busy', 'いま混み合っています。少し待ってもう一度試してください。');
   }
+  const outer = !(REQ_ && REQ_.lockDepth);
+  if (REQ_) { REQ_.lockDepth = (REQ_.lockDepth || 0) + 1; if (outer) REQ_.touched = {}; }
   try {
     SpreadsheetApp.flush(); // ほかの実行が書いた内容を読めるように（同じ実行の中で前に読んだ内容を使い回させない）
     if (REQ_) {
@@ -525,20 +692,29 @@ function withLock_(fn, opt) {
     }
     const res = fn();
     SpreadsheetApp.flush();
+    if (REQ_ && outer) { const tk = Object.keys(REQ_.touched || {}); REQ_.touched = {}; bumpTables_(tk); }
     bumpDataVersion_();
     if (REQ_ && REQ_.clipDirty) { REQ_.clipDirty = false; try { saveClipIndex_(); } catch (x) { console.error(x); } } // 動画の行が変わった：小さな索引を作り直す（ロックの中なので確か）
     return res;
   } finally {
-    if (REQ_) { if (!keep) { REQ_.roster = null; REQ_.members = null; } REQ_.fresh = false; REQ_.goalHist = null; }
+    if (REQ_) {
+      if (!keep) { REQ_.roster = null; REQ_.members = null; } REQ_.fresh = false; REQ_.goalHist = null;
+      REQ_.lockDepth = Math.max(0, (REQ_.lockDepth || 1) - 1);
+      if (outer && REQ_.touched && Object.keys(REQ_.touched).length) { const tk = Object.keys(REQ_.touched); REQ_.touched = {}; bumpTables_(tk); } // 途中でエラーになっても、書いた分は忘れる
+    }
     lock.releaseLock();
   }
 }
 
 /** データが変わるたびに変える印（見る人向けの返事の作り置きを使い直さないため） */
 function bumpDataVersion_() {
-  try { PropertiesService.getScriptProperties().setProperty('DV', Date.now().toString(36) + Math.floor(Math.random() * 1296).toString(36)); } catch (x) { /* noop */ }
+  try {
+    const v = Date.now().toString(36) + Math.floor(Math.random() * 1296).toString(36);
+    PropertiesService.getScriptProperties().setProperty('DV', v);
+    if (REQ_ && REQ_.props) REQ_.props.DV = v;
+  } catch (x) { /* noop */ }
 }
-function dataVersion_() { return PropertiesService.getScriptProperties().getProperty('DV') || '0'; }
+function dataVersion_() { return prop_('DV') || '0'; }
 
 function setting_(key) {
   const row = table_('settings').rows.filter(function (r) { return r.key === key; })[0];
@@ -597,10 +773,9 @@ function rosterLib_() {
 const ROSTER_TTL = 600;
 function rosterInfo_() {
   if (REQ_ && REQ_.rinfo) return REQ_.rinfo;
-  const c = CacheService.getScriptCache();
   let info = null;
   if (!(REQ_ && REQ_.fresh)) {
-    const hit = c.get('k:roster');
+    const hit = cget_('k:roster');
     if (hit) { try { info = JSON.parse(hit); } catch (x) { info = null; } }
   }
   if (!info) {
@@ -608,14 +783,14 @@ function rosterInfo_() {
     const list = rosterLib_().list(), pos = rosterLib_().positions();
     if (REQ_) REQ_.lib = Date.now() - tl;
     info = { list: list, pos: pos, sig: sha256Hex_(JSON.stringify([list, pos])).slice(0, 16) };
-    try { c.put('k:roster', JSON.stringify(info), ROSTER_TTL); } catch (x) { /* 覚えられなくても動く */ }
+    try { cput_('k:roster', JSON.stringify(info), ROSTER_TTL); } catch (x) { /* 覚えられなくても動く */ }
   }
   if (REQ_) REQ_.rinfo = info;
   return info;
 }
 /** 筋トレアプリから名簿を書き換えたあとに呼ぶ */
 function rosterChanged_() {
-  try { CacheService.getScriptCache().remove('k:roster'); } catch (x) { /* noop */ }
+  try { cdel_(['k:roster']); } catch (x) { /* noop */ }
   if (REQ_) REQ_.rinfo = null; // このリクエストの中の一覧（REQ_.roster）は今までどおり。読み直すときは REQ_.roster = null にする
 }
 function rosterAdd_(people) { noRosterWriteInTest_(); const r = rosterLib_().add(people); rosterChanged_(); return r; }
@@ -691,10 +866,9 @@ function peopleRow_(m) {
  */
 function syncRoster_() {
   // 名簿が前に確かめたときと同じなら、10分のあいだは確かめ直さない（筋トレアプリの中の変更は、その操作が自分で履歴を足す）
-  const c = CacheService.getScriptCache();
-  if (c.get('k:synced') === rosterInfo_().sig) return;
+  if (cget_('k:synced') === rosterInfo_().sig) return;
   syncRosterNow_();
-  try { c.put('k:synced', rosterInfo_().sig, ROSTER_TTL); } catch (x) { /* noop */ }
+  try { cput_('k:synced', rosterInfo_().sig, ROSTER_TTL); } catch (x) { /* noop */ }
 }
 function syncRosterNow_() {
   if (!needsSync_()) return;
@@ -766,7 +940,7 @@ function addHistory_(m, today, now, by, hist, pending) {
 // ---------------------------------------------------------------------------
 function ensureSchema_() {
   const props = PropertiesService.getScriptProperties();
-  if (props.getProperty('SCHEMA') === SCHEMA_VERSION) return;
+  if ((REQ_ ? prop_('SCHEMA') : props.getProperty('SCHEMA')) === SCHEMA_VERSION) return;
   withLock_(function () {
     if (props.getProperty('SCHEMA') === SCHEMA_VERSION) return;
     prepareSheets_();
@@ -788,6 +962,7 @@ function prepareSheets_() {
     if (missing.length) sh.getRange(1, head.length + 1, 1, missing.length).setValues([missing]);
     sh.setFrozenRows(1);
   });
+  bumpAllTables_();
   const blank = ss.getSheetByName('シート1') || ss.getSheetByName('Sheet1');
   if (blank && blank.getLastRow() === 0 && ss.getSheets().length > 1) ss.deleteSheet(blank);
   if (REQ_) REQ_.tables = {};
@@ -897,9 +1072,8 @@ function canLogin_(m) {
 const SES_CACHE_SEC = 600;
 function sesGen_() {
   if (REQ_ && REQ_.sesGen) return REQ_.sesGen;
-  const c = CacheService.getScriptCache();
-  let g = c.get('k:sesgen');
-  if (!g) { g = Utilities.getUuid().slice(0, 8); try { c.put('k:sesgen', g, 21600); } catch (x) { /* noop */ } }
+  let g = cget_('k:sesgen');
+  if (!g) { g = Utilities.getUuid().slice(0, 8); try { cput_('k:sesgen', g, 21600); } catch (x) { /* noop */ } }
   if (REQ_) REQ_.sesGen = g;
   return g;
 }
@@ -938,7 +1112,7 @@ function resolveSession_(ctx) {
   if (req.viewToken && typeof req.viewToken === 'string') {
     // 合言葉のトークンは、確かめた結果を10分覚えておく（合言葉を変えると印が変わって無効になる）
     const h2 = sha256Hex_(req.viewToken);
-    const c = CacheService.getScriptCache(), ck = 'k:vt:' + (PropertiesService.getScriptProperties().getProperty('VIEWGEN') || '0') + ':' + h2.slice(0, 32);
+    const c = CacheService.getScriptCache(), ck = 'k:vt:' + (prop_('VIEWGEN') || '0') + ':' + h2.slice(0, 32);
     const hit = c.get(ck);
     if (hit) { if (hit > now) ctx.view = true; }
     else {
@@ -1930,18 +2104,18 @@ const STAMP_KEEP_DAYS = 400;    // これより古い応援はシートから消
  * 1時間ごとの処理が止まっていたら入れ直し、2日以上あいていたらここでする（だれかが少し待つ）
  */
 function maintFromRequest_() {
-  const c = CacheService.getScriptCache(), today = today_();
-  if (c.get('k:maint') === today) return;
+  const today = today_();
+  if (cget_('k:maint') === today) return;
   const on = setting_('maintOn');
-  if (on === today) { try { c.put('k:maint', today, 21600); } catch (x) { /* noop */ } return; }
+  if (on === today) { try { cput_('k:maint', today, 21600); } catch (x) { /* noop */ } return; }
   const hourly = ensureHourly_();
-  if (hourly && on && on >= addDays_(today, -1)) { try { c.put('k:maint', today, 600); } catch (x) { /* noop */ } return; } // 1時間以内に1時間ごとの処理がする（10分は確かめ直さない）
+  if (hourly && on && on >= addDays_(today, -1)) { try { cput_('k:maint', today, 600); } catch (x) { /* noop */ } return; } // 1時間以内に1時間ごとの処理がする（10分は確かめ直さない）
   dailyMaint_();
 }
 /** 1時間ごとの処理（時間主導のトリガー）があるか、1日1回確かめて、無ければ入れる */
 function ensureHourly_() {
   const c = CacheService.getScriptCache(), today = today_();
-  if (c.get('k:trig') === today) return true;
+  if (cget_('k:trig') === today) return true;
   try {
     let has = ScriptApp.getProjectTriggers().some(function (t) { return t.getHandlerFunction() === 'pushHourly'; });
     if (!has) {
@@ -2093,7 +2267,7 @@ function restoreBackup_(tabName, names) {
       range.setNumberFormat('@');
       range.setValues(rows);
     });
-    REQ_.tables = {};
+    REQ_.tables = {}; bumpAllTables_();
     log_(null, 'バックアップから戻した', tabName + '：' + list.join('、'));
     return { restored: list, safe: safe.name };
   });
@@ -2158,7 +2332,7 @@ function archiveLogs_() {
       const range = arc.getRange(at + 1, 1, rows.length, t.width);
       range.setNumberFormat('@');
       range.setValues(rows);
-      t.sheet.deleteRows(2, last - 1);
+      t.sheet.deleteRows(2, last - 1); touch_('logs');
       delete REQ_.tables.logs;
     }
     setSetting_('logArchiveOn', month);
@@ -2184,6 +2358,7 @@ function pruneStamps_(today) {
   for (let i = 0; i < t.rows.length && t.rows[i].at.slice(0, 10) < limit; i++) n++;
   if (!n) return;
   t.sheet.deleteRows(2, t.rows[n - 1]._r - 1); // 途中に空の行があっても、n件目の行までまとめて消す
+  touch_('stamps');
   REQ_.tables.stamps = null; delete REQ_.tables.stamps;
 }
 
@@ -3372,11 +3547,11 @@ const LOGIN_FREE = { ping: 1, state: 1, login: 1, register: 1, logout: 1, pinReq
 
 function setlogOn_() {
   if (REQ_ && REQ_.setlogOn != null) return REQ_.setlogOn; // 1回の実行で何度も聞くので覚えておく
-  const v = PropertiesService.getScriptProperties().getProperty('SETLOG') === '1';
+  const v = (REQ_ ? prop_('SETLOG') : PropertiesService.getScriptProperties().getProperty('SETLOG')) === '1';
   if (REQ_) REQ_.setlogOn = v;
   return v;
 }
-function isTestEnv_() { return PropertiesService.getScriptProperties().getProperty('ENV') === 'test'; }
+function isTestEnv_() { return (REQ_ ? prop_('ENV') : PropertiesService.getScriptProperties().getProperty('ENV')) === 'test'; }
 function noRosterWriteInTest_() {
   if (isTestEnv_()) throw err_('test_env', 'テスト環境では部員名簿（会計アプリ）は変えられません。');
 }
@@ -3389,6 +3564,7 @@ function extendSession_(s) {
     const t = table_('sessions');
     if (!s._r) return;
     t.sheet.getRange(s._r, t.col.expiresAt + 1).setValue(want);
+    touch_('sessions');
     s.expiresAt = want;
     bumpSesGen_();
   } catch (x) { console.error(x); }
@@ -3741,9 +3917,8 @@ function attachPendingMaybe_() {
   try {
     const keys = Object.keys(pendAll_());
     if (!keys.length) return 0;
-    const c = CacheService.getScriptCache();
-    if (c.get('k:pend')) return 0;
-    c.put('k:pend', '1', 30);
+    if (cget_('k:pend')) return 0;
+    cput_('k:pend', '1', 30);
     return withLock_(function () {
       const pend = pendAll_(), cms = commitAll_(), lim = nowPlusMin_(-60);
       let n = 0;
@@ -3974,9 +4149,8 @@ const shown_ = function (c) { return c.status !== 'draft'; }; // 下書きはだ
 /** 動画が届かないまま24時間たった行を取り消す（その日のほかの動画が無ければ「実施した」も外す）。10分に1回まで */
 function expireClipsMaybe_() {
   try {
-    const c = CacheService.getScriptCache();
-    if (c.get('k:clipexp')) return;
-    c.put('k:clipexp', '1', 600);
+    if (cget_('k:clipexp')) return;
+    cput_('k:clipexp', '1', 600);
     expireClips_();
   } catch (x) { console.error(x); }
 }
@@ -4186,7 +4360,7 @@ function setupTestEnv() {
     ensureSchema_();
     withLock_(function () { removeMany_('sessions', table_('sessions').rows); removeMany_('push', table_('push').rows); });
   } finally { REQ_ = null; }
-  CacheService.getScriptCache().removeAll(['k:roster', 'k:synced', 'k:maint', 'k:trig']);
+  cdel_(['k:roster', 'k:synced', 'k:maint', 'k:trig']);
   return 'テスト環境にしました';
 }
 

@@ -16,7 +16,44 @@ seedMaster(gas, [
   { name: '前田 剛', grade: '4年' }, { name: '石川 大地', grade: '4年' }, { name: '森 健太', grade: '3年' },
   { name: '橋本 侑青', grade: '4年' }, { name: '小川 陽向', grade: '3年' }, { name: 'マネ 花子', grade: '2年', role: 'マネージャー' }
 ]);
-const api = gas.api;
+// シートのキャッシュの確かめ：state を読むたびに、キャッシュを使わずにもう一度読んで、同じになるかを見る
+const api0 = gas.api;
+let tcChecks = 0;
+const tcBad = [];
+const tcStrip = (s) => JSON.stringify(s, (k, v) => (k === '_t' ? undefined : v));
+const NO_AFTER_T = { ping: 1, state: 1, login: 1, logout: 1, register: 1, viewLogin: 1, changePin: 1, clipStart: 1, clipDraft: 1, clipDraftDrop: 1, clipUpload: 1, clipVideo: 1, clips: 1, icons: 1, logs: 1, sessions: 1, trash: 1, feedbackList: 1, memberHistory: 1, menuArchive: 1, pushInbox: 1, pushMove: 1, clientError: 1 };
+let afChecks = 0;
+const afBad = [];
+const api = (req) => {
+  // 書く操作には「書いたあとの最新の情報」も頼み、別に読み直したものと同じかを確かめる（返事からは外して、ほかのテストに影響させない）
+  if (req && req.token && !NO_AFTER_T[req.op] && !req.after && !process.env.NOTC) {
+    const r = api0(Object.assign({}, req, { after: {} }));
+    if (r && r.ok !== false && r._state) {
+      const s = r._state; delete r._state;
+      const all = gas.cache._all;
+      Object.keys(all).forEach((k) => { if (k.indexOf('t:') === 0 || k.indexOf('st:') === 0) delete all[k]; });
+      const s2 = api0({ op: 'state', token: req.token, device: req.device });
+      afChecks++;
+      if (tcStrip(s) !== tcStrip(s2)) {
+        const a = JSON.parse(tcStrip(s)), b = JSON.parse(tcStrip(s2));
+        afBad.push(req.op + ':' + Object.keys(Object.assign({}, a, b)).filter((k) => JSON.stringify(a[k]) !== JSON.stringify(b[k])).join(','));
+      }
+    } else if (r && r.ok !== false && !r._state) afBad.push(req.op + ':なし');
+    return r;
+  }
+  const r = api0(req);
+  if (req && req.op === 'state' && r && r.ok && !process.env.NOTC) {
+    const all = gas.cache._all;
+    Object.keys(all).forEach((k) => { if (k.indexOf('t:') === 0 || k.indexOf('st:') === 0) delete all[k]; });
+    const r2 = api0(req);
+    tcChecks++;
+    if (tcStrip(r) !== tcStrip(r2)) {
+      const a = JSON.parse(tcStrip(r)), b = JSON.parse(tcStrip(r2));
+      tcBad.push(Object.keys(Object.assign({}, a, b)).filter((k) => JSON.stringify(a[k]) !== JSON.stringify(b[k])).join(','));
+    }
+  }
+  return r;
+};
 const adminPin = gas.run('registerAdmin_', '橋本 侑青');
 let st = api({ op: 'state' });
 const id = {};
@@ -311,6 +348,7 @@ api({ op: 'state', token: ISHI }); // シートに書く
   set('形式', 'video/mp4'); set('大きさ', '100'); set('今日の数字', String(code)); set('状態', '下書き'); set('気になる（部員ID）', '[]');
   sh.data.push(row);
   gas.cache.remove('k:clipidx'); // シートを直接さわったので、索引を作り直させる（アプリ経由なら自動で作り直す）
+  gas.run('onEdit', { range: { getSheet: () => ({ getName: () => '動画' }) } }); // 手で直したときと同じ（シートのキャッシュを忘れさせる）
 }
 const rowsOf = () => gas.sheet('動画').data.filter((x) => x.indexOf(atx) >= 0 && x.indexOf(IS) >= 0);
 ok(rowsOf().length === 2, '（行が2つある状態）');
@@ -480,6 +518,9 @@ section('アイコン（一人一人が決める）');
   ok(api({ op: 'setIcon', token: G, kind: 'e', emoji: '🔥', color: '#8c1d2f' }).error === 'forbidden', '見るだけの人はアイコンを決めない');
 }
 
+section('シートのキャッシュ');
+ok(afChecks > 10 && !afBad.length, '書いたあとに一緒に返す最新の情報は、読み直したものと同じ（' + afChecks + '回）' + (afBad.length ? '：違い ' + afBad.slice(0, 6).join(' / ') : ''));
+ok(tcChecks > 20 && !tcBad.length, 'キャッシュから読んだ state は、シートから読んだものと同じ（' + tcChecks + '回）' + (tcBad.length ? '：違い ' + tcBad.slice(0, 5).join(' / ') : ''));
 console.log('\n==============================');
 console.log('合格 ' + pass + ' / 不合格 ' + fail);
 if (fail) { console.log('不合格：\n- ' + failed.join('\n- ')); process.exit(1); }
