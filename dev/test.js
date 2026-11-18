@@ -398,6 +398,7 @@ r = api({ op: 'saveExempt', token: MX, memberId: someone.id, from: '2026-11-10',
 ok(r.ok && r.exempt.reason === '怪我', 'マネージャーが部員の免除を登録できる');
 ok(api({ op: 'saveExempt', token: MX, memberId: 'ALL', from: '2026-11-10', to: '2026-11-12', reason: '試験期間' }).error === 'forbidden', '部全体のオフは管理者だけ');
 ok(api({ op: 'saveExempt', token: LD, memberId: someone.id, from: '2026-11-10', to: '2026-11-12', reason: '怪我' }).ok !== true, 'FWリーダーは免除を登録できない');
+ok(api({ op: 'exemptRequest', token: MX, from: '2026-11-10', to: '2026-11-12', reason: 'けが' }).error === 'forbidden' && api({ op: 'exemptDecide', token: MX, id: 'x', ok: true }).error === 'forbidden', '本番（全員ログインでない）では、免除の申し込みは使えない');
 ok(api({ op: 'saveExempt', token: A, memberId: someone.id, from: '2026-11-20', to: '2026-11-10', reason: '怪我' }).error === 'bad_range', '終了日が開始日より前なら登録しない');
 const off = api({ op: 'saveExempt', token: A, memberId: 'ALL', from: '2026-11-10', to: '2026-11-12', reason: '試験期間', note: '前期試験' });
 ok(off.ok, '管理者は部全体のオフ期間を登録できる');

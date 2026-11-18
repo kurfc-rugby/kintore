@@ -315,7 +315,7 @@ const shot = async (p, name) => { if (SHOT) { require('fs').mkdirSync(SHOT, { re
     const hp = await q.locator('#main').innerText();
     ok(!/自分の名前を選ぶ/.test(hp) && !/ログインはいりません/.test(hp), '使い方ガイドにも「自分の名前を選ぶ」「ログインはいりません」が出ない');
     // 全員ログイン版で、むかしの説明（ログイン不要・名前を選ぶ・合言葉など）が残っていないか、使い方ガイドを全部開いて調べる
-    const BAD = /ログイン不要|ログインはいりません|ログインなし|ログインしていない部員|自分の名前を選|自分の名前・見やすさ|閲覧の合言葉|40秒/;
+    const BAD = /ログイン不要|ログインはいりません|ログインなし|ログインしていない部員|自分の名前を選|自分の名前・見やすさ|閲覧の合言葉/;
     const scan = async (pg, who) => {
       const found = [];
       await pg.evaluate(() => { location.hash = '#help'; }); await pg.waitForTimeout(700);
@@ -334,6 +334,9 @@ const shot = async (p, name) => { if (SHOT) { require('fs').mkdirSync(SHOT, { re
     await q.evaluate(() => { location.hash = '#help'; }); await q.waitForTimeout(500);
     await q.click('[data-act="help-role"][data-v="all"]'); await q.waitForTimeout(300);
     ok(/今日の1本を撮る/.test(await q.locator('#main').innerText()) && /自分のアイコン/.test(await q.locator('#main').innerText()), '使い方ガイドに「今日の1本を撮る」「自分のアイコン」がある');
+    ok(/howto-login\.jpg/.test(await q.locator('.howvid img').getAttribute('src')), '使い方ガイドの40秒の動画は、全員ログイン版（ログイン・撮る）のもの');
+    const vok = await q.evaluate(async () => { const r = await fetch('media/howto-login.mp4'); return r.ok && (await r.blob()).size > 100000; });
+    ok(vok, '全員ログイン版の使い方動画のファイルがある');
     await q.evaluate(() => { location.hash = '#record'; }); await q.waitForTimeout(500);
     ok(await q.locator('#main [data-act="login"]').count() === 0, '選手が記録の画面を開いても、（ログインしているのに）「ログイン」ボタンは出ない');
     await scan(g4, 'マネージャー');
@@ -384,6 +387,65 @@ const shot = async (p, name) => { if (SHOT) { require('fs').mkdirSync(SHOT, { re
   await g.p.click('form[data-form="pin"] button[type="submit"]'); await g.p.waitForTimeout(1500);
   ok(await g.p.locator('.board').count() === 1 && await g.p.locator('.nav .shoot').count() === 0, '見るだけの人はホームを見られる（「撮る」は出ない）');
   await g.c.close();
+
+  console.log('■ 免除の申し込み（選手 → キャプテン）・カレンダーから動画・編集画面の「登録を消す」');
+  {
+    const loginAs = async (who, pin) => {
+      const x = await mk();
+      await x.p.goto(BASE); await x.p.waitForSelector('.login-gate');
+      await pick(x.p, who); await x.p.fill('form[data-form="mlogin"] input[name="pin"]', pin);
+      await x.p.click('form[data-form="mlogin"] button[type="submit"]'); await x.p.waitForSelector('.board'); await x.p.waitForTimeout(700);
+      return x;
+    };
+    // 管理者：石川さんをキャプテンにする（部員の編集）。森さんの編集画面には、登録の状態と「登録を消す」
+    const ad = await loginAs('管理 太郎', 'test-admin-1');
+    const idOf = async (pg, name) => pg.evaluate(async (n) => {
+      const tk = JSON.parse(localStorage.getItem('kintoreTest.token') || '""');
+      const st = await fetch('/exec', { method: 'POST', body: JSON.stringify({ op: 'state', token: tk }) }).then((r) => r.json());
+      return (st.members.find((m) => m.name === n) || {}).id;
+    }, name);
+    const MO = await idOf(ad.p, '森 健太'), IS = await idOf(ad.p, '石川 大地');
+    await ad.p.evaluate((id) => { location.hash = '#member/' + id; }, MO); await ad.p.waitForTimeout(700);
+    await ad.p.click('[data-act="member-edit"]'); await ad.p.waitForSelector('form[data-form="member"]');
+    ok(/登録済み/.test(await ad.p.locator('.sheet .reg-st').innerText()) && await ad.p.locator('.sheet [data-act="unreg"][data-back="member"]').count() === 1, '部員の編集画面に、アプリの登録の状態と「登録を消す」がある');
+    ok(await ad.p.locator('.sheet input[name="captain"]').count() === 1, '部員の編集画面に「キャプテン」がある');
+    await ad.p.click('.sheet [data-act="sheet-close"]'); await ad.p.waitForTimeout(300);
+    await ad.p.evaluate((id) => { location.hash = '#member/' + id; }, IS); await ad.p.waitForTimeout(700);
+    await ad.p.click('[data-act="member-edit"]'); await ad.p.waitForSelector('form[data-form="member"]');
+    await ad.p.check('.sheet input[name="captain"]');
+    await ad.p.click('form[data-form="member"] button[type="submit"]'); await ad.p.waitForTimeout(1500);
+    // 選手（森）：自分のページから免除を申し込む
+    const pl = await loginAs('森 健太', 'mori-pin-1');
+    await pl.p.click('.selfcard'); await pl.p.waitForTimeout(800);
+    // カレンダー：動画がある日は押すと開く
+    const hc = await pl.p.locator('.mcal button.has-clip').count();
+    ok(hc >= 1, '自分のページのカレンダーで、動画がある日に印が出る（' + hc + '日）');
+    if (hc) {
+      await pl.p.locator('.mcal button.has-clip').first().click(); await pl.p.waitForTimeout(900);
+      ok(await pl.p.locator('.sheet video, .sheet .clip-player').count() >= 1, 'カレンダーのその日を押すと、その日の動画が開く');
+      await pl.p.click('.sheet [data-act="sheet-close"]').catch(() => pl.p.keyboard.press('Escape')); await pl.p.waitForTimeout(400);
+    }
+    await pl.p.click('[data-act="exreq-new"]'); await pl.p.waitForSelector('form[data-form="exreq"]');
+    await pl.p.selectOption('form[data-form="exreq"] select[name="reason"]', 'けが');
+    await pl.p.fill('form[data-form="exreq"] input[name="note"]', '左肩の痛み');
+    await pl.p.click('form[data-form="exreq"] button[type="submit"]'); await pl.p.waitForTimeout(1500);
+    ok(/申し込み中/.test(await pl.p.locator('.exreq-mine').innerText().catch(() => '')), '選手が自分のページから免除を申し込める（「申し込み中」と出る）');
+    // キャプテン（石川）：ホームに申し込みが出て、認める
+    const cp = await loginAs('石川 大地', 'ishi-pin-1');
+    ok(await cp.p.locator('[data-act="exreqs-open"]').count() === 1 && /森 健太/.test(await cp.p.locator('[data-act="exreqs-open"]').innerText()), 'キャプテンのホームに「免除の申し込みが1件（森 健太）」が出る');
+    await cp.p.click('[data-act="exreqs-open"]'); await cp.p.waitForSelector('.sheet .exreqs');
+    ok(/左肩の痛み/.test(await cp.p.locator('.sheet .exreqs').innerText()), 'キャプテンには、理由とメモが見える');
+    await cp.p.click('.sheet [data-act="exreq-ok"]'); await cp.p.waitForTimeout(1800);
+    ok(await cp.p.locator('[data-act="exreqs-open"]').count() === 0, '認めると、ホームの申し込みが消える');
+    await pl.p.evaluate(() => { location.hash = '#home'; }); await pl.p.reload(); await pl.p.waitForSelector('.board'); await pl.p.waitForTimeout(600);
+    await pl.p.evaluate((id) => { location.hash = '#member/' + id; }, MO); await pl.p.waitForTimeout(900);
+    ok(!/申し込み中/.test(await pl.p.locator('#main').innerText()) && await pl.p.locator('.exlist:not(.exreq-mine) li').count() >= 1, '選手のページに、認められた免除が出る');
+    const st3 = await ad.p.evaluate(async () => { const tk = JSON.parse(localStorage.getItem('kintoreTest.token') || '""'); return fetch('/exec', { method: 'POST', body: JSON.stringify({ op: 'state', token: tk }) }).then((r) => r.json()); });
+    ok(st3.exempts.some((e) => e.memberId === MO && e.req === 1), '管理者には、本人の申し込みから（キャプテンが認めた）とわかる');
+    // 石川さんのキャプテンを外しておく（このあとのテストのため）
+    await ad.p.evaluate(async (id) => { const tk = JSON.parse(localStorage.getItem('kintoreTest.token') || '""'); await fetch('/exec', { method: 'POST', body: JSON.stringify({ op: 'saveMember', token: tk, member: { id: id, captain: false } }) }); }, IS);
+    await ad.c.close(); await pl.c.close(); await cp.c.close();
+  }
 
   console.log('■ いろいろな画面の大きさ（映像がボタンに重ならない）');
   for (const [w, h, lab] of [[360, 560, '縦が短いスマホ'], [844, 390, '横向き'], [768, 1024, 'タブレット']]) {

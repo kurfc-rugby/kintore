@@ -1573,3 +1573,28 @@ body.cam-open { overflow: hidden; }
 .reg-n { margin: 4px 0 10px; display: flex; flex-direction: column; gap: 2px; }
 .reg-n b { font-size: 15px; }
 .reg-n small { color: var(--sub); font-size: 12px; line-height: 1.5; }
+
+/* ---------- 部員のページのカレンダー：動画がある日（押すと開く） ---------- */
+button.mday { border: 0; padding: 0; font: inherit; color: inherit; cursor: pointer; position: relative; -webkit-tap-highlight-color: transparent; }
+.mday-cam { position: absolute; top: 3px; right: 3px; width: 7px; height: 7px; border-radius: 50%; background: currentColor; opacity: .85; box-shadow: 0 0 0 1.5px var(--paper); }
+.mday.s-done .mday-cam { box-shadow: 0 0 0 1.5px var(--done); }
+button.mday:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+.hist-v { display: inline-flex; align-items: center; gap: 3px; font-size: 12px; white-space: nowrap; }
+.hist-v .ic { width: 14px; height: 14px; }
+
+/* ---------- 免除の申し込み ---------- */
+button.banner { width: 100%; border: 0; font: inherit; font-size: 13px; text-align: left; cursor: pointer; }
+.exreq-mine li { background: var(--soft); }
+.exq-ans { color: var(--err-fg) !important; }
+.exreqs li { border: 1px solid var(--line); border-radius: 10px; padding: 12px; margin-bottom: 10px; }
+.exq-h { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.exq-h b { font-size: 15px; }
+.exq-d { font-family: var(--num); font-weight: 600; font-size: 14px; margin-left: auto; white-space: nowrap; }
+.exq-r { margin: 8px 0; font-size: 14px; line-height: 1.6; }
+.exq-r small { display: block; font-size: 11.5px; color: var(--sub); }
+.exq-a { font-size: 12.5px; }
+.exreqs .actions { margin-top: 8px; }
+
+/* ---------- 部員の編集：アプリの登録 ---------- */
+.reg-st { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.reg-st .btn { width: auto; }

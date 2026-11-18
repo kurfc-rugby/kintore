@@ -1,10 +1,12 @@
 # 使い方動画（約40秒・720×1280・30fps・音なし）を組み立てる
 #   python3 dev/howto-render.py <素材フォルダ(howto-capture.js の出力)> <出力フォルダ>
+#   python3 dev/howto-render.py <素材フォルダ(howto-capture-login.js の出力)> <出力フォルダ> login … 全員ログイン版（howto-login.mp4）
 # 場面ごとに1本ずつ書き出してから、つなぐ（-c copy）。
 import json, os, subprocess, sys, math
 from PIL import Image, ImageDraw, ImageFont
 
 CAP, OUT = sys.argv[1], sys.argv[2]
+LOGIN = len(sys.argv) > 3 and sys.argv[3] == 'login'
 os.makedirs(OUT, exist_ok=True)
 W, H, FPS = 720, 1280, 30
 BG = (110, 47, 52)
@@ -27,6 +29,21 @@ SCENES = {
     'feedback': (4.0, '要望・不具合は\n設定から送れる', '7/8'),
     'help': (4.0, 'わからないときは右上の「？」\n画面で案内も見られる', '8/8'),
 }
+
+# 全員ログイン版：ログイン・撮る・みんなの動画・カレンダーの動画・アイコン
+SCENES_LOGIN = {
+    'title': (2.5, 'KURFC 筋トレ\n使い方（40秒）', ''),
+    'login': (5.0, '名前を選んで\n暗証番号を決めて登録', '1/8'),
+    'home': (4.5, 'ホームで、部全体と\n自分の今週がわかる', '2/8'),
+    'shoot': (7.5, '筋トレをしたら「撮る」\n2秒の動画で「実施した」', '3/8'),
+    'clips': (4.5, 'みんなの動画を見て\n応援を送れる', '4/8'),
+    'rank': (4.0, 'ランキングは\n横にはらうと前の月', '5/8'),
+    'member': (5.0, '自分のページの\nカレンダーから動画', '6/8'),
+    'icon': (4.5, 'アイコンも\n自分で決められる', '7/8'),
+    'help': (3.5, 'わからないときは\n右上の「？」', '8/8'),
+}
+if LOGIN:
+    SCENES = SCENES_LOGIN
 
 mask = Image.new('L', (SW, SH), 0)
 ImageDraw.Draw(mask).rounded_rectangle((0, 0, SW - 1, SH - 1), R, fill=255)
@@ -134,7 +151,8 @@ def render_scene(idx, sc):
     return dst
 
 scenes = json.load(open(os.path.join(CAP, 'beats.json')))
-order = ['title', 'home', 'self', 'rank', 'member', 'cheer', 'form', 'feedback', 'help']
+order = ['title', 'login', 'home', 'shoot', 'clips', 'rank', 'member', 'icon', 'help'] if LOGIN else ['title', 'home', 'self', 'rank', 'member', 'cheer', 'form', 'feedback', 'help']
+NAME = 'howto-login' if LOGIN else 'howto'
 byid = {s['id']: s for s in scenes}
 files = []
 for i, sid in enumerate(order):
@@ -142,10 +160,10 @@ for i, sid in enumerate(order):
 if os.environ.get('PREVIEW'): raise SystemExit(0)
 lst = os.path.join(OUT, 'list.txt')
 open(lst, 'w').write(''.join("file '%s'\n" % os.path.abspath(f) for f in files))
-final = os.path.join(OUT, 'howto.mp4'); tmp = os.path.join(OUT, 'howto.tmp.mp4')
+final = os.path.join(OUT, NAME + '.mp4'); tmp = os.path.join(OUT, NAME + '.tmp.mp4')
 subprocess.check_call(['ffmpeg', '-v', 'error', '-y', '-f', 'concat', '-safe', '0', '-i', lst, '-c', 'copy', '-movflags', '+faststart', tmp])
 os.replace(tmp, final)
 # 表紙（360×640）：ホームの場面の最初
 poster = base(*SCENES['title'][1:]); paste_screen(poster, screen(byid['title']['beats'][0]['img']))
-poster.resize((360, 640), Image.LANCZOS).save(os.path.join(OUT, 'howto.jpg'), quality=88)
+poster.resize((360, 640), Image.LANCZOS).save(os.path.join(OUT, NAME + '.jpg'), quality=88)
 print('done', final)

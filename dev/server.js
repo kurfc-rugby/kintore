@@ -140,7 +140,8 @@ http.createServer((req, res) => {
     });
     return;
   }
-  if (url === '/config.js') { res.writeHead(200, { 'Content-Type': TYPES['.js'] }); res.end("self.KINTORE_API = '/exec';" + (process.env.SETLOG ? "self.KINTORE_STORE = 'kintoreTest';" : '')); return; }
+  // PRODSTORE=1：全員ログイン版を、本番と同じ見た目（「テスト環境」の印なし）で動かす（使い方動画を撮るとき）
+  if (url === '/config.js') { res.writeHead(200, { 'Content-Type': TYPES['.js'] }); res.end("self.KINTORE_API = '/exec';" + (process.env.SETLOG && !process.env.PRODSTORE ? "self.KINTORE_STORE = 'kintoreTest';" : '')); return; }
   // フォントは開発用に手元から（FONTS_DIR に @fontsource のフォルダがあるとき）
   if (url.startsWith('/fonts/') && process.env.FONTS_DIR) {
     const f = path.join(process.env.FONTS_DIR, path.basename(url));

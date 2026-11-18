@@ -3,7 +3,7 @@
   'use strict';
   const L = window.KLogic;
   const API = window.KINTORE_API;
-  const VERSION = '2.22.0-t30';
+  const VERSION = '2.23.0-t31';
   const WD = ['日', '月', '火', '水', '木', '金', '土'];
   const PERM = { admin: '管理者', manager: 'マネージャー', leader: 'FWリーダー', member: '一般部員', guest: '見るだけ' };
   const MODE = { leader: 'メニュー参加', self: '自主トレ' };
@@ -131,7 +131,8 @@
     ['milestone', '記録の節目', '連続達成が自己ベストに並んだ・更新した、通算○回になったとき', 'self'],
     ['menu', '新しいメニューが出たとき', '自分が対象のメニューだけ', 'self'],
     ['pinreq', '管理者へのお知らせ', '管理者だけ。暗証番号の再発行の依頼と、要望・不具合が届いたらすぐ', 'admin'],
-    ['clipq', '動画の確認', 'スタッフだけ。確認待ちの動画が届いたとき・「気になる」がついたとき', 'staff']
+    ['clipq', '動画の確認', 'スタッフだけ。確認待ちの動画が届いたとき・「気になる」がついたとき', 'staff'],
+    ['exreq', '免除の申し込み', 'キャプテン・管理者だけ。選手から免除の申し込みが届いたとき', 'judge']
   ];
   const pushSupported = () => 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
   function b64uBytes(s) {
@@ -172,11 +173,11 @@
     }
     if (!PWA.reg || !S.data.pushKey) return h + '<p class="lead-line small">準備中です。少し待ってから開き直してください。</p></section>';
     if (!PUSH.ready) { loadPush().then(() => { if (S.route.name === 'settings') render(); }); return h + '<p class="empty small">読み込み中…</p></section>'; }
-    const on = !!PUSH.endpoint, cur = on ? store.get('pushKinds', []) : ['goal', 'cheer', 'pinreq', 'clipq'];
+    const on = !!PUSH.endpoint, cur = on ? store.get('pushKinds', []) : ['goal', 'cheer', 'pinreq', 'clipq', 'exreq'];
     const denied = Notification.permission === 'denied';
     h += '<p class="lead-line small">' + (on ? icon('check') + '<b>この端末で通知を受け取っています。</b>' : 'スマホに通知を出せます。受け取りたいものを選んで「通知をオンにする」を押してください。') + '</p>';
     if (!PREF.self) h += '<p class="hint strong">「今週あと○回」「応援」は、' + (loginAll() ? '選手としてログインしている人だけが受け取れます。' : '上の「自分の名前」を選ぶと受け取れます。') + '</p>';
-    h += '<form data-form="push" class="form"><ul class="pushk">' + PUSH_KINDS.filter((k) => (k[3] !== 'admin' || can('admin')) && (k[3] !== 'staff' || (loginAll() && can('anyStaff')))).map((k) => {
+    h += '<form data-form="push" class="form"><ul class="pushk">' + PUSH_KINDS.filter((k) => (k[3] !== 'admin' || can('admin')) && (k[3] !== 'staff' || (loginAll() && can('anyStaff'))) && (k[3] !== 'judge' || (loginAll() && S.data.exJudge))).map((k) => {
       const dis = k[3] === 'self' && !PREF.self;
       return '<li><label class="pk' + (dis ? ' dis' : '') + '"><input type="checkbox" name="kinds" value="' + k[0] + '"' + (cur.indexOf(k[0]) >= 0 && !dis ? ' checked' : '') + (dis ? ' disabled' : '') + '><span><b>' + k[1] + '</b><small>' + k[2] + '</small></span></label></li>';
     }).join('') + '</ul>' +
@@ -619,7 +620,7 @@
     const ranked = rk.filter((r) => r.rank !== null);
     const prevWord = (S.kind === 'week' ? '前の週' : '前の月') + (pvTo !== pv.to ? 'の同じ時点' : '');
     const t = cur.team;
-    let h = pinReqBanner() + selfCard() + homeClips() + periodBar();
+    let h = pinReqBanner() + exReqBanner() + selfCard() + homeClips() + periodBar();
     h += '<section class="board" aria-label="部全体の状況"><svg class="board-streaks" viewBox="25 40 85 66" preserveAspectRatio="xMidYMid slice" aria-hidden="true"><use href="#jk-streaks"/></svg>' +
       '<div class="board-main"><div class="board-k">部全体の実施回数</div>' +
       '<div class="board-v"><span class="num" data-count="' + t.done + '">' + t.done + '</span><span class="unit">回</span></div>' +
@@ -1196,13 +1197,17 @@
       '<div class="mcal"><div class="mcal-w">' + ['月', '火', '水', '木', '金', '土', '日'].map((w) => '<span>' + w + '</span>').join('') + '</div><div class="mcal-g">';
     const lead = (L.dow(mo.from) + 6) % 7;
     for (let i = 0; i < lead; i++) h += '<span class="mday blank"></span>';
-    const hist = [];
+    const hist = [], cmap = clipDayMap(m.id);
     L.dateList(mo.from, mo.to).forEach((dt) => {
       const st = L.cellState(S.idx, m, dt, today);
       const menus = (S.idx.menusByDate[dt] || []).filter((w) => w.targets.indexOf(m.id) >= 0);
-      h += '<span class="mday s-' + st + (dt === today ? ' today' : '') + '"><span class="mday-n">' + +dt.slice(8, 10) + '</span><span class="mday-m" aria-hidden="true">' + CELL[st][0] + '</span><span class="sr">' + cellOf(st)[1] + '</span></span>';
+      const cl = cmap[dt], cls = 'mday s-' + st + (dt === today ? ' today' : '') + (cl ? ' has-clip' : '');
+      const inner = '<span class="mday-n">' + +dt.slice(8, 10) + '</span><span class="mday-m" aria-hidden="true">' + CELL[st][0] + '</span><span class="sr">' + cellOf(st)[1] + '</span>';
+      // その日の動画があれば、押すと開く（動画は1か月で消えるので、最近の日だけ）
+      h += cl ? '<button type="button" class="' + cls + '" data-act="clip-open" data-id="' + cl.id + '" aria-label="' + mdw(dt) + '：' + cellOf(st)[1] + '。動画を見る">' + inner + '<i class="mday-cam" aria-hidden="true"></i></button>'
+        : '<span class="' + cls + '">' + inner + '</span>';
       const r = L.getRec(S.idx, m.id, dt);
-      if (r || st === 'not' || st === 'today') hist.push({ dt: dt, st: st, r: r, menus: menus });
+      if (r || st === 'not' || st === 'today' || cl) hist.push({ dt: dt, st: st, r: r, menus: menus, clip: cl });
     });
     h += '</div></div>' + legend() + '</section>';
     // 履歴はカレンダーと同じ中身なので、押したら開く（だれが記録したか・その日のメニュー名を見たいとき用）
@@ -1211,7 +1216,7 @@
     h += '<ul class="hist">' + hist.reverse().map((x) =>
       '<li>' + cellHtml(x.st) + '<span class="hist-d">' + mdw(x.dt) + '</span>' +
       '<span class="hist-t">' + cellOf(x.st)[1] + (x.menus.length ? '<small>' + x.menus.map((w) => esc(w.title)).join('、') + '</small>' : '') + '</span>' +
-      (x.r && x.r.by ? '<span class="hist-b">記録：' + esc(nameOf(x.r.by)) + '</span>' : '') + '</li>').join('') + '</ul></details>';
+      (x.clip ? '<button class="textbtn hist-v" data-act="clip-open" data-id="' + x.clip.id + '">' + icon('cam') + '動画</button>' : x.r && x.r.by ? '<span class="hist-b">記録：' + esc(nameOf(x.r.by)) + '</span>' : '') + '</li>').join('') + '</ul></details>';
     return h + '</section>' + exemptBlock(m);
   }
 
@@ -1414,23 +1419,29 @@
   }
 
   // ---------- 免除（部員ごと・部全体のオフ） ----------
-  const EX_REASONS = ['けが', '病気・体調不良', '就活・実習', '家の用事', 'その他'];
+  const EX_REASONS = ['けが', '病気・体調不良', '試験', '就活・実習', '家の用事', 'その他'];
   const OFF_REASONS = ['試験期間', '合宿・遠征', '年末年始', 'オフ', 'その他'];
   function exemptBlock(m) {
     const d = S.data, today = d.today;
     const mine = (d.exempts || []).filter((e) => e.memberId === m.id).sort((a, b) => (a.from < b.from ? 1 : -1));
     const staff = can('record');
-    if (!mine.length && !staff) return '';
-    let h = '<section class="block"><div class="block-h"><h2>免除</h2>' + (staff ? '<button class="btn small" data-act="exempt-new" data-id="' + m.id + '">' + icon('plus') + '免除を追加</button>' : '') + '</div>';
-    if (!mine.length) h += '<p class="empty small">けが・病気などで筋トレできない期間を登録すると、その日は週' + goal() + '回の判定とメニューの対象から外れます。</p>';
+    // 全員ログイン版：本人のページなら、自分で申し込める（キャプテンが認める）。決まったもの（認められた分は下の免除に出る）は、認められなかったものだけ30日出す
+    const own = loginAll() && me() && me().id === m.id && m.player;
+    const reqs = own ? (d.exReqs || []).filter((r) => r.m === m.id && (r.st === 'pending' || r.st === 'no')).sort((a, b) => (a.at < b.at ? 1 : -1)) : [];
+    if (!mine.length && !staff && !own) return '';
+    let h = '<section class="block"><div class="block-h"><h2>免除</h2>' + (staff ? '<button class="btn small" data-act="exempt-new" data-id="' + m.id + '">' + icon('plus') + '免除を追加</button>'
+      : own ? '<button class="btn small" data-act="exreq-new">' + icon('plus') + '免除を申し込む</button>' : '') + '</div>';
+    if (reqs.length) h += '<ul class="exlist exreq-mine">' + reqs.map(exReqMineRow).join('') + '</ul>';
+    if (!mine.length) h += reqs.length ? '' : '<p class="empty small">' + (own && !staff ? 'けが・病気・試験などで筋トレできない期間は「免除を申し込む」から。キャプテンが認めると、その期間は週' + goal() + '回の判定とメニューの対象から外れます。'
+      : 'けが・病気などで筋トレできない期間を登録すると、その日は週' + goal() + '回の判定とメニューの対象から外れます。') + '</p>';
     else h += '<ul class="exlist">' + mine.map((e) => exRow(e, today)).join('') + '</ul>';
     return h + '</section>';
   }
   function exRow(e, today) {
     const state = e.to < today ? '終了' : e.from > today ? '予定' : '期間中';
-    const canDel = can('admin') || (can('record') && e.memberId !== 'ALL' && e.createdBy === me().id);
+    const canDel = can('admin') || (can('record') && e.memberId !== 'ALL' && (e.createdBy === me().id || e.req)); // e.req：選手の申し込みをキャプテンが認めたもの
     return '<li><span class="ex-d">' + mdw(e.from) + '〜' + mdw(e.to) + '<small class="ex-st s-' + (state === '期間中' ? 'now' : state === '予定' ? 'next' : 'past') + '">' + state + '</small></span>' +
-      '<span class="ex-r">' + esc((e.reason || '免除').replace('怪我', 'けが')) + (e.note ? '<small>' + esc(e.note) + '</small>' : '') + '</span>' +
+      '<span class="ex-r">' + esc((e.reason || '免除').replace('怪我', 'けが')) + (e.note ? '<small>' + esc(e.note) + '</small>' : '') + (e.req ? '<small>本人の申し込み（' + esc(nameOf(e.createdBy)) + 'が認めた）</small>' : '') + '</span>' +
       (canDel ? '<button class="textbtn" data-act="exempt-del" data-id="' + e.id + '">取り消す</button>' : '') + '</li>';
   }
   function openExempt(memberId) {
@@ -1455,6 +1466,58 @@
       '<p class="lead-line small">試験期間・合宿・年末年始など、部全体で筋トレの目標をなしにする期間です。この期間は全員の「週' + goal() + '回」とメニューの対象から外れます。</p>' +
       (offs.length ? '<ul class="exlist">' + offs.map((e) => exRow(e, today)).join('') + '</ul>' : '<p class="empty small">まだ登録されていません。</p>') +
       '<div class="actions"><button class="btn" data-act="sheet-close">閉じる</button><button class="btn primary" data-act="exempt-new" data-id="ALL">' + icon('plus') + 'オフ期間を追加</button></div>');
+  }
+
+  // ---------- 免除の申し込み（全員ログイン版）：選手が自分で申し込み、キャプテン（管理者が部員の編集で決める）か管理者が認める ----------
+  const EXREQ_ST = { pending: '申し込み中', ok: '認められました', no: '認められませんでした', canceled: '取り消しました' };
+  const exReqsOthers = () => (S.data.exReqs || []).filter((r) => r.st === 'pending' && !(me() && r.m === me().id));
+  const exReqSpan = (r) => mdw(r.from) + (r.to !== r.from ? '〜' + mdw(r.to) : '') + '（' + L.dateList(r.from, r.to).length + '日）';
+  function exReqBanner() {
+    if (!loginAll() || !S.data.exJudge) return '';
+    const list = exReqsOthers();
+    if (!list.length) return '';
+    return '<button type="button" class="banner warn" data-act="exreqs-open">' + icon('alert') + '<span>免除の申し込みが <b>' + list.length + '件</b>（' + list.map((r) => esc(memberName(r.m))).join('、') + '）</span>' + icon('next') + '</button>';
+  }
+  function exReqMineRow(r) {
+    return '<li class="exq-' + r.st + '"><span class="ex-d">' + exReqSpan(r) + '<small class="ex-st s-' + (r.st === 'pending' ? 'next' : 'past') + '">' + EXREQ_ST[r.st] + '</small></span>' +
+      '<span class="ex-r">' + esc(r.reason) + (r.note ? '<small>' + esc(r.note) + '</small>' : '') +
+      (r.st === 'no' ? '<small class="exq-ans">' + (r.by ? esc(nameOf(r.by)) + '：' : '') + esc(r.ans || '理由は書かれていません') + '</small>' : '') + '</span>' +
+      (r.st === 'pending' ? '<button class="textbtn" data-act="exreq-cancel" data-id="' + r.id + '">取り消す</button>' : '') + '</li>';
+  }
+  function openExReqForm() {
+    const today = S.data.today;
+    openSheet('免除を申し込む',
+      '<form data-form="exreq" class="form">' +
+      '<p class="lead-line small">けが・病気・試験などで筋トレできない期間を申し込みます。キャプテンが認めると、その期間は「週' + goal() + '回」の判定とメニューの対象から外れます。</p>' +
+      '<div class="two"><label>開始日<input type="date" name="from" value="' + today + '" min="' + L.addDays(today, -14) + '" required></label><label>終了日<input type="date" name="to" value="' + L.addDays(today, 6) + '" min="' + L.addDays(today, -14) + '" required></label></div>' +
+      '<label>理由<select name="reason" required>' + EX_REASONS.map((r) => '<option>' + r + '</option>').join('') + '</select></label>' +
+      '<label>メモ（任意）<input type="text" name="note" maxlength="100" placeholder="例：右足首の捻挫、全治2週間"></label>' +
+      '<p class="hint">理由とメモは、キャプテンとスタッフにだけ見えます（ほかの部員には「免除」とだけ出ます）。2週間前の分まで申し込めます。</p>' +
+      '<p class="form-err" hidden></p>' +
+      '<div class="actions"><button type="button" class="btn" data-act="sheet-close">やめる</button><button class="btn primary" type="submit">申し込む</button></div></form>');
+  }
+  function openExReqs() {
+    const list = exReqsOthers().sort((a, b) => (a.at < b.at ? -1 : 1));
+    openSheet('免除の申し込み',
+      '<p class="lead-line small">認めると、その期間は「週' + goal() + '回」の判定とメニューの対象から外れます。認めないときは、理由を書くと本人に届きます。</p>' +
+      (list.length ? '<ul class="exreqs">' + list.map((r) => '<li data-id="' + r.id + '">' +
+        '<div class="exq-h">' + avatarOf(r.m, 'av-sm') + '<b>' + esc(memberName(r.m)) + '</b><span class="exq-d">' + exReqSpan(r) + '</span></div>' +
+        '<p class="exq-r"><b>' + esc(r.reason) + '</b>' + (r.note ? '：' + esc(r.note) : '') + '<small>申し込み ' + mdw(String(r.at).slice(0, 10)) + '</small></p>' +
+        '<label class="exq-a">認めないときの理由<span class="opt">任意・本人に届きます</span><input type="text" maxlength="60" name="ans_' + r.id + '"></label>' +
+        '<div class="actions"><button class="btn" data-act="exreq-no" data-id="' + r.id + '">認めない</button><button class="btn primary" data-act="exreq-ok" data-id="' + r.id + '">認める</button></div></li>').join('') + '</ul>'
+        : '<p class="empty small">申し込みはありません。</p>') +
+      '<div class="actions"><button class="btn" data-act="sheet-close">閉じる</button></div>');
+  }
+  async function exReqDecide(el, ok) {
+    const id = el.dataset.id, li = el.closest('li'), inp = li && li.querySelector('input[name="ans_' + id + '"]');
+    await busy(el, async () => {
+      try {
+        await api('exemptDecide', { id: id, ok: ok, answer: inp ? inp.value : '' });
+        await loadState(); render();
+        if (exReqsOthers().length) openExReqs(); else closeSheet();
+        toast(ok ? '認めました（免除になりました）' : '認めませんでした（本人に知らせました）');
+      } catch (e) { toast(e.message, 'err'); }
+    });
   }
 
   // ---------- メニュー ----------
@@ -2179,7 +2242,7 @@
     }
     // 5. サポート
     h += '<section class="block" id="feedback"><div class="block-h"><h2>サポート</h2></div><ul class="links">' +
-      '<li><a href="#help">' + icon('help') + '使い方ガイド<small>' + (loginAll() ? '' : '40秒の動画と、') + '立場ごとの使い方</small></a></li>' +
+      '<li><a href="#help">' + icon('help') + '使い方ガイド<small>40秒の動画と、立場ごとの使い方</small></a></li>' +
       '<li><button data-act="guide">' + icon('play') + '使い方の案内をもう一度<small>はじめて開いたときの紹介と、実際の画面を見ながらの案内（1分）</small></button></li>' +
       '<li><button data-act="fb-open">' + icon('send') + '要望・不具合を送る<small>「こうしてほしい」「ここがおかしい」を管理者に' + (loginAll() ? '' : '。ログインはいりません') + '</small></button></li></ul></section>';
     h +=
@@ -2271,7 +2334,9 @@
       '<tr><td><b>今週あと○回</b><small>まだ週' + goal() + '回に届いていない本人だけ</small></td><td>土曜18時・日曜9時</td></tr>' +
       '<tr><td><b>応援が届いた</b><small>だれからか・どのスタンプか</small></td><td>1時間ごとにまとめて（夜10時〜朝7時は送らない）</td></tr>' +
       (loginAll() ? '<tr><td><b>動画が取り消された</b><small>本人だけ。理由つき</small></td><td>取り消されたらすぐ</td></tr>' +
-        '<tr><td><b>動画の確認</b><small>スタッフだけ。確認待ちの動画・「気になる」</small></td><td>届いたらすぐ</td></tr>' : '') +
+        '<tr><td><b>動画の確認</b><small>スタッフだけ。確認待ちの動画・「気になる」</small></td><td>届いたらすぐ</td></tr>' +
+        '<tr><td><b>免除の申し込み</b><small>キャプテン・管理者だけ</small></td><td>届いたらすぐ</td></tr>' +
+        '<tr><td><b>免除が認められた・認められなかった</b><small>申し込んだ本人</small></td><td>決まったらすぐ</td></tr>' : '') +
       '<tr><td><b>暗証番号の再発行の依頼</b><small>管理者だけ（ログインして設定）</small></td><td>依頼が来たらすぐ</td></tr></tbody></table>' +
       '<div class="toolbar">' + goBtn('#settings/push', '通知の設定を開く') + '</div>' +
       '<details class="faq"><summary>通知が来ないとき</summary><ul class="dots">' +
@@ -2345,11 +2410,13 @@
       ['cheer', 'all', '応援スタンプを送る', loginAll() ? '「＋」から9種類' : '「＋」から9種類。ログインなしでOK',
         steps(['ホームの<b>「最近の達成」</b>の「＋応援」、または部員ページの<b>称号</b>の下のスタンプを押す', '数字が増えれば送れています。<b>もう一度押すと取り消し</b>', '相手が通知をオンにしていれば、1時間以内に「応援が届きました」が届きます']) +
         tip((loginAll() ? 'ログインした人の名前で「○○さんから」と伝わります（見るだけの人は名前なし）。' : '自分の名前を選んでおくと「○○さんから」と伝わります。') + '自分あてのスタンプは押せません。')],
-      loginAll() ? ['new', 'all', '新しくなったところ', '動画で記録・全員ログイン・アイコン',
+      loginAll() ? ['new', 'all', '新しくなったところ', '動画で記録・全員ログイン・アイコン・免除の申し込み',
         '<ul class="dots"><li><b>動画で「実施した」</b>：選手は筋トレをしたらアプリで2秒の動画を送ります。送るとその日は「実施した」になります（マネージャーが押さなくてよくなりました）</li>' +
         '<li><b>全員ログイン</b>：自分の名前と暗証番号で登録して使います。ログインした本人が「わたし」です</li>' +
         '<li><b>みんなの動画</b>：「動画」でその日の動画が見られます。応援スタンプ・「気になる」も押せます</li>' +
         '<li><b>アイコン</b>：自分のページで、絵文字か写真のアイコンを決められます</li>' +
+        '<li><b>免除の申し込み</b>：けが・病気・試験で休むときは、自分のページから申し込めます。キャプテンが認めると免除になります</li>' +
+        '<li><b>カレンダーから動画</b>：自分のページのカレンダーで、印のある日を押すと、その日の動画が開きます</li>' +
         '<li><b>見るだけの人</b>：監督・コーチ・OB などは「見るだけ」でログインできます</li>' +
         '<li>フォームの動画・やり方とポイント・応援スタンプ・画面の案内は、これまでどおり使えます</li></ul>'] :
       ['new', 'all', '新しくなったところ', '画面の案内・フォーム動画・やり方とポイント',
@@ -2363,9 +2430,20 @@
       ['view', 'all', '見やすくする', '文字の大きさ・ダークモード',
         '<p>「設定」→「' + (loginAll() ? '' : '自分の名前・') + '見やすさ」で変えられます（この端末だけ）。</p><ul class="dots"><li><b>文字の大きさ</b>：小・標準・大・特大</li><li><b>画面の明るさ</b>：ライト（はじめはこれ）・ダーク・スマホに合わせる</li></ul>' +
         '<div class="toolbar">' + goBtn('#settings', '設定を開く') + '</div>'],
+      loginAll() ? ['exempt', 'all', 'けが・病気・試験で休むとき', '免除を申し込む',
+        steps(['自分のページ（ホームの<b>「わたし」</b>）の<b>「免除」</b>で<b>「免除を申し込む」</b>', '期間・理由（けが・病気・試験など）・メモを入れて<b>「申し込む」</b>', '<b>キャプテン</b>が認めると「免除」になります（通知が届きます）']) +
+        '<p>免除の日は、その日数ぶん週' + g + '回の必要回数が減り、メニューの×にもなりません。</p>' +
+        '<ul class="dots"><li>2週間前の分まで申し込めます。それより前や、スタッフに直接頼みたいときは、マネージャーに伝えてください</li>' +
+        '<li>申し込み中なら<b>「取り消す」</b>で取り消せます。認められなかったときは、理由が届きます</li></ul>' +
+        tip('理由とメモは、キャプテンとスタッフにしか見えません（みんなの画面には「免除」とだけ出ます）。')] :
       ['exempt', 'all', 'けが・病気で休むとき', '免除してもらう',
         '<p>けが・病気・就活などで筋トレできない期間は、<b>マネージャーに伝えてください</b>。「免除」に登録されると、その日数ぶん週' + g + '回の必要回数が減り、メニューの×にもなりません。</p>' +
         tip('免除の理由やメモは、スタッフにしか見えません（みんなの画面には「免除」とだけ出ます）。')],
+      loginAll() ? ['exjudge', 'all', '免除の申し込みを認める（キャプテン）', 'キャプテンと管理者',
+        steps(['申し込みが届くと、ホームに<b>「免除の申し込みが○件」</b>が出ます（通知の「免除の申し込み」をオンにすると、通知も届きます）', '期間・理由・メモを見て<b>「認める」</b>か<b>「認めない」</b>', '認めないときは理由を書くと、本人に届きます']) +
+        '<ul class="dots"><li>キャプテンは、管理者が部員の編集で<b>「キャプテン」</b>にした選手です（何人でもかまいません）</li>' +
+        '<li>自分の申し込みは、ほかのキャプテンか管理者が認めます</li>' +
+        '<li>認めた免除を外すときは、マネージャーか管理者に頼んでください（その人のページの免除の「取り消す」）</li></ul>'] : null,
       ['faq', 'all', 'よくある質問', '記録がちがう・数え方・古いまま',
         '<dl class="defs"><dt>自分の記録がちがう</dt><dd>マネージャーに伝えてください（取り消しや追加ができます）</dd>' +
         (loginAll() ? '<dt>動画を送ったのに「実施した」にならない</dt><dd>画面の上に「送れていない動画」が出ていれば<b>「送る」</b>。取り消された日に撮り直した動画は、スタッフが確認するまで<b>確認待ち</b>です</dd>' +
@@ -2400,7 +2478,9 @@
       ['trash', 'manager', 'まちがえて取り消したとき', '取り消した記録を戻す',
         steps(['「記録」の上の <b>「その他」</b>→<b>「取り消した記録」</b>', '戻したい記録の <b>「戻す」</b>']) + tip('マネージャーは自分が取り消したものだけ戻せます。ほかは管理者へ。')],
       ['exreg', 'manager', '免除を登録する', 'けが・病気の期間',
-        steps(['部員のページを開く →「免除」の <b>「免除を追加」</b>', '開始日・終了日・理由（メモは任意）を入れて <b>「登録する」</b>']) + tip('部全体のオフ（試験期間・合宿など）は管理者が「設定」から登録します。')],
+        steps(['部員のページを開く →「免除」の <b>「免除を追加」</b>', '開始日・終了日・理由（メモは任意）を入れて <b>「登録する」</b>']) +
+        (loginAll() ? '<ul class="dots"><li>選手は自分で免除を申し込めます。<b>キャプテン</b>（または管理者）が認めると、ここに「本人の申し込み」と出ます</li><li>申し込みから決まった免除は、マネージャーも「取り消す」で外せます</li></ul>' : '') +
+        tip('部全体のオフ（試験期間・合宿など）は管理者が「設定」から登録します。')],
       ['body', 'staff', '体重を入れる', 'まとめて／1人ずつ',
         steps(['「部員」→ <b>「体重をまとめて入れる」</b>（1人だけなら部員ページの「入れる」）', '測定日を選び、測った人だけ体重を入れる → <b>「保存」</b>']) + tip('同じ日にもう一度入れると上書き。数値は部員みんなが見られます（メモはスタッフだけ）。')],
       ['line', 'manager', 'LINEで「まだの人」を送る', '文章を自動で作る',
@@ -2425,8 +2505,9 @@
       ['members', 'admin', '部員の管理', '追加・まとめて編集・進級',
         '<ul class="dots"><li><b>まとめて編集</b>：ポジション（メイン・サブ）と取り組み方を一度に</li><li><b>一覧を貼り付け</b>：「名前, PR, 参加」の形で何人でも</li>' +
         '<li><b>進級</b>：新年度に1回。1年→2年…、4年・M2は卒業／進学／そのままを選ぶ（留年は「そのまま」）</li><li>名簿は会計アプリと共通です</li></ul>'],
-      loginAll() ? ['regs', 'admin', '部員の登録・見るだけの人', 'だれが登録したか・登録を消す・監督やOB',
-        '<ul class="dots"><li>「設定」→ <b>「部員の登録」</b>：だれがいつ登録したか。本人ではない登録や、暗証番号を忘れた人は<b>「登録を消す」</b>→ 本人がもう一度登録できます</li>' +
+      loginAll() ? ['regs', 'admin', '部員の登録・キャプテン・見るだけの人', 'だれが登録したか・登録を消す・免除を認める人・監督やOB',
+        '<ul class="dots"><li>「設定」→ <b>「部員の登録」</b>：だれが登録したか（人数とまだの人）。本人ではない登録や、暗証番号を忘れた人は<b>「登録を消す」</b>→ 本人がもう一度登録できます（部員の編集画面にもあります）</li>' +
+        '<li>部員の編集で<b>「キャプテン」</b>にした選手は、選手の免除の申し込みを認められます（何人でも）</li>' +
         '<li>「設定」→ <b>「見るだけの人」</b>：監督・コーチ・OB などを追加すると、最初の暗証番号が出ます。本人に直接伝えてください</li>' +
         '<li>アイコンがふさわしくないときは、その人のページで<b>「アイコンを元に戻す」</b></li></ul>'] : null,
       ['roles', 'admin', '役職の交代・暗証番号', '新年度のFWリーダー・マネージャー',
@@ -2454,9 +2535,9 @@
     const show = (r) => role === 'all' ? r === 'all' : (r === role || r === 'staff' || (role === 'admin' && r !== 'all'));
     let h = '<div class="sub-h"><a class="ibtn" href="#settings" data-act="go-back" aria-label="戻る">' + icon('back') + '</a><h1>使い方ガイド</h1></div>' +
       '<div class="fbar"><div class="seg small help-seg" role="group" aria-label="だれ向け">' + HELP_ROLES.map((x) => '<button data-act="help-role" data-v="' + x[0] + '" aria-pressed="' + (role === x[0]) + '">' + x[1] + '</button>').join('') + '</div></div>' +
-      (loginAll() ? '' : // 40秒の動画は名前を選ぶ前の版なので、全員ログイン版では出さない（作り直すまで）
-      '<button class="howvid" data-act="video-open" aria-label="40秒でわかる使い方の動画を全画面で再生"><span class="hv-thumb"><img src="media/howto.jpg?v=3" alt="" width="132" height="235"><span class="hv-play" aria-hidden="true">' + icon('play') + '</span></span>' +
-      '<span class="howvid-t"><b>40秒でわかる使い方</b><small>ホーム・ランキング・自分の名前・応援・フォーム動画・要望の送り方（音はありません）</small><span class="hv-go">' + icon('play') + '全画面で見る</span></span></button>') +
+      // 40秒の使い方動画：全員ログイン版は、ログイン・撮る・みんなの動画・カレンダー・アイコンの版（howto-login）
+      '<button class="howvid" data-act="video-open" aria-label="40秒でわかる使い方の動画を全画面で再生"><span class="hv-thumb"><img src="' + howtoSrc('jpg') + '" alt="" width="132" height="235"><span class="hv-play" aria-hidden="true">' + icon('play') + '</span></span>' +
+      '<span class="howvid-t"><b>40秒でわかる使い方</b><small>' + (loginAll() ? 'ログイン・今日の1本を撮る・みんなの動画・ランキング・カレンダー・アイコン' : 'ホーム・ランキング・自分の名前・応援・フォーム動画・要望の送り方') + '（音はありません）</small><span class="hv-go">' + icon('play') + '全画面で見る</span></span></button>' +
       (role === 'all' ? '<p class="note is-top">知りたいところを押すと開きます。マネージャー・FWリーダー・管理者の使い方は、上で切り替えてください。</p>' : '<p class="note is-top">ログインしてできることです。みんな向けの使い方は「みんな」にあります。</p>') +
       tourCard(role) +
       '<div class="help">';
@@ -2468,11 +2549,12 @@
   }
 
   /** 使い方の動画を全画面で再生する（黒い画面いっぱい。×・画面の外・戻るボタン・Esc で閉じる） */
+  const howtoSrc = (ext) => (loginAll() ? 'media/howto-login.' + ext + '?v=1' : 'media/howto.' + ext + '?v=3');
   function openVideo() {
     closeVideo();
     const el = document.createElement('div');
     el.className = 'vplayer'; el.setAttribute('role', 'dialog'); el.setAttribute('aria-modal', 'true'); el.setAttribute('aria-label', '40秒でわかる使い方');
-    el.innerHTML = '<video src="media/howto.mp4?v=3" poster="media/howto.jpg?v=3" controls autoplay playsinline muted></video>' +
+    el.innerHTML = '<video src="' + howtoSrc('mp4') + '" poster="' + howtoSrc('jpg') + '" controls autoplay playsinline muted></video>' +
       '<button class="vp-x" data-act="video-close" aria-label="閉じる">×</button>';
     el.addEventListener('click', (ev) => { if (ev.target === el) closeVideo(); });
     document.body.appendChild(el);
@@ -2632,7 +2714,7 @@
       { r: 'menus', prep: () => { S.menuTab = 'upcoming'; }, sel: ['.menus .exbtn', '.menus > *:first-child', '.view-menus .empty'], t: 'メニューとフォーム動画', p: 'これからのメニューです。種目の横の<b>「フォーム」</b>を押すと、アプリの中で正しいフォームの動画が流れます。' },
       { r: 'menus', prep: () => { S.menuTab = 'exercises'; S.exPart = ''; }, sel: '.exparts-bar', t: '種目の動画', p: '「種目の動画」では、登録された種目を<b>部位</b>（胸・背中・脚など）で探せます。' },
       { r: 'menus', prep: () => { S.menuTab = 'exercises'; }, sel: () => { const b = $('.exlib [data-act="ex-open"]'); return b ? b.closest('li') || b : null; }, t: 'やり方とポイント', p: '種目を押すと、<b>フォームの動画</b>と<b>やり方・ポイント</b>が見られます。▶ ならすぐ再生します。' },
-      { r: 'home', sel: '.top-help', t: '使い方ガイド', p: () => 'わからないときはここ。' + (loginAll() ? '' : '<b>40秒の動画</b>と、') + '立場ごとの使い方があります。この案内ももう一度見られます。' },
+      { r: 'home', sel: '.top-help', t: '使い方ガイド', p: 'わからないときはここ。<b>40秒の動画</b>と、立場ごとの使い方があります。この案内ももう一度見られます。' },
       { r: 'settings', sel: '[data-act="fb-open"]', t: '要望・不具合を送る', p: () => '「こうしてほしい」「ここがおかしい」は、ここから管理者に送れます。' + (loginAll() ? '' : '<b>ログインはいりません</b>。') }
     ] },
     manager: { name: 'マネージャー', perm: 'record', steps: [
@@ -2918,11 +3000,15 @@
       '<fieldset><legend>取り組み方</legend><div class="radios">' + radio('mode', 'leader', 'メニュー参加', v.mode) + radio('mode', 'self', '自主トレ', v.mode) + '</div>' +
       '<p class="hint">ポジションと取り組み方の変更は今日から反映され、昨日までの記録や集計は変わりません。</p></fieldset>' +
       '<label>筋トレアプリの権限<select name="perm">' + ['member', 'manager', 'leader', 'admin'].map((r) => '<option value="' + r + '"' + (v.perm === r ? ' selected' : '') + '>' + PERM[r] + '</option>').join('') + '</select></label>' +
+      (loginAll() ? '<label class="chk"><input type="checkbox" name="captain"' + (v.cap ? ' checked' : '') + '><span>キャプテン<small>選手の免除の申し込みを認める人（選手だけ。何人でも）</small></span></label>' : '') +
       '<p class="hint">' + (loginAll() ? '一般部員は自分で登録してログインし、動画を送ります。' : '一般部員は見るだけ（ログインなし）。') + 'マネージャーは実施記録' + (loginAll() ? 'と動画の確認' : '') + '、FWリーダーはメニュー、管理者はすべてを操作できます。</p>' +
       '<details class="adv"><summary>くわしい設定</summary><label>記録の開始日<span class="opt">任意</span><input type="date" name="start" value="' + esc(v.start || '') + '"></label><p class="hint">入れると、この日より前は記録の対象になりません（途中入部など）。</p></details>' +
       '<p class="form-err" hidden></p>' +
       '<div class="actions"><button type="button" class="btn" data-act="sheet-close">やめる</button><button class="btn primary" type="submit">' + (m ? '変更を保存' : '部員を追加') + '</button></div>' +
       (m ? '<div class="danger-zone">' +
+        (loginAll() && m.active && m.player && m.perm === 'member' ? '<div class="reg-st"><span>アプリの登録：<b>' + ((S.data.regs || {})[m.id] ? '登録済み' : 'まだ') + '</b></span>' +
+          ((S.data.regs || {})[m.id] ? '<button type="button" class="btn" data-act="unreg" data-id="' + m.id + '" data-back="member">登録を消す</button>' : '') + '</div>' +
+          '<p class="hint">本人ではない人が登録していたときや、本人が暗証番号を忘れたときに消すと、本人がもう一度登録できます。</p>' : '') +
         (m.active && m.perm !== 'member' ? '<button type="button" class="btn" data-act="pin-reset" data-id="' + m.id + '">暗証番号を発行' + (m.pinSet ? 'し直す' : '') + '</button>' +
           '<p class="hint">' + (m.pinSet ? (m.locked ? 'いまロック中です。出し直すと解除されます。' : (m.mustChange ? '発行済み（本人がまだ変更していません）' : '設定済み')) : 'まだ発行していないので、この人はログインできません。') + '</p>' : '') +
         (m.active ? (m.finance ? '<p class="hint">財務の人の在籍は会計アプリで外します。</p>' : '<button type="button" class="btn danger" data-act="member-del" data-id="' + m.id + '">在籍を外す（卒業・退部）</button><p class="hint">会計アプリの名簿でも在籍なしになります。これまでの記録は残り、あとで戻せます。</p>')
@@ -4010,6 +4096,19 @@
     return '<section class="block"><div class="block-h"><h2>動画</h2><span class="count">1か月で消えます</span></div>' +
       (!Array.isArray(list) ? '<p class="empty small">読み込んでいます…</p>' : list.length ? '<div class="clip-grid">' + list.map((c) => clipCard(c, { date: true, noName: true })).join('') + '</div>' : '<p class="empty small">この1か月の動画はありません。</p>') + '</section>';
   }
+  /** その人の、日付ごとの動画（見られるもの：消えていない・下書きでない）。部員のページのカレンダーと履歴から開く。1日に何本かあれば、実施した＞確認待ち＞取り消し、同じなら新しい方 */
+  function clipDayMap(mid) {
+    const out = {};
+    if (!loginAll()) return out;
+    const rank = (c) => (c.st === 'ok' ? 3 : c.st === 'pending' ? 2 : 1);
+    const list = (Array.isArray(S.clipCache['m:' + mid]) ? S.clipCache['m:' + mid] : []).concat((S.data.clips || []).filter((c) => c.m === mid));
+    list.forEach((c) => {
+      if (c.m !== mid || c.gone || c.local || c.st === 'draft') return;
+      const o = out[c.d];
+      if (!o || rank(c) > rank(o) || (rank(c) === rank(o) && String(c.at) > String(o.at))) out[c.d] = c;
+    });
+    return out;
+  }
   function findClip(id) {
     for (const k of Object.keys(S.clipCache)) { const l = S.clipCache[k]; if (Array.isArray(l)) { const c = l.find((x) => x.id === id); if (c) return c; } }
     return (S.data.clips || []).find((x) => x.id === id) || null;
@@ -4221,6 +4320,14 @@
     'goal-open': () => openGoal(),
     'offs-open': () => openOffs(),
     'exempt-new': (el) => openExempt(el.dataset.id),
+    'exreq-new': () => openExReqForm(),
+    'exreqs-open': () => openExReqs(),
+    'exreq-ok': (el) => exReqDecide(el, true),
+    'exreq-no': (el) => exReqDecide(el, false),
+    'exreq-cancel': async (el) => {
+      if (el.dataset.armed !== '1') { el.dataset.armed = '1'; el.textContent = 'もう一度押すと取り消し'; setTimeout(() => { if (el.isConnected) { el.dataset.armed = ''; el.textContent = '取り消す'; } }, 4000); return; }
+      try { await api('exemptCancel', { id: el.dataset.id }); await loadState(); render(); toast('申し込みを取り消しました'); } catch (e) { toast(e.message, 'err'); }
+    },
     'exempt-del': async (el) => {
       // 確認のダイアログは使わず、2回押しで確定
       if (el.dataset.armed !== '1') { el.dataset.armed = '1'; el.textContent = 'もう一度押すと取り消し'; setTimeout(() => { if (el.isConnected) { el.dataset.armed = ''; el.textContent = '取り消す'; } }, 4000); return; }
@@ -4543,7 +4650,8 @@
     unreg: async (el) => {
       const name = memberName(el.dataset.id);
       if (!confirm(name + ' さんの登録を消しますか？　ログインが切れて、もう一度登録できるようになります。')) return;
-      await busy(el, async () => { try { await api('unregister', { memberId: el.dataset.id }); await loadState(); render(); openRegs(); toast('登録を消しました'); } catch (e) { toast(e.message, 'err'); } });
+      const back = el.dataset.back;
+      await busy(el, async () => { try { await api('unregister', { memberId: el.dataset.id }); await loadState(); render(); if (back === 'member') openMemberForm(el.dataset.id); else openRegs(); toast('登録を消しました'); } catch (e) { toast(e.message, 'err'); } });
     },
     'guest-reissue': async (el) => {
       const g = (S.data.guests || []).find((x) => x.id === el.dataset.id); if (!g) return;
@@ -4674,6 +4782,7 @@
       const pos = ($('input[name="position"]:checked', f) || {}).value || '';
       const subs = $$('input[name="subs"]:checked', f).map((x) => x.value).filter((x) => x !== pos);
       const member = { id: f.id ? f.id.value : '', grade: f.grade.value, clubRole: f.clubRole.value, position: pos, subs: subs, mode: ($('input[name="mode"]:checked', f) || {}).value || 'self', perm: f.perm.value, start: f.start.value };
+      if (f.captain) member.captain = f.captain.checked;
       if (!member.id) member.name = f.name.value;
       await busy(btn, async () => {
         try {
@@ -4843,6 +4952,15 @@
         try {
           await api('pinRequest', { memberId: f.memberId.value });
           openSheet('依頼を送りました', '<p class="lead-line">管理者に依頼が届きました。管理者が新しい最初の暗証番号を出したら、その番号でログインしてください（ログインすると、自分の暗証番号を決め直す画面になります）。</p><div class="actions"><button class="btn primary" data-act="sheet-close">閉じる</button></div>');
+        } catch (e) { sheetError(e.message); }
+      });
+    },
+    exreq: async (f, btn) => {
+      if (f.to.value < f.from.value) { sheetError('終了日は開始日より後にしてください。'); return; }
+      await busy(btn, async () => {
+        try {
+          await api('exemptRequest', { from: f.from.value, to: f.to.value, reason: f.reason.value, note: f.note.value });
+          closeSheet(); await loadState(); render(); toast('申し込みました。キャプテンが認めると免除になります');
         } catch (e) { sheetError(e.message); }
       });
     },

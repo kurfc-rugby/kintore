@@ -360,9 +360,82 @@ section('動画が消えたあとは、ふつうの記録にもどる');
   if (gone) ok(api({ op: 'deleteRecord', token: A, date: gone.d, memberId: gone.m }).ok, '動画が消えたあと（1か月たったなど）は、ふつうの記録にもどり、管理者が外せる');
 }
 
+section('古い動画の行は「動画（古い）」へ移す（毎日の手入れ）');
+{
+  const before = gas.sheet('動画').data.length - 1;
+  gas.shiftDays(61);
+  const n = gas.run('withReq', (f) => f.archiveClips_());
+  const old = gas.sheet('動画（古い）'), after = gas.sheet('動画').data.length - 1;
+  const hd = old.data[0], dcol = hd.indexOf('削除日時'), scol = hd.indexOf('状態');
+  ok(n > 0 && old.data.length - 1 === n && after === before - n, '60日より前の動画の行は「動画（古い）」へ移る（' + n + '行）');
+  ok(old.data.slice(1).every((row) => row[dcol] || row[scol] === '取り消し' || row[scol] === '下書き'), '移すのは、動画のファイルを消した行（と、取り消し・下書き）だけ');
+  ok(gas.run('withReq', (f) => f.archiveClips_()) === 0, 'もう一度しても、何も起きない');
+  const st = api({ op: 'state', token: MG });
+  ok(Array.isArray(st.clips), '移したあとも、画面はふつうに出る');
+  gas.shiftDays(-61);
+}
+
 section('テスト環境の守り');
 ok(api({ op: 'saveMember', token: A, member: { id: id['森 健太'], name: '森 健太', grade: '2年' } }).error === 'test_env', 'テスト環境からは会計アプリの名簿を書き換えられない');
 ok(gas.run('withReq', (f) => f.weeklyBackup_()) === null, 'テスト環境ではバックアップを取らない');
+
+section('免除の申し込み（選手が申し込み、キャプテンが認める）');
+{
+  const IS = id['石川 大地'], MO = id['森 健太'], today = jst(0).slice(0, 10);
+  const day = (k) => jst(-k * 1440).slice(0, 10); // k日後
+  ok(api({ op: 'exemptDecide', token: MORI2, id: 'x', ok: true }).error === 'forbidden', 'キャプテンでない選手は、認められない');
+  r = api({ op: 'saveMember', token: A, member: { id: MO, captain: true } });
+  ok(r.ok && r.member.cap === 1 && gas.sheet('部員設定').data.some((row) => row[0] === MO && row.indexOf('はい') >= 0), '管理者が、森さんを「キャプテン」にする（テスト環境でもできる：名簿ではなく部員設定）');
+  ok(api({ op: 'saveMember', token: MG, member: { id: IS, captain: true } }).error === 'forbidden', 'キャプテンを決められるのは管理者だけ');
+  const CEP = 'https://fcm.googleapis.com/fcm/send/captain-device:APA91b-test';
+  r = api({ op: 'pushRegister', token: MORI2, sub: { endpoint: CEP }, memberId: MO, kinds: ['exreq', 'goal'] });
+  ok(r.ok && r.push.kinds.indexOf('exreq') >= 0, 'キャプテンは「免除の申し込み」の通知を受け取れる');
+  ok(api({ op: 'pushRegister', token: ISHI, sub: { endpoint: 'https://fcm.googleapis.com/fcm/send/ishi-ex:APA91b-test' }, memberId: IS, kinds: ['exreq', 'goal'] }).push.kinds.indexOf('exreq') < 0, 'キャプテンでない選手は受け取れない');
+  ok(api({ op: 'exemptRequest', token: ISHI, from: today, to: day(6), reason: 'なまけ', note: '' }).error === 'bad_reason', '理由は決まったものから選ぶ');
+  ok(api({ op: 'exemptRequest', token: ISHI, from: day(-20), to: today, reason: 'けが', note: '' }).error === 'bad_range', '2週間より前の分は申し込めない');
+  ok(api({ op: 'exemptRequest', token: ISHI, from: day(3), to: day(1), reason: 'けが', note: '' }).error === 'bad_range', '終了日が開始日より前はだめ');
+  ok(api({ op: 'exemptRequest', token: G, from: today, to: day(6), reason: 'けが', note: '' }).error === 'forbidden', '見るだけの人は申し込めない');
+  ok(api({ op: 'exemptRequest', token: MG, from: today, to: day(6), reason: 'けが', note: '' }).error === 'not_player', '選手でない人（マネージャー）は申し込めない');
+  gas.push.sent.length = 0;
+  r = api({ op: 'exemptRequest', token: ISHI, from: today, to: day(6), reason: 'けが', note: '右足首の捻挫' });
+  ok(r.ok && r.req.st === 'pending' && r.req.m === IS, '選手が自分で免除を申し込める');
+  const q1 = r.req.id;
+  ok(gas.push.sent.some((x) => x.url === CEP) && /免除の申し込み/.test(api({ op: 'pushInbox', endpoint: CEP }).messages[0].title), 'キャプテンに通知が届く');
+  ok(api({ op: 'exemptRequest', token: ISHI, from: day(2), to: day(3), reason: '試験', note: '' }).error === 'overlap', '同じ期間に重ねて申し込めない');
+  let sc = api({ op: 'state', token: MORI2 });
+  ok(sc.exJudge === 1 && sc.exReqs.some((x) => x.id === q1 && x.note === '右足首の捻挫'), 'キャプテンの画面に、申し込み（理由・メモつき）が出る');
+  let sm = api({ op: 'state', token: MG });
+  ok(!sm.exJudge && !(sm.exReqs || []).some((x) => x.id === q1), 'マネージャー（キャプテンでない）には出ない');
+  ok(!(api({ op: 'state', token: G }).exReqs || []).length, '見るだけの人には出ない');
+  ok(api({ op: 'state', token: ISHI }).exReqs.some((x) => x.id === q1 && x.st === 'pending'), '本人の画面に「申し込み中」が出る');
+  gas.push.sent.length = 0;
+  r = api({ op: 'exemptDecide', token: MORI2, id: q1, ok: true });
+  ok(r.ok && r.req.st === 'ok', 'キャプテンが認める');
+  let si = api({ op: 'state', token: ISHI });
+  const ex1 = si.exempts.find((e) => e.memberId === IS && e.from === today && e.to === day(6));
+  ok(!!ex1 && si.exReqs.some((x) => x.id === q1 && x.st === 'ok'), '認めると、ふつうの免除になる');
+  ok(gas.push.sent.some((x) => /ishi-ex/.test(x.url)), '本人に「認められました」の通知が届く');
+  ok(api({ op: 'exemptDecide', token: MORI2, id: q1, ok: false }).error === 'decided', '決まったものは、もう変えられない');
+  const exm = api({ op: 'state', token: MG }).exempts.find((e) => e.id === ex1.id);
+  ok(exm && exm.req === 1 && exm.reason === 'けが', 'スタッフには、本人の申し込みから（キャプテンが認めた）とわかる');
+  ok(api({ op: 'deleteExempt', token: MG, id: ex1.id }).ok, 'マネージャーも、申し込みから決まった免除を取り消せる（認めたのが自分でなくても）');
+  r = api({ op: 'exemptRequest', token: ISHI, from: day(10), to: day(12), reason: '試験', note: '前期の試験' });
+  ok(api({ op: 'exemptCancel', token: MORI2, id: r.req.id }).error === 'not_found', 'ほかの人の申し込みは取り消せない');
+  ok(api({ op: 'exemptCancel', token: ISHI, id: r.req.id }).ok, '本人は、申し込み中なら取り消せる');
+  ok(api({ op: 'exemptDecide', token: MORI2, id: r.req.id, ok: true }).error === 'decided', '取り消した申し込みは認められない');
+  r = api({ op: 'exemptRequest', token: ISHI, from: day(20), to: day(21), reason: 'その他', note: '旅行' });
+  gas.push.sent.length = 0;
+  ok(api({ op: 'exemptDecide', token: MORI2, id: r.req.id, ok: false, answer: '旅行は免除になりません' }).req.st === 'no', 'キャプテンが認めない（理由つき）');
+  si = api({ op: 'state', token: ISHI });
+  ok(si.exReqs.some((x) => x.id === r.req.id && x.st === 'no' && x.ans === '旅行は免除になりません') && !si.exempts.some((e) => e.memberId === IS && e.from === day(20)), '本人に理由が届き、免除にはならない');
+  ok(gas.push.sent.some((x) => /ishi-ex/.test(x.url)), '本人に「認められませんでした」の通知が届く');
+  r = api({ op: 'exemptRequest', token: MORI2, from: day(1), to: day(2), reason: '病気・体調不良', note: '' });
+  ok(api({ op: 'exemptDecide', token: MORI2, id: r.req.id, ok: true }).error === 'own', 'キャプテン自身の申し込みは、自分では認められない');
+  ok(api({ op: 'exemptDecide', token: A, id: r.req.id, ok: true }).ok, '管理者が認められる');
+  ok(api({ op: 'saveMember', token: A, member: { id: MO, captain: false } }).ok && !api({ op: 'state', token: MORI2 }).exJudge, 'キャプテンを外すと、認められなくなる');
+  const lg = api({ op: 'logs', token: A }).logs.map((x) => x.action).join(' ');
+  ok(/免除を申し込み/.test(lg) && /免除の申し込みを認めた/.test(lg) && /免除の申し込みを認めなかった/.test(lg), '操作履歴に残る');
+}
 
 section('アイコン（一人一人が決める）');
 {
