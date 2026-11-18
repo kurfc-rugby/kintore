@@ -149,7 +149,19 @@ function doPost(e) {
   } catch (x) {
     return out_({ ok: false, error: 'bad_request', message: '送信内容を読み取れませんでした。' });
   }
-  return out_(handle_(req));
+  const t0 = Date.now();
+  LAST_T_ = null;
+  const res = handle_(req);
+  if (LAST_T_ && res && typeof res === 'object') res._t = Object.assign({ total: Date.now() - t0 }, LAST_T_);
+  return out_(res);
+}
+/** かかった時間（調べるとき用。リクエストに timing:1 があるときだけ返事に付ける。中身は時間だけ） */
+let LAST_T_ = null;
+function lap_(k) {
+  if (!REQ_ || !REQ_.wantT) return;
+  const n = Date.now();
+  (REQ_.laps || (REQ_.laps = {}))[k] = n - (REQ_.lt || REQ_.t0);
+  REQ_.lt = n;
 }
 
 function out_(obj) {
@@ -161,7 +173,7 @@ let REQ_ = null; // 1回のリクエストの間だけ使う読み取りキャ�
 /** 「送る」のメモをシートに書かずに済ませる操作（速さが大事なもの）。ほかの操作は、読む前に必ず書く */
 const NO_FLUSH = { clipStart: 1, clipDraft: 1, clipDraftDrop: 1, ping: 1 };
 function handle_(req) {
-  REQ_ = { tables: {}, ss: null, roster: null, t0: Date.now() };
+  REQ_ = { tables: {}, ss: null, roster: null, t0: Date.now(), wantT: !!(req && req.timing) };
   try {
     if (!req || typeof req !== 'object') throw err_('bad_request', '送信内容が正しくありません。');
     const P = REQ_.pre = {}; let pt = Date.now(); const plap = function (k) { const n = Date.now(); P[k] = n - pt; pt = n; };
@@ -174,7 +186,7 @@ function handle_(req) {
       attachPendingMaybe_(); expireClipsMaybe_(); plap('expire');
     }
     const ctx = { req: req, me: null, view: false };
-    resolveSession_(ctx); plap('session');
+    resolveSession_(ctx); plap('session'); REQ_.lt = Date.now();
     const op = String(req.op || '');
     if (setlogOn_() && !ctx.me && !LOGIN_FREE[String(req.op || '')]) throw err_('auth', 'ログインしてから使ってください。');
     const open = { ping: 1, state: 1, login: 1, register: 1, logout: 1, viewLogin: 1, changePin: 1, memberHistory: 1, stamp: 1, pinRequest: 1, pushRegister: 1, pushUnregister: 1, pushTest: 1, pushInbox: 1, pushMove: 1, clientError: 1, feedback: 1 };
@@ -262,6 +274,7 @@ function handle_(req) {
     }
     return { ok: false, error: 'server_error', message: 'サーバーでエラーが起きました。少し待ってもう一度試してください。' };
   } finally {
+    if (REQ_ && REQ_.wantT) LAST_T_ = { pre: REQ_.pre || {}, laps: REQ_.laps || {}, reads: REQ_.reads || [], lib: REQ_.lib || 0 };
     REQ_ = null;
   }
 }
@@ -398,7 +411,9 @@ function table_(tkey) {
   const def = DEF[tkey];
   const sheet = ss_().getSheetByName(def.name);
   if (!sheet) throw err_('no_sheet', 'シート「' + def.name + '」がありません。初期設定を実行してください。');
+  const tr = Date.now();
   const values = sheet.getDataRange().getValues();
+  if (REQ_ && REQ_.wantT) (REQ_.reads || (REQ_.reads = [])).push(tkey + ':' + (Date.now() - tr) + ':' + values.length);
   const head = values.length ? values[0].map(function (h) { return String(h).trim(); }) : [];
   const col = {};
   def.cols.forEach(function (c) {
@@ -589,7 +604,9 @@ function rosterInfo_() {
     if (hit) { try { info = JSON.parse(hit); } catch (x) { info = null; } }
   }
   if (!info) {
+    const tl = Date.now();
     const list = rosterLib_().list(), pos = rosterLib_().positions();
+    if (REQ_) REQ_.lib = Date.now() - tl;
     info = { list: list, pos: pos, sig: sha256Hex_(JSON.stringify([list, pos])).slice(0, 16) };
     try { c.put('k:roster', JSON.stringify(info), ROSTER_TTL); } catch (x) { /* 覚えられなくても動く */ }
   }
@@ -1146,14 +1163,14 @@ function opState_(ctx) {
   const dflt = !ctx.req.from && !ctx.req.to;
   // ログインした一般部員・見るだけの人は、見る人と同じ作り置きを使う（スタッフだけは毎回作る）
   if (ctx.me && !STAFF[ctx.me.perm] && dflt) {
-    const r = pubState_({ req: ctx.req, me: null, view: true }, today);
+    const r = pubState_({ req: ctx.req, me: null, view: true }, today); lap_('pub');
     r.me = ctx.me;
-    if (setlogOn_()) Object.assign(r, clipState_(ctx, today), exReqState_(ctx, today));
+    if (setlogOn_()) { Object.assign(r, clipState_(ctx, today)); lap_('clip'); Object.assign(r, exReqState_(ctx, today)); lap_('exreq'); }
     return r;
   }
   if (!ctx.me && dflt) return pubState_(ctx, today);
-  const st = buildState_(ctx, today, false).base;
-  if (setlogOn_() && ctx.me) Object.assign(st, clipState_(ctx, today), exReqState_(ctx, today));
+  const st = buildState_(ctx, today, false).base; lap_('build');
+  if (setlogOn_() && ctx.me) { Object.assign(st, clipState_(ctx, today)); lap_('clip'); Object.assign(st, exReqState_(ctx, today)); lap_('exreq'); }
   return st;
 }
 function pubState_(ctx, today) {
@@ -1161,9 +1178,11 @@ function pubState_(ctx, today) {
   let p = null;
   const hit = cacheGetBig_(key);
   if (hit) { try { p = JSON.parse(hit); } catch (x) { p = null; } }
+  if (REQ_ && REQ_.wantT) REQ_.pubHit = !!p;
+  lap_(p ? 'pubHit' : 'pubMiss');
   if (!p) {
-    p = buildState_(ctx, today, true);
-    cachePutBig_(key, JSON.stringify(p), STATE_TTL);
+    p = buildState_(ctx, today, true); lap_('pubBuild');
+    cachePutBig_(key, JSON.stringify(p), STATE_TTL); lap_('pubPut');
   }
   return finishPublic_(p, ctx);
 }
@@ -1181,6 +1200,7 @@ function finishPublic_(p, ctx) {
 function buildState_(ctx, today, pub) {
   const base = { ok: true, version: APP_VERSION, today: today, me: ctx.me, staff: staffList_(), viewLock: !!setting_('viewPassHash'), weekGoal: weekGoal_(),
     goalHist: goalHist_(), positions: positionsList_(), pushKey: vapidKeys_().pub };
+  lap_('b.head');
   if (!pub && base.viewLock && !ctx.me && !ctx.view) { base.locked = true; return { base: base }; }
   let from = ctx.req.from ? reqDate_(ctx.req.from, '開始日') : addDays_(today, -DEFAULT_BACK_DAYS);
   let to = ctx.req.to ? reqDate_(ctx.req.to, '終了日') : addDays_(today, DEFAULT_AHEAD_DAYS);
@@ -1189,27 +1209,29 @@ function buildState_(ctx, today, pub) {
   const me = pub ? null : ctx.me;
   const admin = !!(me && me.perm === 'admin');
   base.range = { from: from, to: to };
-  base.members = members_().map(function (m) { return memberWire_(m, admin); });
+  base.members = members_().map(function (m) { return memberWire_(m, admin); }); lap_('b.members');
   base.menus = table_('menus').rows.filter(function (w) { return !w.deletedAt && w.date >= from && w.date <= to; }).map(menuWire_);
-  base.records = recordsWire_(from, to);
+  base.records = recordsWire_(from, to); lap_('b.records');
   // 免除は全期間（連続の週を、読み込む範囲より前までさかのぼって数えるため）
-  base.exempts = exemptsWire_('0000-01-01', '9999-12-31', me);
-  const lp = lifeAndPast_(from);
+  base.exempts = exemptsWire_('0000-01-01', '9999-12-31', me); lap_('b.exempts');
+  const lp = lifeAndPast_(from); lap_('b.life');
   base.life = lp.life;
   if (lp.past) base.pastWeeks = lp.past;
   base.body = bodyWire_(me);
   let mine = null;
   if (pub) { const sw = stampsAll_(addDays_(today, -STAMP_DAYS)); base.stamps = sw.list; mine = sw.mine; }
   else base.stamps = stampsWire_(addDays_(today, -STAMP_DAYS), ctx.req.device);
+  lap_('b.stamps');
   // 型は全員が見られる（作る・直す・消すのは管理者・FWリーダーだけ）
   base.templates = table_('templates').rows.filter(function (t) { return !t.deletedAt; }).map(templateWire_);
   if (admin) {
     base.pinRequests = pinRequests_(); base.feedbackOpen = table_('feedback').rows.filter(function (f) { return !f.doneAt; }).length;
     base.backup = backupInfo_();
   }
+  lap_('b.admin');
   base.selfRecs = table_('templates').rows.filter(function (t) { return !t.deletedAt && t.selfRec === '1'; }).map(templateWire_);
   base.liftRatios = liftRatios_();
-  base.exercises = exercisesWire_();
+  base.exercises = exercisesWire_(); lap_('b.tail');
   return { base: base, mine: mine };
 }
 
