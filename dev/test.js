@@ -1068,6 +1068,17 @@ for (const f of ['app.js', 'logic.js', 'sw.js', 'gas/Code.gs']) {
 }
 
 section('シートのキャッシュ');
+{
+  // 1時間ごとの処理が覚え直したあとは、管理者の state もシートを読まない（名簿・ログインは別に覚えている）
+  Object.keys(gas.cache._all).forEach((k) => { if (k.indexOf('t:') === 0) delete gas.cache._all[k]; });
+  gas.run('warmTables_');
+  const tw = api0({ op: 'state', token: A, timing: 1 })._t.reads;
+  ok(tw.length > 5 && tw.every((x) => /:c$/.test(x) || /^(people|sessions):/.test(x)), '1時間ごとの処理が覚え直したあとは、シートを読まない（' + tw.join(' ') + '）');
+  // 手で直したら（onEdit）、その表だけ読み直す
+  gas.run('onEdit', { range: { getSheet: () => ({ getName: () => '設定' }) } });
+  const te = api0({ op: 'state', token: A, timing: 1 })._t.reads;
+  ok(te.some((x) => /^settings:\d/.test(x)) && te.filter((x) => !/:c$/.test(x) && !/^(people|sessions):/.test(x)).length === 1, '手で直した表だけ、シートから読み直す（' + te.join(' ') + '）');
+}
 ok(afChecks > 10 && !afBad.length, '書いたあとに一緒に返す最新の情報は、読み直したものと同じ（' + afChecks + '回）' + (afBad.length ? '：違い ' + afBad.slice(0, 6).join(' / ') : ''));
 ok(tcChecks > 20 && !tcBad.length, 'キャッシュから読んだ state は、シートから読んだものと同じ（' + tcChecks + '回）' + (tcBad.length ? '：違い ' + tcBad.slice(0, 5).join(' / ') : ''));
 console.log('\n==============================');

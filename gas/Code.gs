@@ -449,7 +449,7 @@ function table_(tkey) {
   if (REQ_ && REQ_.tables[tkey]) return REQ_.tables[tkey];
   const useC = tcacheOk_(tkey);
   const gen = useC ? tgens_()[tkey] : '';
-  if (useC) { const hit = tcacheGet_(tkey, gen); if (hit) { REQ_.tables[tkey] = hit; return hit; } }
+  if (useC && !REQ_.warm) { const hit = tcacheGet_(tkey, gen); if (hit) { REQ_.tables[tkey] = hit; return hit; } }
   const def = DEF[tkey];
   const sheet = ss_().getSheetByName(def.name);
   if (!sheet) throw err_('no_sheet', 'シート「' + def.name + '」がありません。初期設定を実行してください。');
@@ -489,9 +489,9 @@ function tableW_(tkey) {
 //   - 表ごとに「世代」の印を持ち、書いたら印を変える（古い中身は使われなくなる）。印はキャッシュに置く
 //   - 読むときは、先に印を読んでからシートを読み、その印で覚える（あとから書かれたら、その印は使われない）
 //   - ロックの中（書くとき）は、いつもシートから読む。書くための行の番号を確かにするため
-//   - 手でシートを直したときは onEdit が印を変える。念のため1時間で忘れる
+//   - 手でシートを直したときは onEdit が印を変える。念のため2時間で忘れる（1時間ごとの処理が読み直して覚え直す）
 // ---------------------------------------------------------------------------
-const TCACHE_TTL = 3600;
+const TCACHE_TTL = 7200; // 1時間ごとの処理（pushHourly）が覚え直すので、ふだんは切れない
 const TCACHE_SKIP = { logs: 1, clipThumbs: 1, clipsOld: 1 }; // 大きくて、ふだん読まない表
 const TCACHE_CHUNK = 90000;
 function tcacheOk_(tkey) { return !!(REQ_ && !REQ_.lockDepth && !REQ_.fresh && !REQ_.noTcache && !TCACHE_SKIP[tkey] && DEF[tkey]); }
@@ -2146,9 +2146,8 @@ const LOG_ARCHIVE = '操作履歴（古い分）';
 const LOG_KEEP_DAYS = 366;
 
 function backupInfo_() {
-  const props = PropertiesService.getScriptProperties();
-  const id = props.getProperty('BACKUP_ID');
-  return { last: props.getProperty('BACKUP_LAST') || '', url: id ? 'https://docs.google.com/spreadsheets/d/' + id + '/edit' : '', keepDays: BACKUP_KEEP_DAYS };
+  const id = prop_('BACKUP_ID');
+  return { last: prop_('BACKUP_LAST') || '', url: id ? 'https://docs.google.com/spreadsheets/d/' + id + '/edit' : '', keepDays: BACKUP_KEEP_DAYS };
 }
 function hourJST_() { return +now_().slice(11, 13); }
 /** 1時間ごとの処理から呼ぶ。前のバックアップから7日たったら、深夜（3〜5時）に取る。8日以上あいたら時間に関係なく取る */
@@ -2954,9 +2953,9 @@ const PUSH_HOSTS = /^(([a-z0-9-]+\.)*(googleapis|google)\.com|updates\.push\.ser
 const PUSH_MAX = 400;
 const PUSH_SUB = 'https://kurfc-rugby.github.io/kintore/';
 function vapidKeys_() {
-  const props = PropertiesService.getScriptProperties();
-  let d = props.getProperty('VAPID_D'), pub = props.getProperty('VAPID_PUB');
+  let d = prop_('VAPID_D'), pub = prop_('VAPID_PUB');
   if (d && pub) return { d: d, pub: pub };
+  const props = PropertiesService.getScriptProperties();
   const lock = LockService.getScriptLock();
   lock.waitLock(20000);
   try {
@@ -3145,6 +3144,14 @@ function pushHourly() {
       withLock_(function () { setSetting_('pushGoalSent', today + slot); });
       pushGoal_(today, slot);
     }
+  } finally { REQ_ = null; }
+  warmTables_();
+}
+/** シートの中身を読み直してキャッシュに覚え直す（朝いちばんの人も待たないように。1時間ごとの処理から呼ぶ） */
+function warmTables_() {
+  REQ_ = { tables: {}, ss: null, roster: null, warm: true };
+  try {
+    Object.keys(DEF).forEach(function (k) { if (!TCACHE_SKIP[k]) { try { table_(k); } catch (x) { console.error(x); } } });
   } finally { REQ_ = null; }
 }
 function pushCheers_() {
