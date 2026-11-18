@@ -100,7 +100,19 @@ function create(opts) {
   // ---------- サービス ----------
   function propStore() {
     const props = {};
-    return { getProperty: (k) => (k in props ? props[k] : null), setProperty: (k, v) => { if (String(v).length > 9000) throw new Error('プロパティの値が大きすぎます'); props[k] = String(v); }, deleteProperty: (k) => { delete props[k]; }, getProperties: () => Object.assign({}, props), setProperties: (o, del) => { if (del) Object.keys(props).forEach((k) => delete props[k]); Object.keys(o).forEach((k) => { if (String(o[k]).length > 9000) throw new Error('プロパティの値が大きすぎます'); props[k] = String(o[k]); }); }, _all: props };
+    // 本物と同じく、値は9KBまで・全部で500KBまで（テストでは _quota で小さくできる）
+    const size = (o) => Object.keys(o).reduce((n, k) => n + k.length + String(o[k]).length, 0);
+    const fits = (next) => { if (size(next) > (api._quota || 500 * 1024)) throw new Error('Exceeded maximum stored data'); };
+    const api = { getProperty: (k) => (k in props ? props[k] : null),
+      setProperty: (k, v) => { if (String(v).length > 9000) throw new Error('プロパティの値が大きすぎます'); fits(Object.assign({}, props, { [k]: String(v) })); props[k] = String(v); },
+      deleteProperty: (k) => { delete props[k]; }, getProperties: () => Object.assign({}, props),
+      setProperties: (o, del) => {
+        Object.keys(o).forEach((k) => { if (String(o[k]).length > 9000) throw new Error('プロパティの値が大きすぎます'); });
+        fits(Object.assign(del ? {} : Object.assign({}, props), o));
+        if (del) Object.keys(props).forEach((k) => delete props[k]);
+        Object.keys(o).forEach((k) => { props[k] = String(o[k]); });
+      }, _all: props, _size: () => size(props) };
+    return api;
   }
   function cacheStore() {
     const c = {};

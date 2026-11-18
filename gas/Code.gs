@@ -1276,6 +1276,12 @@ function opSaveRecordsWeek_(ctx) {
   return res;
 }
 /** 1日ぶんの記録（ロックの中で呼ぶ）。inserted … 新しく「実施した」になった行 */
+/** その日の本人の動画（取り消されていない・まだ消えていない）がある「実施した」（全員ログイン版）。
+ *  記録の画面からは外さず、動画の取り消しで外す（動画と「実施した」が食いちがわないように）。1か月たって動画が消えたら、ふつうの記録にもどる */
+function fromVideo_(r) {
+  if (!r || r.status !== 'done' || !setlogOn_()) return false;
+  return table_('clips').rows.some(function (c) { return c.memberId === r.memberId && c.date === r.date && c.status === 'ok' && !c.deletedAt; });
+}
 function saveDay_(me, date, items) {
   {
     const existing = {};
@@ -1309,6 +1315,10 @@ function saveDay_(me, date, items) {
         logs.push(logRow_(me, '記録を追加', m.name + ' ' + date + '：実施した'));
       } else {
         if (!ex) { unchanged++; return; }
+        if (fromVideo_(ex) && me.id !== ex.memberId) {
+          rejected.push({ memberId: id, name: m.name, reason: 'from_video', message: '動画でついた「実施した」です。外すときは「動画」から取り消してください。' });
+          return;
+        }
         if (me.perm === 'manager' && ex.createdBy !== me.id) {
           rejected.push({ memberId: id, name: m.name, reason: 'not_owner', message: 'ほかの人が入力した記録は、管理者だけが取り消せます。' });
           return;
@@ -1332,6 +1342,7 @@ function opDeleteRecord_(ctx) {
   return withLock_(function () {
     const r = table_('records').rows.filter(function (x) { return x.memberId === id && x.date === date; })[0];
     if (!r) throw err_('not_found', 'その記録は見つかりません。');
+    if (fromVideo_(r)) throw err_('from_video', '動画でついた「実施した」です。外すときは「動画」から取り消してください。');
     const m = memberById_(id);
     insert_('trash', [trashRow_(r, me, now_())]);
     remove_('records', r);
@@ -1765,7 +1776,7 @@ function opResetPin_(ctx) {
   return withLock_(function () {
     const m = memberById_(id);
     if (!m || !m.active || m.gone) throw err_('not_found', 'その部員は見つかりません。');
-    if (!STAFF[m.perm]) throw err_('not_staff', '一般部員はログインしないので、暗証番号はありません。');
+    if (!STAFF[m.perm]) throw err_('not_staff', setlogOn_() ? '選手の暗証番号は本人が決めます。忘れたときは「部員の登録」で登録を消すと、本人がもう一度登録できます。' : '一般部員はログインしないので、暗証番号はありません。');
     const pin = issuePin_(m);
     log_(me, '暗証番号を発行', m.name);
     return { ok: true, id: m.id, name: m.name, tempPin: pin };
@@ -1909,7 +1920,9 @@ function ensureHourly_() {
 // ---------------------------------------------------------------------------
 const BACKUP_EVERY_DAYS = 7;
 const BACKUP_KEEP_DAYS = 62;
-const BACKUP_SKIP = { sessions: 1 };
+// 写さないもの：ログイン（復元すると全員がログインし直しになるだけ）、動画のサムネイル・アイコンの写真（画像の文字が大きく、毎週写すと
+// バックアップが数十MB〜になって重く・失敗しやすくなる。サムネイルは1か月で消え、アイコンは決め直せるので、なくても困らない）
+const BACKUP_SKIP = { sessions: 1, clipThumbs: 1, icons: 1 };
 const BACKUP_TITLE = 'KURFC 筋トレ管理 バックアップ（自動・2か月で消えます）';
 const LOG_ARCHIVE = '操作履歴（古い分）';
 const LOG_KEEP_DAYS = 366;
@@ -2476,7 +2489,7 @@ function opStamp_(ctx) {
   requireView_(ctx);
   const req = ctx.req;
   const target = String(req.target || ''), event = String(req.event || ''), kind = String(req.kind || '');
-  const device = String(req.device || ''), fromId = setlogOn_() && ctx.me && ctx.me.perm !== 'guest' ? ctx.me.id : String(req.from || '');
+  const device = String(req.device || ''), fromId = setlogOn_() ? (ctx.me && ctx.me.perm !== 'guest' ? ctx.me.id : '') : String(req.from || ''); // 全員ログイン版：送った人はログインした本人だけ（見るだけの人は名前なし）
   if (!STAMP_KINDS[kind]) throw err_('bad_stamp', 'そのスタンプは使えません。');
   if (!/^[a-z]:[0-9A-Za-z:\-]{1,40}$/.test(event)) throw err_('bad_stamp', '応援する内容が正しくありません。');
   if (!/^[0-9a-f]{16,40}$/.test(device)) throw err_('bad_stamp', 'この端末からは送れません。画面を開き直してください。');
@@ -2717,7 +2730,7 @@ function ecKeygen_() {
 //   （中身を暗号化しなくてよいので、Apps Script だけで送れる）。届いた中身はキャッシュに6時間だけ置く。
 //   種類：goal＝今週あと○回（土曜18時・日曜9時）／cheer＝応援が届いた（7〜22時に1時間ごとにまとめて）／pinreq＝暗証番号の再発行の依頼（管理者）
 // ---------------------------------------------------------------------------
-const PUSH_KINDS = { goal: 1, cheer: 1, pinreq: 1, menu: 1, milestone: 1 };
+const PUSH_KINDS = { goal: 1, cheer: 1, pinreq: 1, menu: 1, milestone: 1, clipq: 1 }; // clipq：動画の確認（全員ログイン版のスタッフ）
 const PUSH_HOSTS = /^(([a-z0-9-]+\.)*(googleapis|google)\.com|updates\.push\.services\.mozilla\.com|([a-z0-9-]+\.)*push\.apple\.com|[a-z0-9.-]+\.notify\.windows\.com)$/;
 const PUSH_MAX = 400;
 const PUSH_SUB = 'https://kurfc-rugby.github.io/kintore/';
@@ -2805,18 +2818,20 @@ function opPushRegister_(ctx) {
     if (memberId) { const m = memberById_(memberId); if (!m || m.gone || !m.active) throw err_('not_found', '自分の名前をもう一度選んでください。'); }
     const kinds = want.filter(function (k) {
       if (k === 'pinreq') return !!(ctx.me && ctx.me.perm === 'admin');
+      if (k === 'clipq') return !!(ctx.me && STAFF[ctx.me.perm] && setlogOn_());
       return !!memberId;
     });
+    const forStaff = kinds.indexOf('pinreq') >= 0 || kinds.indexOf('clipq') >= 0; // スタッフ向けの通知は、ログインした本人（staffId）に送る
     const t = table_('push');
     let r = t.rows.filter(function (x) { return x.endpoint === endpoint; })[0];
     const now = now_();
     const staffId = ctx.me ? ctx.me.id : (r ? r.staffId : '');
     if (r) {
-      Object.assign(r, { memberId: memberId, staffId: kinds.indexOf('pinreq') >= 0 ? staffId : '', kinds: kinds.join(','), device: deviceLabel_(ctx.req.deviceName) || r.device, updatedAt: now });
+      Object.assign(r, { memberId: memberId, staffId: forStaff ? staffId : '', kinds: kinds.join(','), device: deviceLabel_(ctx.req.deviceName) || r.device, updatedAt: now });
       update_('push', r);
     } else {
       if (t.rows.length >= PUSH_MAX) throw err_('too_many', '通知を受け取る端末が多すぎます。管理者に伝えてください。');
-      r = { id: newId_('p'), endpoint: endpoint, memberId: memberId, staffId: kinds.indexOf('pinreq') >= 0 ? staffId : '', kinds: kinds.join(','),
+      r = { id: newId_('p'), endpoint: endpoint, memberId: memberId, staffId: forStaff ? staffId : '', kinds: kinds.join(','),
         device: deviceLabel_(ctx.req.deviceName), createdAt: now, updatedAt: now, okAt: '', failCount: '0' };
       insert_('push', [r]);
     }
@@ -2939,7 +2954,7 @@ function pushGoal_(today, slot) {
     const st = weekStatus_(m, ws);
     if (st.need === 0 || st.count >= st.need) return null;
     const left = st.need - st.count;
-    return { title: '今週あと' + left + '回', body: (slot === 'sun' ? '今日が今週の最後の日です。' : '日曜までに週' + st.need + '回。') + 'いま ' + st.count + '回です。', url: './#member/' + m.id, tag: 'goal' };
+    return { title: '今週あと' + left + '回', body: (slot === 'sun' ? '今日が今週の最後の日です。' : '日曜までに週' + st.need + '回。') + 'いま ' + st.count + '回です。' + (setlogOn_() ? '筋トレをしたら、今日の1本を撮って送ろう。' : ''), url: './#member/' + m.id, tag: 'goal' };
   });
 }
 /** 時間主導のトリガーを入れ直す（エディタから1回実行する） */
@@ -3745,7 +3760,10 @@ function clipAddRow_(me, k, thumb, file, bytes, T, draft, presetId) {
   let recorded = false;
   if (!canceledDay) { const r = saveDay_(me, k.date, [{ memberId: me.id, done: true }]); recorded = r.saved + r.updated > 0 || r.unchanged > 0; }
   lap('day');
-  if (canceledDay) log_(me, '動画を出した', k.m.name + ' ' + k.date + '（確認待ち）'); // 「実施した」にしたときは、記録の追加の履歴が残るので書かない
+  if (canceledDay) {
+    log_(me, '動画を出した', k.m.name + ' ' + k.date + '（確認待ち）'); // 「実施した」にしたときは、記録の追加の履歴が残るので書かない
+    notifyStaffClip_('確認待ちの動画が届きました', k.m.name + ' さんの ' + k.date.slice(5).replace('-', '/') + ' の動画（取り消された日に撮り直したもの）。確認すると「実施した」になります。');
+  }
   const out = { ok: true, clip: clipWire_(c, me), recorded: recorded, pending: canceledDay, records: recordsWire_(k.date, k.date) };
   lap('log');
   return out;
@@ -3786,7 +3804,22 @@ function opClipStart_(ctx) {
   // シートには書かない（順番待ちをしない）。メモに書いてすぐ返事。シートは次に誰かが使ったときに書く
   const t3 = Date.now();
   const cm = { id: 'C' + Utilities.getUuid().replace(/-/g, '').slice(0, 12), d: k.date, m: k.mime, st: canceledDay ? 'pending' : 'ok', t: now_() };
-  commitSet_(key, cm, dup ? '' : thumb);
+  try { commitSet_(key, cm, dup ? '' : thumb); }
+  catch (x) {
+    // メモがいっぱい（スクリプトのプロパティは全部で500KBまで。一斉に送られて、まだシートに書けていないとき）：
+    // たまったメモをシートに書き出してから、この1本はシートに直接書く（少し遅くなるが、送れなくはならない）
+    console.error(x);
+    try { commitDel_(key, cm.n); } catch (y) { /* 途中まで書けたものを消す */ }
+    flushCommits_();
+    return withLock_(function () {
+      const d2 = healClip_(me.id, k.at);
+      if (d2 && d2.status !== 'draft') { attachPend_(d2); return { ok: true, clip: clipWire_(d2, me), again: true, records: recordsWire_(k.date, k.date) }; }
+      const o = clipAddRow_(me, k, d2 ? '' : thumb, null, null, null, d2);
+      const c = findClip_(me.id, k.at);
+      if (c && attachPend_(c)) o.clip = clipWire_(c, me);
+      return o;
+    }, { keepRoster: true });
+  }
   T.save = Date.now() - t3;
   clipTimesSave_(T);
   const res = { ok: true, queued: true, clip: commitWire_(me, k, cm), recorded: !canceledDay, pending: canceledDay };
@@ -4025,7 +4058,7 @@ function notifyStaffClip_(title, body) {
   try {
     const staff = {};
     members_().forEach(function (m) { if (m.active && !m.gone && (m.perm === 'admin' || m.perm === 'manager' || m.perm === 'leader')) staff[m.id] = 1; });
-    const rows = table_('push').rows.filter(function (r) { return staff[r.staffId]; });
+    const rows = pushTargets_('clipq').filter(function (r) { return staff[r.staffId]; }); // 「動画の確認」をオンにしたスタッフだけ
     sendPush_(rows, function () { return { title: title, body: body, url: './#clips/queue', tag: 'clipq' }; });
   } catch (x) { console.error(x); }
 }

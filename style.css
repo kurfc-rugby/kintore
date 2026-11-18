@@ -1568,3 +1568,8 @@ body.cam-open { overflow: hidden; }
 .ice-photo-btns .btn { cursor: pointer; }
 .ice-zoom { display: grid; gap: 4px; font-size: 13px; font-weight: 700; color: var(--sub); }
 .ice .actions { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; }
+
+/* 部員の登録：何人登録したか・まだの人 */
+.reg-n { margin: 4px 0 10px; display: flex; flex-direction: column; gap: 2px; }
+.reg-n b { font-size: 15px; }
+.reg-n small { color: var(--sub); font-size: 12px; line-height: 1.5; }

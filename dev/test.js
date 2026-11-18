@@ -978,6 +978,7 @@ section('v2.21：見る人向けの作り置き・全期間の連続・目標回
   const tab = book && gas.run('withReq', (f) => f.readBackupTab_(book.getSheetByName(today)));
   const recRows = gas.sheet('実施記録').data.slice(1).filter((r) => r.some((v) => v !== '' && v !== undefined)).length;
   ok(book && book.getSheetByName('説明') && tab && tab['実施記録'] && tab['実施記録'].rows.length === recRows && !tab['ログイン'] && tab['部員設定'], 'バックアップ：別のスプレッドシートの日付のタブに、ログイン以外の全シートを写す（' + b1.tables + 'シート）');
+  ok(!tab['動画のサムネイル'] && !tab['アイコン写真'] && tab['動画'], 'バックアップに画像（動画のサムネイル・アイコンの写真）は写さない（大きくて重くなるため）。動画の一覧は写す');
   const keep = JSON.stringify(gas.sheet('実施記録').data.slice(0, recRows + 1));
   gas.sheet('実施記録').data.splice(1); // まちがえて全部消した
   const rs = gas.run('withReq', (f) => f.restoreBackup_(today, ['実施記録']));

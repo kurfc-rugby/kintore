@@ -3,7 +3,7 @@
   'use strict';
   const L = window.KLogic;
   const API = window.KINTORE_API;
-  const VERSION = '2.22.0-t28';
+  const VERSION = '2.22.0-t30';
   const WD = ['日', '月', '火', '水', '木', '金', '土'];
   const PERM = { admin: '管理者', manager: 'マネージャー', leader: 'FWリーダー', member: '一般部員', guest: '見るだけ' };
   const MODE = { leader: 'メニュー参加', self: '自主トレ' };
@@ -130,7 +130,8 @@
     ['cheer', '応援が届いたとき', '1時間ごとにまとめて。夜10時〜朝7時は送りません', 'self'],
     ['milestone', '記録の節目', '連続達成が自己ベストに並んだ・更新した、通算○回になったとき', 'self'],
     ['menu', '新しいメニューが出たとき', '自分が対象のメニューだけ', 'self'],
-    ['pinreq', '管理者へのお知らせ', '管理者だけ。暗証番号の再発行の依頼と、要望・不具合が届いたらすぐ', 'admin']
+    ['pinreq', '管理者へのお知らせ', '管理者だけ。暗証番号の再発行の依頼と、要望・不具合が届いたらすぐ', 'admin'],
+    ['clipq', '動画の確認', 'スタッフだけ。確認待ちの動画が届いたとき・「気になる」がついたとき', 'staff']
   ];
   const pushSupported = () => 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
   function b64uBytes(s) {
@@ -171,11 +172,11 @@
     }
     if (!PWA.reg || !S.data.pushKey) return h + '<p class="lead-line small">準備中です。少し待ってから開き直してください。</p></section>';
     if (!PUSH.ready) { loadPush().then(() => { if (S.route.name === 'settings') render(); }); return h + '<p class="empty small">読み込み中…</p></section>'; }
-    const on = !!PUSH.endpoint, cur = on ? store.get('pushKinds', []) : ['goal', 'cheer', 'pinreq'];
+    const on = !!PUSH.endpoint, cur = on ? store.get('pushKinds', []) : ['goal', 'cheer', 'pinreq', 'clipq'];
     const denied = Notification.permission === 'denied';
     h += '<p class="lead-line small">' + (on ? icon('check') + '<b>この端末で通知を受け取っています。</b>' : 'スマホに通知を出せます。受け取りたいものを選んで「通知をオンにする」を押してください。') + '</p>';
-    if (!PREF.self) h += '<p class="hint strong">「今週あと○回」「応援」は、上の「自分の名前」を選ぶと受け取れます。</p>';
-    h += '<form data-form="push" class="form"><ul class="pushk">' + PUSH_KINDS.filter((k) => k[3] !== 'admin' || can('admin')).map((k) => {
+    if (!PREF.self) h += '<p class="hint strong">「今週あと○回」「応援」は、' + (loginAll() ? '選手としてログインしている人だけが受け取れます。' : '上の「自分の名前」を選ぶと受け取れます。') + '</p>';
+    h += '<form data-form="push" class="form"><ul class="pushk">' + PUSH_KINDS.filter((k) => (k[3] !== 'admin' || can('admin')) && (k[3] !== 'staff' || (loginAll() && can('anyStaff')))).map((k) => {
       const dis = k[3] === 'self' && !PREF.self;
       return '<li><label class="pk' + (dis ? ' dis' : '') + '"><input type="checkbox" name="kinds" value="' + k[0] + '"' + (cur.indexOf(k[0]) >= 0 && !dis ? ' checked' : '') + (dis ? ' disabled' : '') + '><span><b>' + k[1] + '</b><small>' + k[2] + '</small></span></label></li>';
     }).join('') + '</ul>' +
@@ -192,7 +193,7 @@
     let h = '<section class="block"><div class="block-h"><h2>ホーム画面に追加</h2></div><p class="lead-line small">ホーム画面にアイコンを置くと、アプリのように1タップで開けます（App Store は使いません）。</p>';
     if (PWA.prompt) h += '<div class="toolbar"><button class="btn primary" data-act="pwa-install">' + icon('plus') + 'ホーム画面に追加</button></div>';
     else if (isIOS()) h += '<ol class="howto"><li><b>Safari</b> でこのページを開く（LINEの中で開いているときは、右下のメニューから「Safariで開く」）</li><li>下の<b>共有ボタン</b>（□に↑）を押す</li><li><b>「ホーム画面に追加」</b>→ 右上の「追加」</li></ol>' +
-      '<p class="note">ホーム画面から開くと、ログインや自分の名前・文字の大きさの設定はもう一度必要です（Safari とは別に保存されます）。</p>';
+      '<p class="note">ホーム画面から開くと、ログイン' + (loginAll() ? '' : 'や自分の名前') + '・文字の大きさの設定はもう一度必要です（Safari とは別に保存されます）。</p>';
     else h += '<ol class="howto"><li><b>Chrome</b> でこのページを開く</li><li>右上の<b>︙</b>を押す</li><li><b>「ホーム画面に追加」</b>または<b>「アプリをインストール」</b></li></ol>';
     return h + '<p class="note"><a href="#help/install">くわしい手順（絵つき）</a></p></section>';
   }
@@ -337,8 +338,12 @@
     S.data = d;
     const gate = d.locked || d.needLogin;
     S.idx = gate ? null : L.buildIndex(d);
-    // 全員ログイン（setlog）：ログインした選手は、自分の名前を自動で選ぶ
-    if (d.loginAll && d.me && d.me.perm !== 'guest' && d.members && d.members.some((x) => x.id === d.me.id && x.player) && PREF.self !== d.me.id) { PREF.self = d.me.id; store.set('self', PREF.self); }
+    // 全員ログイン（setlog）：「わたし」はログインした本人だけ。選手なら自分の名前を自動で選び、選手でない人（スタッフ・見るだけ）は、
+    // 前の版でこの端末に選んでいた名前を消す（名前を選ぶ画面はもう無いので、残ると別の人が「わたし」になる）
+    if (d.loginAll && d.me) {
+      const self = d.me.perm !== 'guest' && d.members && d.members.some((x) => x.id === d.me.id && x.player) ? d.me.id : '';
+      if (PREF.self !== self) { PREF.self = self; if (self) store.set('self', self); else store.del('self'); }
+    }
     S.lastLoad = Date.now();
     S.stampMap = {};
     (d.stamps || []).forEach((x) => { S.stampMap[x.t + '|' + x.e] = x; });
@@ -627,7 +632,7 @@
     if (S.kind === 'week') h += goalBlock(cur.rows, isNow, p);
     if (S.kind === 'week' && isNow) h += voiceBlock();
     h += '<section class="block"><div class="block-h"><h2>ランキング</h2><a class="more" href="#rank">すべて見る</a></div>';
-    if (!ranked.length) h += emptyState('rank', 'この期間の記録はまだありません', can('record') ? 'やった人の「実施した」を押すと、ここに順位が出ます。' : 'マネージャーが記録すると、ここに順位が出ます。', can('record') ? '<div class="toolbar center"><a class="btn primary" href="#record">' + icon('check') + '記録をつける</a></div>' : '');
+    if (!ranked.length) h += emptyState('rank', 'この期間の記録はまだありません', can('record') ? 'やった人の「実施した」を押すと、ここに順位が出ます。' : (loginAll() ? '動画を送ると、ここに順位が出ます。' : 'マネージャーが記録すると、ここに順位が出ます。'), can('record') ? '<div class="toolbar center"><a class="btn primary" href="#record">' + icon('check') + '記録をつける</a></div>' : '');
     else {
       const pod = podiumPeople(ranked);
       // ホームは表彰台だけ（4位から下はランキングで）。表彰台に乗せきれないときは上位3行
@@ -699,7 +704,7 @@
       const by = {};
       miss.forEach((r) => { (by[r.w.left] = by[r.w.left] || []).push(r); });
       Object.keys(by).sort((a, b) => a - b).forEach((k) => { t += '\nあと' + k + '回：' + by[k].sort((a, b) => a.sort - b.sort).map(sur).join('、'); });
-      t += '\n\n' + mdw(to) + 'までに週' + g + '回！\n';
+      t += '\n\n' + mdw(to) + 'までに週' + g + '回！\n' + (loginAll() ? '筋トレをしたら、アプリで「今日の1本」を撮って送ってください\n' : '');
     } else {
       t += '\nまだ：' + miss.sort((a, b) => a.sort - b.sort).map((r) => sur(r) + '(' + r.w.count + '/' + r.w.need + ')').join('、') + '\n';
     }
@@ -723,7 +728,7 @@
       (can('record') ? '<a class="btn small primary" href="#record">' + icon('check') + '記録する</a>' : '') + '</div>';
     if (menus.length) {
       h += '<ul class="today-menus">' + menus.map((w) => '<li><button data-act="menu-open" data-id="' + w.id + '">' + targetChip(w) + '<b>' + esc(w.title) + '</b><span>対象' + w.targets.length + '人</span></button></li>').join('') + '</ul>';
-      h += '<p class="today-s">メニュー対象者のうち <b>' + ds.targetDone + '/' + ds.targets + '人</b> が実施' + (ds.targets > ds.targetDone ? '。記録のない人は明日から「実施していない」になります' : '') + '</p>';
+      h += '<p class="today-s">メニュー対象者のうち <b>' + ds.targetDone + '/' + ds.targets + '人</b> が実施' + (ds.targets > ds.targetDone ? (loginAll() ? '。動画を出していない人は明日から「実施していない」になります' : '。記録のない人は明日から「実施していない」になります') : '') + '</p>';
     } else h += '<p class="today-s">今日のFWリーダーメニューはありません。</p>';
     if (ds.othersDone) h += '<p class="today-s">メニュー対象以外で実施 <b>' + ds.othersDone + '人</b></p>';
     return h + '</section>';
@@ -1045,7 +1050,7 @@
     let h = versusBlock(p) + formationBlock(p) + spreadBlock(all.rows);
     if (S.kind === 'month') h += continuityBlock(all.rows);
     h += '<details class="rules"><summary><h3>集計のルール</h3></summary><ul>' +
-      '<li><b>実施回数</b>：マネージャーが「実施した」と記録した日数。全員が同じ条件です。</li>' +
+      '<li><b>実施回数</b>：' + (loginAll() ? '動画を送った日（動画を送れなかった日にマネージャーがつけた分も入ります）' : 'マネージャーが「実施した」と記録した日数') + '。全員が同じ条件です。</li>' +
       '<li><b>実施率</b>：FWリーダーメニューに参加している人だけ。実施した対象日 ÷ 対象日。対象日に記録がなければ、翌日から「実施していない」になります（今日の分は、実施したときだけ数えます）。</li>' +
       '<li>自主トレの人は実施率を出さず「－」。実施回数で比べます。</li>' +
       '<li>回数（または実施率）が同じ人は<b>同じ順位</b>です。実施率が同じときの並びは、実施回数の多い人が先。表彰台にも同じ順位で並びます。</li>' +
@@ -1060,12 +1065,13 @@
     done: ['○', '実施した'], not: ['×', '実施していない'], today: ['・', '今日の対象（記録待ち）'],
     planned: ['・', '予定'], none: ['', '予定なし'], out: ['', '在籍期間外'], ex: ['免', '免除（けが・オフなど）']
   };
+  const cellOf = (k) => (k === 'today' && loginAll() ? ['・', '今日の対象（動画待ち）'] : CELL[k]); // 全員ログイン版は、動画を送ると「実施した」
   function cellHtml(state) {
-    const c = CELL[state];
+    const c = cellOf(state);
     return '<span class="cell s-' + state + '" title="' + c[1] + '"><span aria-hidden="true">' + c[0] + '</span><span class="sr">' + c[1] + '</span></span>';
   }
   function legend() {
-    return '<ul class="legend">' + ['done', 'not', 'today', 'planned', 'ex', 'none'].map((k) => '<li>' + cellHtml(k) + CELL[k][1] + '</li>').join('') + '</ul>';
+    return '<ul class="legend">' + ['done', 'not', 'today', 'planned', 'ex', 'none'].map((k) => '<li>' + cellHtml(k) + cellOf(k)[1] + '</li>').join('') + '</ul>';
   }
   function sortMembers(list) {
     const ord = {};
@@ -1194,7 +1200,7 @@
     L.dateList(mo.from, mo.to).forEach((dt) => {
       const st = L.cellState(S.idx, m, dt, today);
       const menus = (S.idx.menusByDate[dt] || []).filter((w) => w.targets.indexOf(m.id) >= 0);
-      h += '<span class="mday s-' + st + (dt === today ? ' today' : '') + '"><span class="mday-n">' + +dt.slice(8, 10) + '</span><span class="mday-m" aria-hidden="true">' + CELL[st][0] + '</span><span class="sr">' + CELL[st][1] + '</span></span>';
+      h += '<span class="mday s-' + st + (dt === today ? ' today' : '') + '"><span class="mday-n">' + +dt.slice(8, 10) + '</span><span class="mday-m" aria-hidden="true">' + CELL[st][0] + '</span><span class="sr">' + cellOf(st)[1] + '</span></span>';
       const r = L.getRec(S.idx, m.id, dt);
       if (r || st === 'not' || st === 'today') hist.push({ dt: dt, st: st, r: r, menus: menus });
     });
@@ -1204,7 +1210,7 @@
     h += '<section class="block"><details class="goal-more hist-box"><summary>' + ymLabel(mo.from) + 'の履歴を見る（' + hist.length + '件）</summary>';
     h += '<ul class="hist">' + hist.reverse().map((x) =>
       '<li>' + cellHtml(x.st) + '<span class="hist-d">' + mdw(x.dt) + '</span>' +
-      '<span class="hist-t">' + CELL[x.st][1] + (x.menus.length ? '<small>' + x.menus.map((w) => esc(w.title)).join('、') + '</small>' : '') + '</span>' +
+      '<span class="hist-t">' + cellOf(x.st)[1] + (x.menus.length ? '<small>' + x.menus.map((w) => esc(w.title)).join('、') + '</small>' : '') + '</span>' +
       (x.r && x.r.by ? '<span class="hist-b">記録：' + esc(nameOf(x.r.by)) + '</span>' : '') + '</li>').join('') + '</ul></details>';
     return h + '</section>' + exemptBlock(m);
   }
@@ -1926,8 +1932,9 @@
       const saved = !!(r && r.s === 1);
       const isT = (r && r.t === 1) || !!tgt[m.id];
       const raw = d.records.find((x) => x[0] === m.id && x[1] === date) || [];
-      const locked = !!r && me().perm === 'manager' && raw[5] !== me().id;
-      rows.push({ m: m, saved: saved, sec: isT ? 0 : (m.mode === 'self' ? 1 : 2), locked: locked, by: r ? r.by : '' });
+      const vid = saved && liveClip(m.id, date); // 動画でついた「実施した」（外すときは動画を取り消す）
+      const locked = vid || (!!r && me().perm === 'manager' && raw[5] !== me().id);
+      rows.push({ m: m, saved: saved, sec: isT ? 0 : (m.mode === 'self' ? 1 : 2), locked: locked, vid: vid, by: r ? r.by : '' });
     });
     const ord = recOrder(rows.map((x) => x.m), date);
     rows.sort((a, b) => (a.sec - b.sec) || (ord[a.m.id] - ord[b.m.id]));
@@ -1973,10 +1980,10 @@
     return '<li class="rec-row' + (cur ? ' on' : '') + (changed ? ' changed' : '') + (row.locked ? ' locked' : '') + '" data-id="' + m.id + '">' +
       '<span class="rec-pos g-' + (m.group || 'X') + '">' + esc(m.position || m.group || '－') + '</span>' +
       '<div class="rec-n"><b>' + esc(m.name) + (L.exemptOn(S.idx, m.id, S.rec.date) ? '<span class="ex-tag">免除</span>' : '') + '</b><small>' + (m.grade ? esc(m.grade) : '') +
-      (changed ? '・<em>未保存</em>' : (row.saved && row.by ? '・記録：' + esc(nameOf(row.by)) : '')) +
-      (can('admin') && row.saved && !changed ? '・<button class="textbtn" data-act="rec-del" data-id="' + m.id + '">取り消す</button>' : '') + '</small></div>' +
+      (changed ? '・<em>未保存</em>' : row.vid ? '・動画で記録' : (row.saved && row.by ? '・記録：' + esc(nameOf(row.by)) : '')) +
+      (can('admin') && row.saved && !changed && !row.vid ? '・<button class="textbtn" data-act="rec-del" data-id="' + m.id + '">取り消す</button>' : '') + '</small></div>' +
       (row.locked
-        ? '<div class="rec-lock">' + icon('lock') + '<span>実施した</span></div>'
+        ? '<div class="rec-lock" title="' + (row.vid ? '動画でついた記録です。外すときは「動画」から取り消します' : 'ほかのマネージャーがつけた記録です') + '">' + icon(row.vid ? 'cam' : 'lock') + '<span>実施した</span></div>'
         : '<button class="rec-btn" data-act="rec-toggle" data-id="' + m.id + '" aria-pressed="' + cur + '">' + icon('check') + '<span>実施した</span></button>') +
       '</li>';
   }
@@ -1991,7 +1998,7 @@
       '<button class="btn primary" data-act="rec-confirm"' + (n ? '' : ' disabled') + '>' + (n ? '保存する（' + n + '件）' : '変更なし') + '</button>';
   }
   function vRecord() {
-    if (!can('record')) return '<p class="empty">実施記録をつけられるのは、管理者とマネージャーです。<br><button class="btn primary" data-act="login">ログイン</button></p>';
+    if (!can('record')) return loginAll() ? '<p class="empty">実施記録をつけられるのは、管理者とマネージャーです。<br>選手は「撮る」で動画を送ると、自動で「実施した」になります。</p>' : '<p class="empty">実施記録をつけられるのは、管理者とマネージャーです。<br><button class="btn primary" data-act="login">ログイン</button></p>';
     const d = S.data, today = d.today;
     if (!S.rec.date) S.rec.date = today;
     const date = S.rec.date;
@@ -2045,9 +2052,10 @@
         const cur = W.edits[k] !== undefined ? W.edits[k] : saved;
         if (cur) total++;
         const off = dt > today || (!r && !L.inRoster(m, dt));
-        const locked = saved && me().perm === 'manager' && r[5] !== me().id;
+        const vid = saved && liveClip(m.id, dt); // 動画でついた「実施した」は、動画を取り消して外す
+        const locked = vid || (saved && me().perm === 'manager' && r[5] !== me().id);
         const ex = L.exemptOn(S.idx, m.id, dt);
-        h += '<td>' + (off ? '<span class="wk-off"></span>' : locked ? '<span class="wk-c on locked" title="ほかの人の記録">' + icon('lock') + '</span>'
+        h += '<td>' + (off ? '<span class="wk-off"></span>' : locked ? '<span class="wk-c on locked" title="' + (vid ? '動画でついた記録' : 'ほかの人の記録') + '">' + icon(vid ? 'cam' : 'lock') + '</span>'
           : '<button class="wk-c' + (cur ? ' on' : '') + (cur !== saved ? ' changed' : '') + (ex ? ' ex' : '') + '" data-act="week-cell" data-k="' + esc(k) + '" aria-pressed="' + cur + '" aria-label="' + esc(m.name) + ' ' + mdw(dt) + (ex ? '（免除）' : '') + '">' + (cur ? icon('check') : ex ? '免' : '') + '</button>') + '</td>';
       });
       const nd = L.weekNeed(S.idx, m, ws, goal()).need;
@@ -2132,7 +2140,7 @@
     }
     const players = sortMembers(S.data.members.filter((x) => x.active && x.player));
     // 1. 自分の名前・見やすさ（この端末だけ）
-    h += '<section class="block"><div class="block-h"><h2>自分の名前・見やすさ</h2><span class="count">この端末だけ</span></div>' +
+    h += '<section class="block"><div class="block-h"><h2>' + (loginAll() ? '見やすさ' : '自分の名前・見やすさ') + '</h2><span class="count">この端末だけ</span></div>' +
       (loginAll() ? '' : '<label class="prefrow form"><span>自分の名前<small>ホームに「わたし」（今週あと何回・届いた応援）が出ます。応援を送るときの名前・通知にも使います</small></span>' +
       '<select data-act-change="pref-self"><option value="">選ばない</option>' + players.map((x) => '<option value="' + x.id + '"' + (PREF.self === x.id ? ' selected' : '') + '>' + esc(x.name) + '</option>').join('') + '</select></label>') +
       '<div class="prefrow"><span>画面の明るさ</span><div class="seg small" role="group" aria-label="画面の明るさ">' +
@@ -2171,7 +2179,7 @@
     }
     // 5. サポート
     h += '<section class="block" id="feedback"><div class="block-h"><h2>サポート</h2></div><ul class="links">' +
-      '<li><a href="#help">' + icon('help') + '使い方ガイド<small>40秒の動画と、立場ごとの使い方</small></a></li>' +
+      '<li><a href="#help">' + icon('help') + '使い方ガイド<small>' + (loginAll() ? '' : '40秒の動画と、') + '立場ごとの使い方</small></a></li>' +
       '<li><button data-act="guide">' + icon('play') + '使い方の案内をもう一度<small>はじめて開いたときの紹介と、実際の画面を見ながらの案内（1分）</small></button></li>' +
       '<li><button data-act="fb-open">' + icon('send') + '要望・不具合を送る<small>「こうしてほしい」「ここがおかしい」を管理者に' + (loginAll() ? '' : '。ログインはいりません') + '</small></button></li></ul></section>';
     h +=
@@ -2197,7 +2205,7 @@
     const sorted = sortMembers(list).sort((a, b) => rank[a.perm] - rank[b.perm]);
     openSheet('役職をまとめて付け替え',
       '<form data-form="perms" class="form"><p class="lead-line small">新年度にFWリーダー・マネージャーが交代するときに使います。変えた人だけ保存します。</p>' +
-      '<p class="hint">新しくログインする人（一般部員から変えた人）には、最初の暗証番号をまとめて発行して、次の画面に出します。一般部員に戻した人はログインできなくなります。自分自身はここでは変えられません。</p>' +
+      '<p class="hint">' + (loginAll() ? 'まだ登録していない人には、' : '新しくログインする人（一般部員から変えた人）には、') + '最初の暗証番号をまとめて発行して、次の画面に出します。' + (loginAll() ? 'もう自分で登録している人は、今の暗証番号のままです（役職を変えた人は、いったんログアウトされます）。一般部員に戻した人は、暗証番号が消えるので、自分でもう一度登録します。' : '一般部員に戻した人はログインできなくなります。') + '自分自身はここでは変えられません。</p>' +
       '<ul class="pm-list">' + sorted.map((m) => '<li class="pm-top"><span><b>' + esc(m.name) + '</b><small>' + esc(m.grade || '') + (m.player ? '・' + esc(m.position || m.group || '') : '・' + esc(m.clubRole)) + '</small></span>' +
         '<select name="p_' + m.id + '" data-cur="' + m.perm + '" aria-label="' + esc(m.name) + 'の権限"' + (m.id === me().id ? ' disabled' : '') + '>' +
         ['member', 'manager', 'leader', 'admin'].map((r) => '<option value="' + r + '"' + (m.perm === r ? ' selected' : '') + '>' + PERM[r] + '</option>').join('') + '</select></li>').join('') + '</ul>' +
@@ -2219,7 +2227,7 @@
     openSheet('暗証番号を忘れたとき',
       '<form data-form="pinreq" class="form"><p class="lead-line small">管理者に「暗証番号を出し直してほしい」と依頼を送ります。管理者が新しい最初の暗証番号を出したら、本人に直接伝えてもらってください。</p>' +
       '<label>名前<select name="memberId" required><option value="">選んでください</option>' + staff.map((x) => '<option value="' + x.id + '">' + esc(x.name) + '（' + PERM[x.perm] + '）</option>').join('') + '</select></label>' +
-      '<p class="form-err" hidden></p><div class="actions"><button type="button" class="btn" data-act="login">戻る</button><button class="btn primary" type="submit">依頼を送る</button></div></form>');
+      '<p class="form-err" hidden></p><div class="actions"><button type="button" class="btn" data-act="' + (loginAll() ? 'sheet-close' : 'login') + '">戻る</button><button class="btn primary" type="submit">依頼を送る</button></div></form>');
   }
 
   // ---------- 使い方（くわしいガイド） ----------
@@ -2235,7 +2243,7 @@
       '画面の下（iPad は上）の <b>共有ボタン</b> ' + kbd(icon('share')) + ' を押す',
       '下へ動かして <b>「ホーム画面に追加」</b> を押す（なければ一番下の「アクションを編集」から追加できます）',
       '右上の <b>「追加」</b> を押す → ホーム画面に「筋トレ」のアイコンができます',
-      '<b>これからはアイコンから開く</b>（ホーム画面版は Safari と別なので、自分の名前・ログイン・文字の大きさはもう一度設定します）'
+      '<b>これからはアイコンから開く</b>（ホーム画面版は Safari と別なので、' + (loginAll() ? '' : '自分の名前・') + 'ログイン・文字の大きさはもう一度設定します）'
     ]);
     const andSteps = steps([
       '<b>Chrome</b> でこのページを開く。LINE の中で開いているときは、右上の ' + kbd('⋮') + ' から「ブラウザで開く」',
@@ -2254,7 +2262,7 @@
     const iosNeedsHome = isIOS() && !isStandalone();
     return (iosNeedsHome ? '<p class="warnline">' + icon('lock') + '<span>iPhone では、<b>ホーム画面に追加したアプリから</b>でないと通知を受け取れません（iOS 16.4 以上）。先に「ホーム画面に追加」をしてください。</span></p>' : '') +
       steps([
-        '先に <b>自分の名前</b> を選ぶ（「今週あと○回」「応援」は、選んだ名前の人に届きます）',
+        loginAll() ? '先に <b>ログイン</b>する（「今週あと○回」「応援」は、ログインした本人に届きます）' : '先に <b>自分の名前</b> を選ぶ（「今週あと○回」「応援」は、選んだ名前の人に届きます）',
         '「設定」→ 下のほうの <b>「通知」</b> で、受け取りたいものにチェック',
         '<b>「通知をオンにする」</b> → スマホの確認で <b>「許可」</b>',
         '<b>「テスト通知を送る」</b> で、数秒で届けばOK'
@@ -2262,6 +2270,8 @@
       '<table class="htable"><thead><tr><th>通知</th><th>いつ</th></tr></thead><tbody>' +
       '<tr><td><b>今週あと○回</b><small>まだ週' + goal() + '回に届いていない本人だけ</small></td><td>土曜18時・日曜9時</td></tr>' +
       '<tr><td><b>応援が届いた</b><small>だれからか・どのスタンプか</small></td><td>1時間ごとにまとめて（夜10時〜朝7時は送らない）</td></tr>' +
+      (loginAll() ? '<tr><td><b>動画が取り消された</b><small>本人だけ。理由つき</small></td><td>取り消されたらすぐ</td></tr>' +
+        '<tr><td><b>動画の確認</b><small>スタッフだけ。確認待ちの動画・「気になる」</small></td><td>届いたらすぐ</td></tr>' : '') +
       '<tr><td><b>暗証番号の再発行の依頼</b><small>管理者だけ（ログインして設定）</small></td><td>依頼が来たらすぐ</td></tr></tbody></table>' +
       '<div class="toolbar">' + goBtn('#settings/push', '通知の設定を開く') + '</div>' +
       '<details class="faq"><summary>通知が来ないとき</summary><ul class="dots">' +
@@ -2285,13 +2295,32 @@
     const g = goal();
     return [
       ['about', 'all', 'このアプリでできること', '全体の流れ',
+        (loginAll() ? '<ul class="dots"><li>選手は、筋トレをしたらアプリで <b>2秒の動画</b> を撮って送ります。送るとその日は <b>「実施した」</b> になります</li>' +
+        '<li>全員が <b>自分の名前と暗証番号でログイン</b> して使います。ログインした本人が「わたし」です</li>' +
+        '<li>みんなの動画は <b>「動画」</b> で見られます。応援スタンプ・「気になる」も押せます。スタッフは確認して取り消すこともできます</li>' +
+        '<li><b>週' + g + '回以上（月曜〜日曜）がマスト</b>。ホームで「まだの人」、ランキングで回数がわかります</li>' +
+        '<li>FWリーダーのメニュー・自己ベスト・称号・体重の変化・通知もあります</li></ul>' +
+        '<div class="flow"><span>筋トレ<small>アプリで2秒撮る</small></span>' + icon('next') + '<span>送る<small>自動で「実施した」</small></span>' + icon('next') + '<span>みんな<small>動画・ランキングで見る</small></span></div>' :
         '<ul class="dots"><li>マネージャーが、Setlog などを見て <b>筋トレをした人に「実施した」</b>をつけます</li>' +
         '<li>部員は <b>見るだけ</b>。ログインはいりません（URLを知っていれば見られます）</li>' +
         '<li><b>週' + g + '回以上（月曜〜日曜）がマスト</b>。ホームで「まだの人」、ランキングで回数がわかります</li>' +
         '<li>FWリーダーのメニュー・自己ベスト・称号・体重の変化・応援スタンプ・通知もあります</li></ul>' +
-        '<div class="flow"><span>筋トレ<small>Setlog で撮る</small></span>' + icon('next') + '<span>マネージャー<small>「実施した」を押す</small></span>' + icon('next') + '<span>みんな<small>アプリで見る</small></span></div>'],
+        '<div class="flow"><span>筋トレ<small>Setlog で撮る</small></span>' + icon('next') + '<span>マネージャー<small>「実施した」を押す</small></span>' + icon('next') + '<span>みんな<small>アプリで見る</small></span></div>')],
+      loginAll() ? ['shoot', 'all', '今日の1本を撮る（選手）', '2秒の動画で「実施した」・送れないとき',
+        steps(['筋トレをしたら、ホームの<b>「今日の1本を撮る」</b>か下の<b>「撮る」</b>', '赤いボタンを押すと<b>2秒</b>撮ります（音なし）。日時と<b>今日の数字</b>は自動で入ります', '見返して<b>「送る」</b>（撮り直すときは「撮り直す」）。押すとすぐ、その日は<b>「実施した」</b>になります', 'メーターが「送り終わりました」になれば完了']) +
+        '<ul class="dots"><li><b>iPhone</b>：送り終わるまでアプリを開いたままにしてください（閉じると、次にアプリを開いたときに続きを送ります）</li>' +
+        '<li><b>Android</b>：「待たずに戻る」で閉じても、裏で送ります</li>' +
+        '<li>電波が弱くて送れないと、画面の上に<b>「送れていない動画」</b>が出ます。電波のよいところで<b>「送る」</b>を押すと送り直せます</li>' +
+        '<li>動画は<b>1か月</b>で消えます。みんなの動画は<b>「動画」</b>で見られます</li>' +
+        '<li>スタッフに取り消されると「実施した」が外れます。撮り直すと<b>確認待ち</b>になり、スタッフが確認すると「実施した」に戻ります</li>' +
+        '<li>動画が24時間届かないときも、「実施した」は自動で外れます</li></ul>' +
+        tip('「今日の数字」は毎日変わる数字です。アプリのカメラで、その日に撮ったことがわかるようにしています。')] : null,
+      loginAll() ? ['icon', 'all', '自分のアイコン', '絵文字・写真',
+        steps(['ホームの<b>「わたし」</b>を押して自分のページを開く → <b>「アイコンを決める」</b>', '<b>絵文字</b>と背景の色を選ぶ、または<b>写真</b>（撮る／アルバムから）を選んで、指で動かして丸に合わせる', '<b>「これにする」</b>']) +
+        '<ul class="dots"><li>ランキング・動画・まだの人・部員の一覧などで、名前の横に出ます</li><li>決めていない人は、名前の頭文字が出ます</li>' +
+        '<li>部のみんなが見ます。ふさわしくない写真は、管理者・マネージャーが元に戻すことがあります</li></ul>'] : null,
       ['install', 'all', 'ホーム画面に追加する', 'アプリのように1タップで開ける', helpInstall()],
-      ['self', 'all', '自分の名前を選ぶ', '「わたし」・応援・通知に使う', helpSelf()],
+      loginAll() ? null : ['self', 'all', '自分の名前を選ぶ', '「わたし」・応援・通知に使う', helpSelf()],
       ['push', 'all', '通知を受け取る', '今週あと○回・応援が届いた', helpPush()],
       ['home', 'all', 'ホームの見かた', '赤い板・まだの人・声をかけたい人・最近の達成',
         '<dl class="defs">' +
@@ -2299,13 +2328,13 @@
         '<dt>週' + g + '回（マスト）まだの人</dt><dd>今週まだ届いていない人と、あと何回か。週は<b>月曜〜日曜</b>で、日曜までに' + g + '回以上で達成。<b>けがなどで免除の日</b>がある人は、そのぶん必要な回数が減ります（7日とも免除ならその週は対象外）</dd>' +
         '<dt>声をかけたい人</dt><dd>「連続記録がピンチ」は、先週まで週' + g + '回を2週以上続けていて、今週まだ届いていない人のうち、残りの日数に余裕がなくなってきた人（余裕が2日以下。週の初めは出ません）。スタッフには「落ちてきている人」（先々週・先週と2週続けて届かなかった人。免除の週がある人と、部で記録を始める前の週は入りません）も出ます</dd>' +
         '<dt>ランキング</dt><dd>上位3人の表彰台（ジャージの背番号が順位）。4位から下は「すべて見る」で</dd>' +
-        '<dt>最近の達成</dt><dd>この10日間に週' + g + '回を達成した人・通算○回になった人。「＋応援」から<b>応援スタンプ</b>を送ると、その人に応援が届きます（ログイン不要。設定で自分の名前を選ぶと、だれからかも伝わります）</dd>' +
+        '<dt>最近の達成</dt><dd>この10日間に週' + g + '回を達成した人・通算○回になった人。「＋応援」から<b>応援スタンプ</b>を送ると、その人に応援が届きます' + (loginAll() ? '' : '（ログイン不要。設定で自分の名前を選ぶと、だれからかも伝わります）') + '</dd>' +
         '<dt>くわしい分析</dt><dd>FW対BK・ポジション別・達成率の分布は、ランキングの<b>「分析」</b>にあります</dd></dl>'],
       ['rank', 'all', 'ランキング・カレンダー', '並べ替え・FW／BKで絞る・○×の意味',
         '<ul class="dots"><li>上の <b>全体／FW／BK</b> で絞れます</li>' +
         '<li>表の見出しの<b>「実施回数」「実施率」を押す</b>と並べ替え。<b>実施率</b>はメニュー参加の人だけ（自主トレの人は「－」）</li>' +
         '<li>上の<b>「分析」</b>で、FW対BK・ポジション別（ジャージが濃いほど1人あたりの回数が多い）・達成率の分布・集計のルール</li></ul>' +
-        '<div class="legend-h">' + ['done', 'not', 'today', 'planned', 'ex', 'none'].map((k) => '<span>' + cellHtml(k) + CELL[k][1] + '</span>').join('') + '</div>' +
+        '<div class="legend-h">' + ['done', 'not', 'today', 'planned', 'ex', 'none'].map((k) => '<span>' + cellHtml(k) + cellOf(k)[1] + '</span>').join('') + '</div>' +
         tip('「×（実施していない）」はメニューの対象日に記録がなかった日です。翌日から×になります。')],
       ['member', 'all', '部員のページ', '自己ベスト・称号・体重・届いた応援',
         '<p>ランキングやカレンダーの<b>名前を押す</b>と開きます。</p><ul class="dots">' +
@@ -2313,9 +2342,16 @@
         '<li><b>記録</b>：月ごとのカレンダーと履歴、免除</li>' +
         '<li><b>実績</b>：自己ベスト（通算・いちばん長い連続・いちばん多い月／週）、<b>称号のメダル</b>（全20種。押すと取った日と応援）、届いた応援</li>' +
         '<li><b>体重</b>：体重のグラフ、目標体重、重さの目安（入力はスタッフ）</li></ul>'],
-      ['cheer', 'all', '応援スタンプを送る', '「＋」から9種類。ログインなしでOK',
+      ['cheer', 'all', '応援スタンプを送る', loginAll() ? '「＋」から9種類' : '「＋」から9種類。ログインなしでOK',
         steps(['ホームの<b>「最近の達成」</b>の「＋応援」、または部員ページの<b>称号</b>の下のスタンプを押す', '数字が増えれば送れています。<b>もう一度押すと取り消し</b>', '相手が通知をオンにしていれば、1時間以内に「応援が届きました」が届きます']) +
-        tip('自分の名前を選んでおくと「○○さんから」と伝わります。自分あてのスタンプは押せません。')],
+        tip((loginAll() ? 'ログインした人の名前で「○○さんから」と伝わります（見るだけの人は名前なし）。' : '自分の名前を選んでおくと「○○さんから」と伝わります。') + '自分あてのスタンプは押せません。')],
+      loginAll() ? ['new', 'all', '新しくなったところ', '動画で記録・全員ログイン・アイコン',
+        '<ul class="dots"><li><b>動画で「実施した」</b>：選手は筋トレをしたらアプリで2秒の動画を送ります。送るとその日は「実施した」になります（マネージャーが押さなくてよくなりました）</li>' +
+        '<li><b>全員ログイン</b>：自分の名前と暗証番号で登録して使います。ログインした本人が「わたし」です</li>' +
+        '<li><b>みんなの動画</b>：「動画」でその日の動画が見られます。応援スタンプ・「気になる」も押せます</li>' +
+        '<li><b>アイコン</b>：自分のページで、絵文字か写真のアイコンを決められます</li>' +
+        '<li><b>見るだけの人</b>：監督・コーチ・OB などは「見るだけ」でログインできます</li>' +
+        '<li>フォームの動画・やり方とポイント・応援スタンプ・画面の案内は、これまでどおり使えます</li></ul>'] :
       ['new', 'all', '新しくなったところ', '画面の案内・フォーム動画・やり方とポイント',
         '<ul class="dots"><li><b>画面で案内</b>：実際の画面の上で、場所を光らせて使い方を案内します。この「使い方ガイド」の上の<b>「画面で案内を見る」</b>から、立場ごとに見られます</li>' +
         '<li><b>フォームの動画</b>：メニューの種目の横の<b>「フォーム」</b>で、アプリの中で動画が流れます。「メニュー」→<b>「種目の動画」</b>で部位別にも探せます</li>' +
@@ -2325,27 +2361,39 @@
         '<li>ホームの<b>「最近の達成」</b>の<b>「＋応援」</b>から、スタンプで応援できます</li>' +
         '<li>「こうしてほしい」「おかしい」は、<b>設定 → 要望・不具合を送る</b>から</li></ul>'],
       ['view', 'all', '見やすくする', '文字の大きさ・ダークモード',
-        '<p>「設定」→「自分の名前・見やすさ」で変えられます（この端末だけ）。</p><ul class="dots"><li><b>文字の大きさ</b>：小・標準・大・特大</li><li><b>画面の明るさ</b>：ライト（はじめはこれ）・ダーク・スマホに合わせる</li></ul>' +
+        '<p>「設定」→「' + (loginAll() ? '' : '自分の名前・') + '見やすさ」で変えられます（この端末だけ）。</p><ul class="dots"><li><b>文字の大きさ</b>：小・標準・大・特大</li><li><b>画面の明るさ</b>：ライト（はじめはこれ）・ダーク・スマホに合わせる</li></ul>' +
         '<div class="toolbar">' + goBtn('#settings', '設定を開く') + '</div>'],
       ['exempt', 'all', 'けが・病気で休むとき', '免除してもらう',
         '<p>けが・病気・就活などで筋トレできない期間は、<b>マネージャーに伝えてください</b>。「免除」に登録されると、その日数ぶん週' + g + '回の必要回数が減り、メニューの×にもなりません。</p>' +
         tip('免除の理由やメモは、スタッフにしか見えません（みんなの画面には「免除」とだけ出ます）。')],
       ['faq', 'all', 'よくある質問', '記録がちがう・数え方・古いまま',
         '<dl class="defs"><dt>自分の記録がちがう</dt><dd>マネージャーに伝えてください（取り消しや追加ができます）</dd>' +
+        (loginAll() ? '<dt>動画を送ったのに「実施した」にならない</dt><dd>画面の上に「送れていない動画」が出ていれば<b>「送る」</b>。取り消された日に撮り直した動画は、スタッフが確認するまで<b>確認待ち</b>です</dd>' +
+          '<dt>動画が取り消された</dt><dd>通知かホームに理由が出ます。その日のうちなら撮り直せます（確認待ちになります）</dd>' +
+          '<dt>暗証番号を忘れた</dt><dd>選手は管理者に「登録を消して」と伝えると、もう一度登録できます</dd>' : '') +
         '<dt>週' + g + '回の「週」はいつから？</dt><dd>月曜〜日曜です。月曜にその週の回数が0に戻ります</dd>' +
         '<dt>自主トレの人の実施率が「－」</dt><dd>実施率はFWリーダーのメニューに参加している人だけ。自主トレの人は回数で見ます</dd>' +
         '<dt>情報が古いまま</dt><dd>画面を<b>一番上で下に引っぱる</b>と最新になります。ホーム画面版で「新しい版があります」が出たら「更新する」</dd>' +
-        '<dt>機種変更した</dt><dd>新しいスマホで開き直し、自分の名前・通知・ホーム画面への追加をもう一度</dd></dl>'],
+        '<dt>機種変更した</dt><dd>新しいスマホで開き直し、' + (loginAll() ? 'ログイン' : '自分の名前') + '・通知・ホーム画面への追加をもう一度</dd></dl>'],
       // スタッフ
+      loginAll() ? ['login', 'all', 'ログイン・暗証番号', 'はじめての登録・忘れたとき',
+        steps(['アプリを開くと<b>ログインの画面</b>。名前の一覧から<b>自分</b>を選ぶ', 'はじめての人は、自分だけの<b>暗証番号</b>（半角6文字以上）を決めて<b>「登録してはじめる」</b>。2回目からはその暗証番号でログイン', 'スタッフ（管理者・マネージャー・FWリーダー）と見るだけの人は、管理者からもらった暗証番号でログインし、最初に自分の暗証番号に変える']) +
+        '<ul class="dots"><li>アプリを開くたびに、ログインの期限が<b>半年</b>のびます</li>' +
+        '<li>忘れたとき：選手は管理者に<b>「登録を消して」</b>と伝える → もう一度登録できます。スタッフはログイン画面の<b>「出し直しを頼む」</b></li>' +
+        '<li>5回まちがえると15分ログインできません</li><li>ほかの人の名前で登録しないでください（管理者が消します）</li>' +
+        '<li>iPhone は、ホーム画面に追加したアプリと Safari でログインが別です</li></ul>'] :
       ['login', 'staff', 'ログインする', '暗証番号・忘れたとき',
         steps(['「設定」→ <b>「ログイン」</b>', '自分の名前を選び、<b>暗証番号</b>を入れる（最初は管理者からもらった番号）', '最初のログインでは、<b>自分だけの暗証番号（半角6文字以上）</b>に変える']) +
         '<ul class="dots"><li>忘れたとき：ログイン画面の<b>「暗証番号を忘れたとき」</b>→ 名前を選んで依頼 → 管理者が新しい番号を出してくれます</li>' +
         '<li>5回まちがえると15分ログインできません</li><li>なくしたスマホは「設定」→「ログインしている端末」からログアウトできます</li></ul>'],
+      loginAll() ? ['clipcheck', 'manager', '動画を確認する', '確認待ち・気になる・取り消す',
+        steps(['「動画」の <b>「確認」</b>（数字は確認が要る本数。ホームにも出ます）', '<b>確認待ち</b>（取り消された日に撮り直した動画）は、見て<b>「確認して「実施した」に」</b>', '部員が<b>「気になる」</b>を押した動画は、見て<b>「問題なし」</b>か<b>「取り消す」</b>（理由は本人に届きます）']) +
+        '<ul class="dots"><li>取り消すと、その日の「実施した」が外れます</li><li>動画が24時間届かなかった日は、自動で取り消されます</li></ul>'] : null,
       ['record', 'manager', '実施記録をつける', '押すだけ・まとめて・確認して保存',
         steps(['下の <b>「記録」</b> を開く（日付は今日。' + kbd('‹') + ' で前の日にもつけられます）', 'やった人の <b>「実施した」</b> を押す（もう一度押すと戻る）', '<b>「保存する」</b>→ 内容を確かめて <b>「この内容で保存」</b>']) +
         '<ul class="dots"><li>押していない人は「実施していない」になります（メニューの対象日だけ。翌日から）</li>' +
         '<li>並び順：ポジション・学年・名前・<b>最近やった順</b>（よくやる人が上）</li>' +
-        '<li>ほかのマネージャーがつけた記録は鍵マーク（変えるのは管理者）</li></ul>'],
+        '<li>ほかのマネージャーがつけた記録は鍵マーク（変えるのは管理者）</li>' + (loginAll() ? '<li>動画を送った人は自動で「実施した」になっています（<b>動画</b>の印）。ここでは、動画を送れなかった人の分などをつけます。動画の「実施した」を外すときは、動画を取り消します</li>' : '') + '</ul>'],
       ['week', 'manager', '1週間まとめて記録・修正', '表で7日分を一度に',
         steps(['「記録」の画面の <b>' + icon('more') + 'その他</b> →<b>「1週間まとめて記録」</b>', '部員×7日の表のマスを押すと「実施した」⇔「なし」が切り替わる（青い枠は未保存）', '<b>保存する</b>。週' + g + '回に届いた人がいると紙吹雪が出ます']) +
         tip('記録し忘れた日をあとからまとめて入れるときに便利です。左右の矢印で前の週に移れます。')],
@@ -2371,18 +2419,22 @@
         steps(['「メニュー」→ <b>「型」</b>→ <b>「型を作る」</b>（今あるメニューの「型にする」からも）', '<b>繰り返す曜日</b>を選ぶ → 4週間先まで自動で作られます（先の分は毎日、自動で足されます）', '型を直すと、手で直していない今日以降の分もそろいます']) +
         '<ul class="dots"><li>曜日を選ばなければ、作るときに「型から作る」で選ぶだけの型になります</li><li>1回だけ別の日にしたいとき：メニューを開いて <b>「別の日にコピー」</b></li></ul>'],
       ['selfrec', 'leader', '自主トレのおすすめ', '型に印を付けて、みんなに見せる',
-        steps(['メニュー → <b>型</b> で型を作る（または開いて編集）', '<b>「自主トレのおすすめとして、部員みんなに見せる」</b>に印を付けて保存', 'メニュー画面の上に、横に並んで出ます（ログインしていない部員にも見えます）'])],
+        steps(['メニュー → <b>型</b> で型を作る（または開いて編集）', '<b>「自主トレのおすすめとして、部員みんなに見せる」</b>に印を付けて保存', 'メニュー画面の上に、横に並んで出ます' + (loginAll() ? '（部員みんなに見えます）' : '（ログインしていない部員にも見えます）') + ''])],
       ['archive', 'leader', 'FWリーダーの引き継ぎ', 'これまでのメニューを全部見る',
         steps(['「メニュー」→ <b>「これまでのメニュー一覧（引き継ぎ）」</b>', '種目名で探す・作った人で絞る。いいメニューは <b>「型にする」</b>', '<b>「表（CSV）で保存」</b>で、Excel やスプレッドシートに残せます'])],
       ['members', 'admin', '部員の管理', '追加・まとめて編集・進級',
         '<ul class="dots"><li><b>まとめて編集</b>：ポジション（メイン・サブ）と取り組み方を一度に</li><li><b>一覧を貼り付け</b>：「名前, PR, 参加」の形で何人でも</li>' +
         '<li><b>進級</b>：新年度に1回。1年→2年…、4年・M2は卒業／進学／そのままを選ぶ（留年は「そのまま」）</li><li>名簿は会計アプリと共通です</li></ul>'],
+      loginAll() ? ['regs', 'admin', '部員の登録・見るだけの人', 'だれが登録したか・登録を消す・監督やOB',
+        '<ul class="dots"><li>「設定」→ <b>「部員の登録」</b>：だれがいつ登録したか。本人ではない登録や、暗証番号を忘れた人は<b>「登録を消す」</b>→ 本人がもう一度登録できます</li>' +
+        '<li>「設定」→ <b>「見るだけの人」</b>：監督・コーチ・OB などを追加すると、最初の暗証番号が出ます。本人に直接伝えてください</li>' +
+        '<li>アイコンがふさわしくないときは、その人のページで<b>「アイコンを元に戻す」</b></li></ul>'] : null,
       ['roles', 'admin', '役職の交代・暗証番号', '新年度のFWリーダー・マネージャー',
-        steps(['「設定」→ <b>「役職をまとめて付け替え」</b>', '新しいFWリーダー・マネージャーを選んで保存 → <b>最初の暗証番号</b>がまとめて出るので本人に伝える']) +
+        steps(['「設定」→ <b>「役職をまとめて付け替え」</b>', '新しいFWリーダー・マネージャーを選んで保存 → <b>最初の暗証番号</b>がまとめて出るので本人に伝える' + (loginAll() ? '（もう自分で登録している人は、今の暗証番号のまま。一般部員に戻した人は、自分でもう一度登録します）' : '')]) +
         '<ul class="dots"><li>暗証番号の<b>再発行の依頼</b>はホームと設定に出ます →「発行」</li><li>通知の「暗証番号の再発行の依頼」をオンにすると、スマホにも届きます</li></ul>'],
-      ['settings', 'admin', '部のルールの設定', '週の目標回数・オフ期間・合言葉',
+      ['settings', 'admin', '部のルールの設定', loginAll() ? '週の目標回数・オフ期間' : '週の目標回数・オフ期間・合言葉',
         '<ul class="dots"><li><b>週の目標回数</b>：いまは週' + g + '回（1〜7回）</li><li><b>部全体のオフ期間</b>：試験期間・合宿など、全員の目標をなしに</li>' +
-        '<li><b>閲覧の合言葉</b>：設定すると、知っている人だけ見られる</li><li><b>操作履歴</b>：だれが・いつ・何を変えたか</li></ul>']
+        (loginAll() ? '' : '<li><b>閲覧の合言葉</b>：設定すると、知っている人だけ見られる</li>') + '<li><b>操作履歴</b>：だれが・いつ・何を変えたか</li></ul>']
     ];
   }
   /** 使い方ガイドの上：その立場の「画面で案内」 */
@@ -2390,22 +2442,25 @@
     const key = role === 'all' ? 'all' : role, t = TOURS[key];
     if (!t) return '';
     const ok = !t.perm || can(t.perm);
-    const what = { all: 'ホーム・ランキング・メニューとフォーム動画・応援・要望の送り方', manager: '記録のつけ方・1週間まとめて・免除・LINEで知らせる', leader: 'メニューの作り方・型・種目の動画の登録', admin: '部員・役職の付け替え・要望・部のルール・操作履歴' }[key];
+    const what = (loginAll()
+      ? { all: 'ホーム・今日の動画・ランキング・メニューとフォーム動画・応援・要望の送り方', manager: '動画の確認・記録のつけ方・1週間まとめて・免除・LINEで知らせる', leader: 'メニューの作り方・型・種目の動画の登録', admin: '部員・部員の登録・見るだけの人・役職の付け替え・要望・部のルール・操作履歴' }
+      : { all: 'ホーム・ランキング・メニューとフォーム動画・応援・要望の送り方', manager: '記録のつけ方・1週間まとめて・免除・LINEで知らせる', leader: 'メニューの作り方・型・種目の動画の登録', admin: '部員・役職の付け替え・要望・部のルール・操作履歴' })[key];
     return '<div class="tourcard"><span class="tourcard-i" aria-hidden="true">' + icon('play') + '</span><span class="tourcard-t"><b>画面で案内を見る（1分）</b><small>' + what + '</small></span>' +
       (ok ? '<button class="btn small primary" data-act="tour-start" data-v="' + key + '">はじめる</button>' : '<span class="tourcard-n">' + t.name + 'でログインすると見られます</span>') + '</div>';
   }
   function vHelp() {
-    if (!S.helpRole) { const m = me(); S.helpRole = m ? (m.perm === 'admin' ? 'admin' : m.perm) : 'all'; }
+    if (!S.helpRole) { const m = me(); S.helpRole = m && HELP_ROLES.some((x) => x[0] === m.perm) ? m.perm : 'all'; } // 選手・見るだけの人は「みんな」
     const role = S.helpRole, open = S.route.arg || '';
     const show = (r) => role === 'all' ? r === 'all' : (r === role || r === 'staff' || (role === 'admin' && r !== 'all'));
     let h = '<div class="sub-h"><a class="ibtn" href="#settings" data-act="go-back" aria-label="戻る">' + icon('back') + '</a><h1>使い方ガイド</h1></div>' +
       '<div class="fbar"><div class="seg small help-seg" role="group" aria-label="だれ向け">' + HELP_ROLES.map((x) => '<button data-act="help-role" data-v="' + x[0] + '" aria-pressed="' + (role === x[0]) + '">' + x[1] + '</button>').join('') + '</div></div>' +
+      (loginAll() ? '' : // 40秒の動画は名前を選ぶ前の版なので、全員ログイン版では出さない（作り直すまで）
       '<button class="howvid" data-act="video-open" aria-label="40秒でわかる使い方の動画を全画面で再生"><span class="hv-thumb"><img src="media/howto.jpg?v=3" alt="" width="132" height="235"><span class="hv-play" aria-hidden="true">' + icon('play') + '</span></span>' +
-      '<span class="howvid-t"><b>40秒でわかる使い方</b><small>ホーム・ランキング・自分の名前・応援・フォーム動画・要望の送り方（音はありません）</small><span class="hv-go">' + icon('play') + '全画面で見る</span></span></button>' +
+      '<span class="howvid-t"><b>40秒でわかる使い方</b><small>ホーム・ランキング・自分の名前・応援・フォーム動画・要望の送り方（音はありません）</small><span class="hv-go">' + icon('play') + '全画面で見る</span></span></button>') +
       (role === 'all' ? '<p class="note is-top">知りたいところを押すと開きます。マネージャー・FWリーダー・管理者の使い方は、上で切り替えてください。</p>' : '<p class="note is-top">ログインしてできることです。みんな向けの使い方は「みんな」にあります。</p>') +
       tourCard(role) +
       '<div class="help">';
-    helpSections().filter((x) => show(x[1])).forEach((x, i) => {
+    helpSections().filter((x) => x && show(x[1])).forEach((x, i) => {
       h += '<details class="hsec" id="h-' + x[0] + '"' + (open === x[0] ? ' open' : '') + '><summary><span class="hnum">' + (i + 1) + '</span><span class="ht"><b>' + x[2] + '</b><small>' + x[3] + '</small></span></summary><div class="hb">' + x[4] + '</div></details>';
     });
     h += '</div><div class="toolbar center"><button class="btn" data-act="guide">はじめの紹介をもう一度見る</button></div>';
@@ -2504,6 +2559,18 @@
     { t: '通知を受け取る', i: 'bell', p: () => (isIOS() && !isStandalone()) ? 'iPhone は、<b>ホーム画面に追加したアプリ</b>から設定すると、「今週あと○回」「応援が届いた」が通知で届きます。' : '「今週あと○回」（土曜18時・日曜9時）と「応援が届いた」を、スマホに通知できます。', x: 'push' },
     { t: '見やすく・くわしく', i: 'gear', p: () => '文字の大きさと明るさは、いつでも「設定」で変えられます。わからないときは、上の ' + kbd('?') + ' の<b>「使い方ガイド」</b>を見てください。マネージャー・FWリーダーの使い方もあります。', x: 'view' }
   ];
+  // 全員ログイン（setlog）：ログインした本人が「わたし」なので名前は選ばない。代わりに「今日の1本」を紹介する
+  function guideList() {
+    if (!loginAll()) return GUIDE;
+    const pl = !!mePlayer();
+    return GUIDE.map((g) => {
+      if (g.x === 'self') return { t: pl ? '今日の1本を撮る' : '選手の動画を見る', i: 'cam', tour: g.tour, p: () => pl
+        ? '筋トレをしたら、下の<b>「撮る」</b>で<b>2秒の動画</b>を撮って送ります。日時と今日の数字は自動で入り、送るとその日は<b>「実施した」</b>になります。ホームの<b>「わたし」</b>に、今週あと何回かが出ます。'
+        : '選手は、筋トレをしたらアプリで<b>2秒の動画</b>を撮って送ります。送るとその日は<b>「実施した」</b>になります。動画は<b>「動画」</b>で見られ、応援スタンプも押せます。' };
+      if (g.i === 'home' && /ようこそ/.test(g.t)) return Object.assign({}, g, { p: () => '部員みんなの筋トレの記録と、毎日の<b>2秒の動画</b>を見るアプリです。<b>月曜〜日曜に週{g}回以上</b>がマストです。<br>このあと、<b>実際の画面を見ながら</b>使い方を案内します（1分）。' });
+      return g;
+    });
+  }
   let guideStep = 0;
   function guideExtra(x) {
     if (x === 'self') {
@@ -2529,15 +2596,16 @@
     return '';
   }
   function openGuide(step) {
-    guideStep = Math.max(0, Math.min(GUIDE.length - 1, step || 0));
-    const g = GUIDE[guideStep], last = guideStep === GUIDE.length - 1;
+    const GL = guideList();
+    guideStep = Math.max(0, Math.min(GL.length - 1, step || 0));
+    const g = GL[guideStep], last = guideStep === GL.length - 1;
     const sub = (t) => t.replace(/\{g\}/g, goal());
     $('#guide-root').innerHTML = '<div class="guide-bg"></div><section class="guide" role="dialog" aria-modal="true" aria-label="使い方の紹介">' +
       '<div class="guide-i" aria-hidden="true">' + icon(g.i) + '</div><h2>' + esc(sub(g.t)) + '</h2><p>' + sub(g.p()) + '</p>' + guideExtra(g.x) +
-      '<div class="guide-dots" aria-hidden="true">' + GUIDE.map((x, i) => '<i class="' + (i === guideStep ? 'on' : '') + '"></i>').join('') + '</div>' +
+      '<div class="guide-dots" aria-hidden="true">' + GL.map((x, i) => '<i class="' + (i === guideStep ? 'on' : '') + '"></i>').join('') + '</div>' +
       '<div class="actions">' + (guideStep ? '<button class="btn" data-act="guide-prev">戻る</button>' : '<button class="btn" data-act="guide-close">スキップ</button>') +
       '<button class="btn primary" data-act="' + (last ? 'guide-close' : 'guide-next') + '" autofocus>' + (last ? 'はじめる' : g.tour ? '画面で案内を見る' : '次へ') + '</button></div>' +
-      '<p class="guide-n">' + (guideStep + 1) + ' / ' + GUIDE.length + (guideStep ? '・<button class="linkbtn inline" data-act="guide-close">閉じる</button>' : '') + '</p></section>';
+      '<p class="guide-n">' + (guideStep + 1) + ' / ' + GL.length + (guideStep ? '・<button class="linkbtn inline" data-act="guide-close">閉じる</button>' : '') + '</p></section>';
     document.body.classList.add('sheet-open');
     const b = $('#guide-root [autofocus]'); if (b) b.focus();
   }
@@ -2553,21 +2621,23 @@
       { r: 'home', sel: '.pbar', t: '週と月を切り替える', p: '<b>週間</b>・<b>月間</b>を切り替えられます。矢印で前の週・前の月も見られます。' },
       { r: 'home', sel: '.board', t: '部全体の数字', p: '部全体の実施回数と、<b>週{g}回（マスト）</b>を達成した人の割合です。前の週と比べた増減も出ます。' },
       { r: 'home', sel: '.selfcard', t: 'わたし', p: '自分の今週の回数と、<b>あと何回で達成</b>かが出ます。押すと自分のページ（自己ベスト・称号・体重の変化）。' },
+      { r: 'home', sel: '.home-clips', login: 1, t: '今日の動画', p: '筋トレをしたら<b>「今日の1本を撮る」</b>（または下の<b>「撮る」</b>）で2秒の動画を送ります。送るとその日は<b>「実施した」</b>になります。みんなの動画もここで見られます。' },
       { r: 'home', sel: '.todaycard', t: '今日のメニュー', p: 'FWリーダーが出した今日のメニューです。押すと内容と、種目ごとの<b>フォームの動画</b>が見られます。' },
       { r: 'home', sel: '.block.goal', t: 'まだの人', p: '今週まだ週{g}回に届いていない人です。名前を押すと、その人のページが開きます。' },
       { r: 'home', sel: '.block.voice', t: '声をかけたい人', p: '連続達成がピンチの人や、最近ペースが落ちている人です。声をかけるきっかけにしてください。' },
       { r: 'home', sel: ['.view-home .podium', '.view-home .rlist'], t: 'ランキング', p: 'この期間の実施回数の上位です。「すべて見る」で全員の順位が見られます。' },
-      { r: 'home', sel: '.block.feed', t: '最近の達成・応援スタンプ', p: '週{g}回の達成や通算回数の節目が出ます。<b>「＋応援」からスタンプを押すと応援が届きます</b>（自分の名前を選んでおくと、だれからか伝わります）。' },
+      { r: 'home', sel: '.block.feed', t: '最近の達成・応援スタンプ', p: () => '週{g}回の達成や通算回数の節目が出ます。<b>「＋応援」からスタンプを押すと応援が届きます</b>' + (loginAll() ? '（あなたの名前で届きます）。' : '（自分の名前を選んでおくと、だれからか伝わります）。') },
       { r: 'rank', prep: () => { S.rankTab = 'list'; }, sel: segOf('[data-act="rank-tab"]'), t: 'ランキングと分析', p: '<b>順位</b>のほかに、<b>分析</b>で FW対BK・ポジション別・達成率の分布が見られます。' },
       { r: 'cal', sel: ['.matrix', '.view-cal .empty'], t: 'カレンダー', p: '日ごとに、だれが筋トレをしたかが一覧で見られます。' },
       { r: 'menus', prep: () => { S.menuTab = 'upcoming'; }, sel: ['.menus .exbtn', '.menus > *:first-child', '.view-menus .empty'], t: 'メニューとフォーム動画', p: 'これからのメニューです。種目の横の<b>「フォーム」</b>を押すと、アプリの中で正しいフォームの動画が流れます。' },
       { r: 'menus', prep: () => { S.menuTab = 'exercises'; S.exPart = ''; }, sel: '.exparts-bar', t: '種目の動画', p: '「種目の動画」では、登録された種目を<b>部位</b>（胸・背中・脚など）で探せます。' },
       { r: 'menus', prep: () => { S.menuTab = 'exercises'; }, sel: () => { const b = $('.exlib [data-act="ex-open"]'); return b ? b.closest('li') || b : null; }, t: 'やり方とポイント', p: '種目を押すと、<b>フォームの動画</b>と<b>やり方・ポイント</b>が見られます。▶ ならすぐ再生します。' },
-      { r: 'home', sel: '.top-help', t: '使い方ガイド', p: 'わからないときはここ。<b>40秒の動画</b>と、立場ごとの使い方があります。この案内ももう一度見られます。' },
-      { r: 'settings', sel: '[data-act="fb-open"]', t: '要望・不具合を送る', p: '「こうしてほしい」「ここがおかしい」は、ここから管理者に送れます。<b>ログインはいりません</b>。' }
+      { r: 'home', sel: '.top-help', t: '使い方ガイド', p: () => 'わからないときはここ。' + (loginAll() ? '' : '<b>40秒の動画</b>と、') + '立場ごとの使い方があります。この案内ももう一度見られます。' },
+      { r: 'settings', sel: '[data-act="fb-open"]', t: '要望・不具合を送る', p: () => '「こうしてほしい」「ここがおかしい」は、ここから管理者に送れます。' + (loginAll() ? '' : '<b>ログインはいりません</b>。') }
     ] },
     manager: { name: 'マネージャー', perm: 'record', steps: [
-      { r: 'home', sel: '.nav a.rec', t: '記録をつける', p: '記録はここから。マネージャーと管理者にだけ出ます。' },
+      { r: 'clips', arg: () => 'queue', login: 1, sel: '.view-clips .seg', t: '動画の確認', p: '取り消された日に撮り直した<b>確認待ち</b>と、部員が<b>「気になる」</b>を押した動画はここ。見て「問題なし」か「取り消す」を押します。' },
+      { r: 'home', sel: ['.nav a.rec', '.nav a[href="#record"]'], t: '記録をつける', p: () => '記録はここから。マネージャーと管理者にだけ出ます。' + (loginAll() ? '動画を送った人は自動で「実施した」なので、ここは<b>動画を送れなかった人の分</b>などです。' : '') },
       { r: 'record', sel: '.rec-date', t: '記録する日', p: 'ふだんは<b>今日</b>。矢印や日付を押すと、前の日の分もつけられます。' },
       { r: 'record', sel: '.rec-menus', t: 'その日のメニュー', p: 'その日のFWリーダーメニューです。対象の人が上にまとまって出ます。' },
       { r: 'record', sel: '.rec-list .rec-btn', t: '「実施した」を押すだけ', p: 'やった人の<b>「実施した」</b>を押します。もう一度押すと取り消せます。押していない対象者は「実施していない」になります。' },
@@ -2591,15 +2661,17 @@
       { r: 'settings', sel: '.links a[href="#members"]', t: '部員', p: '部員の追加・編集・権限。ポジションや取り組み方は<b>「まとめて編集」</b>が便利です。' },
       { r: 'members', sel: '[data-act="bulk-open"]', t: 'まとめて編集', p: '学年・ポジション・取り組み方を、表でまとめて直せます。' },
       { r: 'settings', sel: '[data-act="perms-open"]', t: '役職の付け替え', p: '新年度のFWリーダー・マネージャーの交代はここ。新しい人の<b>暗証番号</b>もまとめて発行します。' },
+      { r: 'settings', sel: '[data-act="regs-open"]', login: 1, t: '部員の登録', p: 'だれがいつ登録したか。本人ではない登録や、暗証番号を忘れた選手は<b>「登録を消す」</b>→ 本人がもう一度登録できます。' },
+      { r: 'settings', sel: '[data-act="guests-open"]', login: 1, t: '見るだけの人', p: '監督・コーチ・OB などを追加すると、<b>最初の暗証番号</b>が出ます。本人に直接伝えてください。' },
       { r: 'settings', sel: '[data-act="trash-open"]', t: '取り消した記録', p: 'まちがえて取り消した「実施した」を戻せます。' },
       { r: 'settings', sel: '.links a[href="#feedback"]', t: '届いた要望・不具合', p: '部員から届いた要望です。対応したら<b>「対応済み」</b>に。' },
-      { r: 'settings', sel: '[data-act="goal-open"]', t: '部のルール', p: '<b>週の目標回数</b>、試験や合宿の<b>オフ期間</b>、重さの目安、閲覧の合言葉はこの下で設定します。' },
+      { r: 'settings', sel: '[data-act="goal-open"]', t: '部のルール', p: () => '<b>週の目標回数</b>、試験や合宿の<b>オフ期間</b>、重さの目安' + (loginAll() ? '' : '、閲覧の合言葉') + 'はこの下で設定します。' },
       { r: 'settings', sel: '.links a[href="#logs"]', t: '操作履歴', p: 'だれが・いつ・何を変えたかが残ります。画面のエラーも自動で記録されます。' }
     ] }
   };
   const TOUR_FOR = { manager: 'manager', leader: 'leader', admin: 'admin' };
   let TOUR = null;
-  function tourSteps(key) { return (TOURS[key] && TOURS[key].steps) || []; }
+  function tourSteps(key) { return ((TOURS[key] && TOURS[key].steps) || []).filter((st) => !st.login || loginAll()); }
   function tourFind(st) {
     const list = typeof st.sel === 'function' ? [st.sel()] : [].concat(st.sel).map((q) => $(q));
     return list.find((el) => el && el.getClientRects().length) || null;
@@ -2634,7 +2706,7 @@
     if (!el) { if (i + dir < 0) { tourGo(i + 1, 1); return; } tourGo(i + dir, dir); return; }
     TOUR.el = el;
     const fixed = (() => { for (let n = el; n && n !== document.body; n = n.parentElement) { const p = getComputedStyle(n).position; if (p === 'fixed' || p === 'sticky') return true; } return false; })();
-    const total = steps.length, sub = (t) => t.replace(/\{g\}/g, goal());
+    const total = steps.length, sub = (t) => (typeof t === 'function' ? t() : String(t || '')).replace(/\{g\}/g, goal()); // 文が版で変わるものは関数
     $('.tour-tip').innerHTML = '<p class="tour-k">' + esc(TOURS[TOUR.key].name) + 'の使い方<span>' + (i + 1) + ' / ' + total + '</span></p>' +
       '<h2>' + esc(sub(st.t)) + '</h2><p>' + sub(st.p) + '</p>' +
       '<div class="tour-acts"><button class="linkbtn" data-act="tour-close">閉じる</button><span></span>' +
@@ -2801,6 +2873,7 @@
 
   // ---------- ログイン・暗証番号 ----------
   function openLogin() {
+    if (loginAll()) { closeSheet(); render(); return; } // 全員ログイン版のログインは、最初の画面（名前を選んで暗証番号）だけ
     const staff = (S.data && S.data.staff) || [];
     if (!staff.length) {
       openSheet('ログイン', '<p class="lead-line small">ログインできる人がまだいません。スプレッドシートのメニュー「筋トレ管理」→「管理者を登録」を実行してください。</p>');
@@ -2845,7 +2918,7 @@
       '<fieldset><legend>取り組み方</legend><div class="radios">' + radio('mode', 'leader', 'メニュー参加', v.mode) + radio('mode', 'self', '自主トレ', v.mode) + '</div>' +
       '<p class="hint">ポジションと取り組み方の変更は今日から反映され、昨日までの記録や集計は変わりません。</p></fieldset>' +
       '<label>筋トレアプリの権限<select name="perm">' + ['member', 'manager', 'leader', 'admin'].map((r) => '<option value="' + r + '"' + (v.perm === r ? ' selected' : '') + '>' + PERM[r] + '</option>').join('') + '</select></label>' +
-      '<p class="hint">一般部員は見るだけ（ログインなし）。マネージャーは実施記録、FWリーダーはメニュー、管理者はすべてを操作できます。</p>' +
+      '<p class="hint">' + (loginAll() ? '一般部員は自分で登録してログインし、動画を送ります。' : '一般部員は見るだけ（ログインなし）。') + 'マネージャーは実施記録' + (loginAll() ? 'と動画の確認' : '') + '、FWリーダーはメニュー、管理者はすべてを操作できます。</p>' +
       '<details class="adv"><summary>くわしい設定</summary><label>記録の開始日<span class="opt">任意</span><input type="date" name="start" value="' + esc(v.start || '') + '"></label><p class="hint">入れると、この日より前は記録の対象になりません（途中入部など）。</p></details>' +
       '<p class="form-err" hidden></p>' +
       '<div class="actions"><button type="button" class="btn" data-act="sheet-close">やめる</button><button class="btn primary" type="submit">' + (m ? '変更を保存' : '部員を追加') + '</button></div>' +
@@ -2995,7 +3068,9 @@
     const r = S.route.name, m = me();
     const navOn = r === 'member' ? 'members' : (r === 'logs' || r === 'help' || r === 'feedback') ? 'settings' : r === 'archive' ? 'menus' : r;
     const shoot = loginAll() && mePlayer();
-    const items = shoot ? NAV.map((n) => (n[0] === 'record' ? ['shoot', '撮る', 'cam'] : n)) : NAV.filter((n) => n[0] !== 'record' || can('record'));
+    // 選手は真ん中が「撮る」。記録もつける人（選手でもある管理者・マネージャー）は「記録」も残す（「撮る」を真ん中に）
+    const items = shoot ? (can('record') ? NAV.slice(0, 2).concat([['record', '記録', 'check'], ['shoot', '撮る', 'cam']], NAV.slice(3)) : NAV.map((n) => (n[0] === 'record' ? ['shoot', '撮る', 'cam'] : n)))
+      : NAV.filter((n) => n[0] !== 'record' || can('record'));
     return '<header class="top"><a class="brand" href="#home" aria-label="ホーム"><img class="mark" src="crest.webp?v=1" alt="" width="30" height="32"><span class="brand-t"><b>KURFC</b>筋トレ</span></a>' +
       '<span class="top-title"><span>' + (TITLE[r] || '') + '</span></span>' +
       '<a class="top-help' + (r === 'help' ? ' on' : '') + '" href="#help" aria-label="使い方ガイド">' + icon('help') + '</a>' +
@@ -3003,7 +3078,7 @@
       '<div class="hoops" aria-hidden="true"></div>' +
       '<nav class="nav n' + items.length + '" aria-label="メニュー">' + items.map((n) =>
         (n[0] === 'shoot' ? '<button class="rec shoot" data-act="cam-open" aria-label="動画を撮る">' + icon(n[2]) + '<span>' + n[1] + '</span></button>' :
-        '<a href="#' + n[0] + '" class="' + (navOn === n[0] ? 'on' : '') + (n[0] === 'record' ? ' rec' : '') + '"' + (navOn === n[0] ? ' aria-current="page"' : '') + '>' + (navOn === n[0] ? '<i class="nav-ind" aria-hidden="true"></i>' : '') + icon(n[2]) + '<span>' + n[1] + '</span></a>')).join('') +
+        '<a href="#' + n[0] + '" class="' + (navOn === n[0] ? 'on' : '') + (n[0] === 'record' && !shoot ? ' rec' : '') + '"' + (navOn === n[0] ? ' aria-current="page"' : '') + '>' + (navOn === n[0] ? '<i class="nav-ind" aria-hidden="true"></i>' : '') + icon(n[2]) + '<span>' + n[1] + '</span></a>')).join('') +
       '<a href="#settings" class="nav-set ' + (navOn === 'settings' ? 'on' : '') + '">' + (navOn === 'settings' ? '<i class="nav-ind" aria-hidden="true"></i>' : '') + icon('gear') + '<span>設定</span></a></nav>' +
       (S.stale && S.loading ? '<div class="refreshing" role="status"><span class="rf-bar" aria-hidden="true"></span><span class="rf-t">' + (S.data && S.data.savedAt ? '前回 ' + savedLabel(S.data.savedAt) + ' の情報・' : '') + '更新中…</span></div>' : '') +
       '<main class="main view-' + r + '" id="main">' +
@@ -3081,6 +3156,8 @@
   // ======================= setlog（v3・テスト環境だけ）：全員ログイン・アプリの中で撮る2秒の動画 =======================
   const gated = () => !!(S.data && (S.data.locked || S.data.needLogin));
   const loginAll = () => !!(S.data && (S.data.loginAll || S.data.needLogin));
+  /** その日、その人の動画（取り消されていない・まだ消えていない）があるか。あれば「実施した」は動画でついたもの（外すのは動画の取り消しから） */
+  const liveClip = (mid, date) => loginAll() && (S.data.clips || []).some((c) => c.m === mid && c.d === date && c.st === 'ok' && !c.gone && !c.local);
   const mePlayer = () => { const m = me(); if (!m || !S.data.members) return null; const x = S.data.members.find((y) => y.id === m.id); return x && x.player && x.active ? x : null; };
 
   // ---------- アイコン（一人一人が決める。絵文字と背景の色、または写真） ----------
@@ -3273,7 +3350,7 @@
   // ---- 撮る（アプリの中のカメラだけ。音なし2秒。日時と今日の数字を動画に入れる） ----
   const CAM = { stream: null, facing: 'environment', raf: 0, rec: null, blob: null, url: '', thumb: '', at: '', mime: '', busy: false };
   const CLIP_SEC = 2;
-  // 画質。縦3:横4（スマホのカメラ（4:3）をほぼ切らずに使える）。テスト環境だけ、設定で切りかえて見比べられる
+  // 画質。縦3:横4（スマホのカメラ（4:3）をほぼ切らずに使える）。使うのは std（720×960・30fps・1.5Mbps・約400KB）に決めた。ほかは見比べたときの記録として残す
   const CLIP_Q = {
     xlo: { w: 480, h: 640, bps: 500000, cam: [1280, 960], label: 'かなり軽く', spec: '480×640・0.5Mbps' },
     lo: { w: 540, h: 720, bps: 800000, cam: [1280, 960], label: '軽く', spec: '540×720・0.8Mbps' },
@@ -3988,6 +4065,7 @@
     const reg = (S.data.regs || {});
     openSheet('部員の登録',
       '<p class="lead-line small">部員は自分で名前を選んで登録します。本人ではない人が登録していたら「登録を消す」を押してください。本人がもう一度登録できます。</p>' +
+      '<p class="reg-n"><b>登録済み ' + list.filter((x) => reg[x.id]).length + ' / ' + list.length + '人</b>' + (list.some((x) => !reg[x.id]) ? '<small>まだの人：' + list.filter((x) => !reg[x.id]).map((x) => esc(x.name)).join('、') + '</small>' : '<small>全員が登録しました</small>') + '</p>' +
       '<ul class="exlist">' + list.map((x) => '<li><span class="ex-r"><b>' + esc(x.name) + '</b><small>' + esc(x.grade || '') + '・' + (reg[x.id] ? '登録済み' : '未登録') + '</small></span>' +
         (reg[x.id] ? '<span class="pr-a"><button class="btn small" data-act="unreg" data-id="' + x.id + '">登録を消す</button></span>' : '<span></span>') + '</li>').join('') + '</ul>', { wide: true });
   }
@@ -4166,7 +4244,7 @@
       if (on) { x.mine.push(k); x.c[k] = (x.c[k] || 0) + 1; } else { x.mine = x.mine.filter((y) => y !== k); x.c[k] = Math.max(0, (x.c[k] || 1) - 1); if (!x.c[k]) delete x.c[k]; }
       putStamp(x); STAMP_BUSY[key] = 1;
       if (on && !reduceMotion()) burst(rect, k);
-      try { const r = await api('stamp', { target: t, event: e, kind: k, from: (loginAll() && me() && me().perm !== 'guest' ? me().id : PREF.self) || '' }); putStamp(r.stamp); }
+      try { const r = await api('stamp', { target: t, event: e, kind: k, from: (loginAll() ? (me() && me().perm !== 'guest' ? me().id : '') : PREF.self) || '' }); putStamp(r.stamp); }
       catch (err) { putStamp(before); toast(err.message, 'err'); }
       finally { delete STAMP_BUSY[key]; }
     },
@@ -4191,7 +4269,7 @@
     'sw-update': (el) => { el.disabled = true; if (PWA.waiting) PWA.waiting.postMessage('skipWaiting'); else location.reload(); },
     'pwa-install': async () => { const p = PWA.prompt; if (!p) return; PWA.prompt = null; p.prompt(); try { await p.userChoice; } catch (e) { /* noop */ } render(); },
     'guide-next': () => {
-      const g = GUIDE[guideStep], back = guideStep + 1;
+      const g = guideList()[guideStep], back = guideStep + 1;
       if (!g.tour) { openGuide(back); return; }
       // 名前を選んだら、実際の画面で案内 → 終わったら残りの紹介（ホーム画面に追加・通知・見やすく）
       $('#guide-root').innerHTML = '';
@@ -4710,7 +4788,7 @@
       const kind = ($('input[name="kind"]:checked', f) || {}).value || 'other';
       await busy(btn, async () => {
         try {
-          await api('feedback', { kind: kind, text: f.text.value, from: PREF.self || '', page: (prevHash || '#home').split('/')[0], version: VERSION });
+          await api('feedback', { kind: kind, text: f.text.value, from: (loginAll() && me() ? me().id : PREF.self) || '', page: (prevHash || '#home').split('/')[0], version: VERSION });
           closeSheet(); toast('送りました。ありがとうございます');
         } catch (e) { sheetError(e.message); }
       });

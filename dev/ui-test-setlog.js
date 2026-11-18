@@ -236,9 +236,11 @@ const shot = async (p, name) => { if (SHOT) { require('fs').mkdirSync(SHOT, { re
   await p.fill('form[data-form="mlogin"] input[name="pin"]', 'test-admin-1');
   await p.click('form[data-form="mlogin"] button[type="submit"]'); await p.waitForTimeout(2000);
   ok(await p.locator('.login-gate').count() === 0 && /管理者/.test(await p.locator('.top').innerText()), '管理者は今までの暗証番号でログインできる');
+  ok(await p.locator('.nav .shoot').count() === 1 && await p.locator('.nav a[href="#record"]').count() === 1, '選手でもある管理者の下のメニューは、「撮る」と「記録」の両方');
   await p.evaluate(() => { location.hash = '#settings'; }); await p.waitForTimeout(500);
   await p.click('[data-act="regs-open"]'); await p.waitForTimeout(400);
   ok(/森 健太[\s\S]*登録済み/.test(await p.locator('.sheet').innerText()), '「部員の登録」でだれが登録したかわかる');
+  ok(/登録済み \d+ \/ \d+人/.test(await p.locator('.sheet .reg-n').innerText()), '「部員の登録」の上に、何人登録したか（まだの人の名前）が出る');
   await shot(p, '11-regs');
   await p.keyboard.press('Escape'); await p.waitForTimeout(300);
   await p.click('[data-act="guests-open"]'); await p.waitForTimeout(400);
@@ -299,6 +301,74 @@ const shot = async (p, name) => { if (SHOT) { require('fs').mkdirSync(SHOT, { re
     ok(await g4.locator('[data-act="icon-edit"]').count() === 0 && await g4.locator('[data-act="icon-reset"]').count() === 1, 'マネージャーには「アイコンを元に戻す」だけが出る');
     await g4.click('[data-act="icon-reset"]'); await g4.waitForTimeout(1200);
     ok(await g4.locator('.profile-t h1 .av-i').count() === 1, '元に戻すと頭文字のアイコンになる');
+    // 全員ログインなので、紹介と使い方で「自分の名前を選ぶ」は出さない
+    await q.evaluate(() => { location.hash = '#settings'; }); await q.waitForTimeout(600);
+    await q.click('[data-act="guide"]'); await q.waitForSelector('#guide-root .guide');
+    const g1 = await q.locator('#guide-root').innerText();
+    ok(!/ログインは不要/.test(g1) && /2秒の動画/.test(g1), '紹介の1枚目：「ログインは不要」と言わず、2秒の動画のアプリと紹介する');
+    await q.click('[data-act="guide-next"]'); await q.waitForTimeout(400);
+    const g2 = await q.locator('#guide-root').innerText();
+    ok(/今日の1本を撮る/.test(g2) && await q.locator('#guide-root select[data-act-change="pref-self"]').count() === 0, '紹介の2枚目は「今日の1本を撮る」（名前は選ばない）');
+    await shot(q, '23-guide-2');
+    await q.click('#guide-root [data-act="guide-close"]').catch(() => {}); await q.waitForTimeout(300);
+    await q.evaluate(() => { location.hash = '#help'; }); await q.waitForTimeout(800);
+    const hp = await q.locator('#main').innerText();
+    ok(!/自分の名前を選ぶ/.test(hp) && !/ログインはいりません/.test(hp), '使い方ガイドにも「自分の名前を選ぶ」「ログインはいりません」が出ない');
+    // 全員ログイン版で、むかしの説明（ログイン不要・名前を選ぶ・合言葉など）が残っていないか、使い方ガイドを全部開いて調べる
+    const BAD = /ログイン不要|ログインはいりません|ログインなし|ログインしていない部員|自分の名前を選|自分の名前・見やすさ|閲覧の合言葉|40秒/;
+    const scan = async (pg, who) => {
+      const found = [];
+      await pg.evaluate(() => { location.hash = '#help'; }); await pg.waitForTimeout(700);
+      ok(await pg.locator('[data-act="help-role"][aria-pressed="true"]').count() === 1, who + '：使い方ガイドを開くと、立場のタブのどれかが選ばれている');
+      const tabs = await pg.locator('[data-act="help-role"]').count();
+      for (let i = 0; i < tabs; i++) {
+        await pg.locator('[data-act="help-role"]').nth(i).click(); await pg.waitForTimeout(300);
+        await pg.evaluate(() => document.querySelectorAll('details').forEach((d) => { d.open = true; }));
+        const tx = await pg.locator('#main').innerText(); const m = tx.match(BAD); if (m) found.push('ガイド' + i + '：' + m[0]);
+      }
+      await pg.evaluate(() => { location.hash = '#settings'; }); await pg.waitForTimeout(600);
+      const st = await pg.locator('#main').innerText(); const m2 = st.match(BAD); if (m2) found.push('設定：' + m2[0]);
+      ok(!found.length, who + '：使い方ガイドと設定に、全員ログイン版と合わない説明がない' + (found.length ? '（' + found.join('、') + '）' : ''));
+    };
+    await scan(q, '選手');
+    await q.evaluate(() => { location.hash = '#help'; }); await q.waitForTimeout(500);
+    await q.click('[data-act="help-role"][data-v="all"]'); await q.waitForTimeout(300);
+    ok(/今日の1本を撮る/.test(await q.locator('#main').innerText()) && /自分のアイコン/.test(await q.locator('#main').innerText()), '使い方ガイドに「今日の1本を撮る」「自分のアイコン」がある');
+    await q.evaluate(() => { location.hash = '#record'; }); await q.waitForTimeout(500);
+    ok(await q.locator('#main [data-act="login"]').count() === 0, '選手が記録の画面を開いても、（ログインしているのに）「ログイン」ボタンは出ない');
+    await scan(g4, 'マネージャー');
+    // 前の版でこの端末に選んでいた名前（選手）が残っていても、選手でない人がログインしたら「わたし」は出さない
+    await g4.evaluate((pid) => { localStorage.setItem('kintoreTest.self', JSON.stringify(pid)); location.hash = '#home'; location.reload(); }, myHash.split('/')[1]);
+    await g4.waitForSelector('.board'); await g4.waitForTimeout(800);
+    ok(await g4.locator('.selfcard').count() === 0 && await g4.evaluate(() => localStorage.getItem('kintoreTest.self')) === null, '選手でない人（マネージャー）には、端末に残っていた名前の「わたし」を出さない（消す）');
+    // 通知：スタッフには「動画の確認」、選手には出ない（通知の設定は Service Worker が要るので、使う設定にした別の画面で見る）
+    const pushKinds = async (who, pin) => {
+      const cx = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 1, isMobile: true, hasTouch: true, reducedMotion: 'reduce' });
+      await cx.route(/fonts\.(googleapis|gstatic)\.com/, (r) => r.abort());
+      await cx.addInitScript(() => { localStorage.setItem('kintoreTest.guided', '1'); localStorage.setItem('kintoreTest.swdev', '1'); });
+      const px = await cx.newPage(); px.on('pageerror', (e) => errors.push(e.message));
+      await px.goto(BASE); await px.waitForSelector('.login-gate');
+      await pick(px, who); await px.fill('form[data-form="mlogin"] input[name="pin"]', pin);
+      await px.click('form[data-form="mlogin"] button[type="submit"]'); await px.waitForSelector('.board');
+      await px.evaluate(() => { location.hash = '#settings'; });
+      await px.waitForSelector('#push input[name="kinds"]', { timeout: 15000 }).catch(() => {});
+      const ks = await px.locator('#push input[name="kinds"]').evaluateAll((els) => els.map((e) => e.value));
+      await cx.close();
+      return ks;
+    };
+    const mk = await pushKinds('マネ 花子', 'test-mgr-01'), pk = await pushKinds('森 健太', 'mori-pin-1');
+    ok(mk.indexOf('clipq') >= 0, 'マネージャーの通知の設定に「動画の確認」（確認待ち・気になる）がある（' + mk.join('・') + '）');
+    ok(pk.length >= 1 && pk.indexOf('clipq') < 0, '選手の通知の設定には「動画の確認」は出ない（' + pk.join('・') + '）');
+    // 今日、動画でついた「実施した」がある人（動画が取り消されていない）を、サーバーに聞いて確かめる
+    const vids = await g4.evaluate(async () => {
+      const tk = JSON.parse(localStorage.getItem('kintoreTest.token') || '""');
+      const st = await fetch('/exec', { method: 'POST', body: JSON.stringify({ op: 'state', token: tk }) }).then((r) => r.json());
+      const today = st.today;
+      return st.clips.filter((c) => c.d === today && c.st === 'ok' && !c.gone && st.records.some((x) => x[0] === c.m && x[1] === today && x[2] === 1)).map((c) => c.m);
+    });
+    await g4.evaluate(() => { location.hash = '#record'; }); await g4.waitForTimeout(800);
+    const vrows = await g4.locator('.rec-row.locked', { hasText: '動画で記録' }).evaluateAll((els) => els.map((e) => e.dataset.id));
+    ok(vids.length >= 1 && vids.every((m) => vrows.indexOf(m) >= 0) && vrows.length === new Set(vids).size, 'マネージャーの記録の画面：動画でついた「実施した」は「動画で記録」で、外せない（' + vids.length + '人）');
     await c4.close(); await c3.close();
   }
 

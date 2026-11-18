@@ -104,6 +104,13 @@ const G = api({ op: 'login', memberId: gid, pin: 'guest-pin-1' }).token;
 st = api({ op: 'state', token: G });
 ok(st.me && st.me.perm === 'guest' && st.members && st.records, '見るだけの人も全部見られる');
 ok(api({ op: 'clipFlag', token: G, id: 'x', on: true }).error === 'forbidden', '見るだけの人は「気になる」を押せない');
+{ // 応援の「送った人」は、ログインした本人だけ（端末に残っていた名前や、ほかの人の名前を名乗れない）
+  const tg = id['森 健太'], ev = 'g:2026-11-02';
+  let rs = api({ op: 'stamp', token: G, target: tg, event: ev, kind: 'clap', device: 'a0a0a0a0a0a0a0a0', from: id['石川 大地'] });
+  ok(rs.ok && !(rs.stamp.f || []).some((x) => x === id['石川 大地'] || (x && x.id === id['石川 大地'])), '見るだけの人の応援は、名前なし（選手の名前を名乗れない）');
+  rs = api({ op: 'stamp', token: MG, target: tg, event: ev, kind: 'fire', device: 'b1b1b1b1b1b1b1b1', from: id['石川 大地'] });
+  ok(rs.ok && JSON.stringify(rs.stamp.f || []).indexOf(id['マネ 花子']) >= 0 && JSON.stringify(rs.stamp.f || []).indexOf(id['石川 大地']) < 0, 'ログインした人の応援は、その人の名前（ほかの人を名乗れない）');
+}
 
 section('動画を出す → 自動で「実施した」');
 const today = gas.run('today_');
@@ -134,9 +141,16 @@ r = api({ op: 'clipVideo', token: G, id: clip1 });
 ok(r.ok && r.mime === 'video/mp4' && r.data === vid, '動画を見られる（見るだけの人も）');
 
 section('気になる → スタッフの確認');
+const MEP = 'https://fcm.googleapis.com/fcm/send/manager-device:APA91b-test', PEP = 'https://fcm.googleapis.com/fcm/send/player-device:APA91b-test';
+r = api({ op: 'pushRegister', token: MG, sub: { endpoint: MEP }, memberId: '', kinds: ['clipq', 'goal'] });
+ok(r.ok && r.push.kinds.join() === 'clipq', 'マネージャーは「動画の確認」の通知を受け取れる（選手でないので「今週あと○回」は無し）');
+r = api({ op: 'pushRegister', token: ISHI, sub: { endpoint: PEP }, memberId: id['石川 大地'], kinds: ['clipq', 'goal'] });
+ok(r.ok && r.push.kinds.join() === 'goal', '選手は「動画の確認」を受け取れない');
 ok(api({ op: 'clipFlag', token: MORI2, id: clip1, on: true }).error === 'own', '自分の動画には押せない');
+gas.push.sent.length = 0;
 r = api({ op: 'clipFlag', token: ISHI, id: clip1, on: true });
 ok(r.ok && r.clip.mine, '部員が「気になる」を押せる');
+ok(gas.push.sent.length === 1 && gas.push.sent[0].url === MEP && /気になる/.test(api({ op: 'pushInbox', endpoint: MEP }).messages[0].title), '「気になる」がつくと、マネージャー（動画の確認をオン）に通知が届く');
 st = api({ op: 'state', token: MG });
 ok(st.clipQueue === 1 && st.clips.find((c) => c.id === clip1).nf === 1, 'スタッフには確認が要る数と「気になる」の数が出る');
 ok(api({ op: 'clips', token: MG, queue: true }).clips.length === 1, '確認待ちの一覧');
@@ -149,12 +163,41 @@ ok(api({ op: 'state', token: MORI2 }).clips.find((c) => c.id === clip1).why === 
 
 section('取り消された日に撮り直すと確認待ち');
 const at2 = jst(2);
+gas.push.sent.length = 0;
 r = api({ op: 'clipUpload', token: MORI2, mime: 'video/mp4', data: vid, thumb, recordedAt: at2, code });
 ok(r.ok && r.pending && r.clip.st === 'pending' && !r.records.some((x) => x[0] === id['森 健太']), '撮り直しは確認待ち（まだ「実施した」にならない）');
+ok(gas.push.sent.length === 1 && gas.push.sent[0].url === MEP && /確認待ち/.test(api({ op: 'pushInbox', endpoint: MEP }).messages[0].title), '確認待ちの動画が届くと、スタッフに通知が届く');
 ok(api({ op: 'state', token: MG }).clipQueue === 1, 'スタッフの確認待ちに出る');
 r = api({ op: 'clipApprove', token: MG, id: r.clip.id });
 ok(r.ok && r.recorded && r.records.some((x) => x[0] === id['森 健太'] && x[2] === 1), 'スタッフが確認すると「実施した」になる');
 ok(api({ op: 'state', token: MG }).clipQueue === 0, '確認待ちがなくなる');
+ok(api({ op: 'saveRecords', token: A, date: r.clip.d, items: [{ memberId: id['森 健太'], done: false }] }).rejected[0].reason === 'from_video', '確認してついた「実施した」も動画の記録（記録の画面では外れない）');
+
+section('動画でついた「実施した」は、記録の画面から外さない（動画を取り消して外す）');
+{
+  const IS = id['石川 大地'];
+  const st0 = api({ op: 'state', token: MG });
+  const cl = st0.clips.find((c) => c.st === 'ok' && !c.gone && st0.records.some((x) => x[0] === c.m && x[1] === c.d && x[2] === 1));
+  const vd = cl && st0.records.find((x) => x[0] === cl.m && x[1] === cl.d);
+  ok(!!vd, '動画でついた「実施した」がある（動画が取り消されていない・消えていない）');
+  if (vd) {
+    const VM = vd[0];
+    let r = api({ op: 'saveRecords', token: MG, date: vd[1], items: [{ memberId: VM, done: false }] });
+    ok(r.ok && r.rejected.length === 1 && r.rejected[0].reason === 'from_video', 'マネージャーが記録の画面で外そうとしても、外れない（動画から取り消すよう案内）');
+    r = api({ op: 'saveRecords', token: A, date: vd[1], items: [{ memberId: VM, done: false }] });
+    ok(r.ok && r.rejected.length === 1 && r.rejected[0].reason === 'from_video', '管理者でも記録の画面からは外れない');
+    ok(api({ op: 'deleteRecord', token: A, date: vd[1], memberId: VM }).error === 'from_video', '管理者の「取り消す」（記録の削除）でも外れない');
+    ok(api({ op: 'state', token: MG }).records.some((x) => x[0] === VM && x[1] === vd[1] && x[2] === 1), '「実施した」はそのまま');
+  }
+  // 動画のない日の記録は、これまでどおり記録の画面で外せる
+  const MO = id['森 健太'], dx = st0.clips.filter((c) => c.m === MO).map((c) => c.d);
+  const free = [3, 4, 5, 6].map((k) => jst(k * 1440).slice(0, 10)).find((d) => dx.indexOf(d) < 0);
+  r = api({ op: 'saveRecords', token: MG, date: free, items: [{ memberId: MO, done: true }] });
+  ok(r.ok && r.saved === 1, '動画を送れなかった日は、マネージャーが「実施した」をつけられる');
+  r = api({ op: 'saveRecords', token: MG, date: free, items: [{ memberId: MO, done: false }] });
+  ok(r.ok && r.removed === 1 && !r.rejected.length, 'その記録（動画なし）は、記録の画面で外せる');
+  ok(api({ op: 'resetPin', token: A, id: IS }).message.indexOf('登録を消す') >= 0, '選手の暗証番号の発行は、「登録を消す」を案内する');
+}
 
 section('2段階：先に「実施した」、動画はあとから');
 const at3 = jst(1);
@@ -184,6 +227,18 @@ ok(api({ op: 'clipUpload', token: ISHI, mime: 'video/mp4', data: vid, thumb, rec
   api({ op: 'state', token: ISHI });
   ok(rb.ok && gas.sheet('動画のサムネイル').data.some((row) => row[0] === rb.clip.id && row[1] === big), '大きなサムネイル（30KB）も分けて置いて、そのままシートに書く');
   api({ op: 'clipUpload', token: ISHI, mime: 'video/mp4', data: vid, thumb: big, recordedAt: atb, code });
+}
+
+{ // メモがいっぱい（スクリプトのプロパティは全部で500KBまで。一斉に送られたとき）でも送れる：その1本はシートに直接書く
+  api({ op: 'state', token: ISHI });
+  const atf = jst(0.9), big = 'B'.repeat(20000);
+  gas.props._quota = gas.props._size() + 4000;
+  const rf = api({ op: 'clipStart', token: ISHI, mime: 'video/mp4', thumb: big, recordedAt: atf, code });
+  gas.props._quota = 0;
+  ok(rf.ok && rf.recorded && rf.clip && rf.clip.nv === 1 && gas.sheet('動画').data.some((row) => row.indexOf(atf) >= 0) && gas.sheet('動画のサムネイル').data.some((row) => row[0] === rf.clip.id && row[1] === big), 'メモがいっぱいでも「送る」は通る（その1本はシートに直接書く）');
+  ok(!Object.keys(gas.props._all).some((k) => k.indexOf(IS + '|' + atf) >= 0), '途中まで書けたメモは残らない');
+  const ru = api({ op: 'clipUpload', token: ISHI, mime: 'video/mp4', data: vid, thumb, recordedAt: atf, code });
+  ok(ru.ok && ru.clip.id === rf.clip.id && ru.clip.nv === 0, 'あとから送った動画も、その行につく');
 }
 
 { // 速さのため：下書きも「送る」も、動画のシート（一覧）を読まない
@@ -296,6 +351,14 @@ ok(Object.values(gas.drive.files).every((f) => f.trashed), 'ドライブの動�
 ok(api({ op: 'clipVideo', token: G, id: clip1 }).error, '消えた動画は見られない');
 ok(gas.sheet('動画のサムネイル').data.length === 1, 'サムネイルも消える');
 gas.shiftDays(-33);
+
+section('動画が消えたあとは、ふつうの記録にもどる');
+{
+  const st0 = api({ op: 'state', token: MG });
+  const gone = st0.clips.find((c) => c.st === 'ok' && c.gone && st0.records.some((x) => x[0] === c.m && x[1] === c.d && x[2] === 1) && !st0.clips.some((y) => y.m === c.m && y.d === c.d && y.st === 'ok' && !y.gone));
+  ok(!!gone, '消えた動画の日の「実施した」がある');
+  if (gone) ok(api({ op: 'deleteRecord', token: A, date: gone.d, memberId: gone.m }).ok, '動画が消えたあと（1か月たったなど）は、ふつうの記録にもどり、管理者が外せる');
+}
 
 section('テスト環境の守り');
 ok(api({ op: 'saveMember', token: A, member: { id: id['森 健太'], name: '森 健太', grade: '2年' } }).error === 'test_env', 'テスト環境からは会計アプリの名簿を書き換えられない');
