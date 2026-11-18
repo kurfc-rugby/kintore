@@ -11,7 +11,7 @@
  * 詳しくは 04_ドキュメント/筋トレ管理アプリ_使い方と引き継ぎ.md
  */
 const APP_VERSION = '2.21.1';
-const SCHEMA_VERSION = '10';
+const SCHEMA_VERSION = '11';
 const TZ = 'Asia/Tokyo';
 const SESSION_DAYS = 90;
 const VIEW_SESSION_DAYS = 180;
@@ -34,7 +34,7 @@ const DEF = {
     ['start', '開始日'], ['left', '退部日'],
     ['pinHash', '暗証番号ハッシュ'], ['pinSalt', 'ソルト'], ['mustChange', '要変更'], ['failCount', '失敗回数'],
     ['lockUntil', 'ロック解除'], ['createdAt', '作成日時'], ['updatedAt', '更新日時'], ['pinReqAt', '暗証番号の再発行依頼'],
-    ['targetWeight', '目標体重(kg)'], ['targetDate', '目標体重の期日']] },
+    ['targetWeight', '目標体重(kg)'], ['targetDate', '目標体重の期日'], ['icon', 'アイコン']] },
   history: { name: '設定変更履歴', cols: [
     ['memberId', '部員ID'], ['effDate', '適用開始日'], ['group', 'グループ'], ['mode', '取り組み方'],
     ['position', 'ポジション'], ['subPositions', 'サブポジション'], ['by', '変更者ID'], ['at', '変更日時']] },
@@ -79,6 +79,8 @@ const DEF = {
     ['mime', '形式'], ['size', '大きさ'], ['code', '今日の数字'], ['status', '状態'], ['flags', '気になる（部員ID）'],
     ['canceledBy', '取り消した人ID'], ['canceledAt', '取り消し日時'], ['reason', '取り消しの理由'], ['checkedBy', '確認した人ID'], ['deletedAt', '削除日時']] },
   clipThumbs: { name: '動画のサムネイル', cols: [['id', '動画ID'], ['thumb', 'サムネイル（JPEG）']] },
+  // 一人一人のアイコンの写真（setlog）。「部員設定」のアイコンが「p:…」の人だけ、ここに 128×128 の JPEG がある
+  icons: { name: 'アイコン写真', cols: [['memberId', '部員ID'], ['data', '画像（JPEG・base64）'], ['updatedAt', '更新日時']] },
   // 部員名簿にいない「見るだけ」の人（監督・コーチ・OB など）
   guests: { name: '見るだけの人', cols: [
     ['id', 'ID'], ['name', '名前'], ['note', 'メモ'], ['pinHash', '暗証番号ハッシュ'], ['pinSalt', 'ソルト'], ['mustChange', '要変更'],
@@ -179,6 +181,9 @@ function handle_(req) {
       case 'clipFlag': return opClipFlag_(ctx);
       case 'clipCancel': return opClipCancel_(ctx);
       case 'clipApprove': return opClipApprove_(ctx);
+      case 'setIcon': return opSetIcon_(ctx);
+      case 'icons': return opIcons_(ctx);
+      case 'resetIcon': return opResetIcon_(ctx);
       case 'unregister': return opUnregister_(ctx);
       case 'guestSave': return opGuestSave_(ctx);
       case 'guestDelete': return opGuestDelete_(ctx);
@@ -1086,6 +1091,7 @@ function memberWire_(m, admin) {
   };
   const g = m.set || {};
   if (g.targetWeight) { o.goalW = Number(g.targetWeight); o.goalD = g.targetDate || ''; }
+  if (g.icon && setlogOn_()) o.ic = g.icon; // アイコン：「e:色:絵文字」か「p:版」（写真は icons で取る）
   if (admin) {
     const s = m.set || {};
     o.pinSet = !!s.pinHash; o.mustChange = s.mustChange === '1';
@@ -3304,7 +3310,12 @@ const CLIP_LATE_HOURS = 24;          // 撮ってから24時間以内に届い�
 const CLIP_MIMES = { 'video/mp4': 'mp4', 'video/webm': 'webm', 'video/quicktime': 'mov' };
 const LOGIN_FREE = { ping: 1, state: 1, login: 1, register: 1, logout: 1, pinRequest: 1, clientError: 1, pushInbox: 1, pushMove: 1, pushUnregister: 1 };
 
-function setlogOn_() { return PropertiesService.getScriptProperties().getProperty('SETLOG') === '1'; }
+function setlogOn_() {
+  if (REQ_ && REQ_.setlogOn != null) return REQ_.setlogOn; // 1回の実行で何度も聞くので覚えておく
+  const v = PropertiesService.getScriptProperties().getProperty('SETLOG') === '1';
+  if (REQ_) REQ_.setlogOn = v;
+  return v;
+}
 function isTestEnv_() { return PropertiesService.getScriptProperties().getProperty('ENV') === 'test'; }
 function noRosterWriteInTest_() {
   if (isTestEnv_()) throw err_('test_env', 'テスト環境では部員名簿（会計アプリ）は変えられません。');
@@ -4099,4 +4110,73 @@ function setupTestEnv() {
   } finally { REQ_ = null; }
   CacheService.getScriptCache().removeAll(['k:roster', 'k:synced', 'k:maint', 'k:trig']);
   return 'テスト環境にしました';
+}
+
+// ---------------------------------------------------------------------------
+// アイコン（setlog）：一人一人が自分で決める。絵文字と背景の色、または写真（丸く切り抜いた 128×128 の JPEG）。
+// スタッフ（管理者・マネージャー）は、ほかの人のアイコンを元に戻せる。
+// ---------------------------------------------------------------------------
+const ICON_COLORS = ['#8c1d2f', '#1b1b1b', '#1f3a68', '#2b7bb9', '#1f7a4d', '#b8860b', '#c2185b', '#6b7280'];
+const ICON_MAX_BYTES = 30 * 1024;
+function iconValue_(req) {
+  const kind = String(req.kind || '');
+  if (kind === '') return { val: '', data: '' };
+  if (kind === 'e') {
+    const emoji = String(req.emoji || '').trim(), color = String(req.color || '');
+    if (!emoji || emoji.length > 16 || /[\s<>&"'\\:]/.test(emoji) || /^[\x20-\x7e]+$/.test(emoji)) throw err_('bad_icon', '絵文字を1つ選んでください。');
+    if (ICON_COLORS.indexOf(color) < 0) throw err_('bad_icon', '背景の色を選んでください。');
+    return { val: 'e:' + color + ':' + emoji, data: '' };
+  }
+  if (kind === 'p') {
+    const data = String(req.data || '');
+    let bytes;
+    try { bytes = Utilities.base64Decode(data); } catch (x) { throw err_('bad_icon', '写真を読み取れませんでした。'); }
+    if (bytes.length < 200 || bytes.length > ICON_MAX_BYTES) throw err_('bad_icon', '写真が大きすぎます。');
+    if ((bytes[0] & 255) !== 0xFF || (bytes[1] & 255) !== 0xD8) throw err_('bad_icon', '写真（JPEG）だけ使えます。');
+    return { val: 'p:' + Date.now().toString(36), data: data };
+  }
+  throw err_('bad_icon', 'アイコンの種類が違います。');
+}
+function iconPhotoSet_(memberId, data) {
+  const rows = rowsWhere_('icons', 'memberId', memberId);
+  if (data) {
+    if (rows.length) { rows[0].data = data; rows[0].updatedAt = now_(); update_('icons', rows[0]); rows.slice(1).forEach(function (r) { remove_('icons', r); }); }
+    else insert_('icons', [{ memberId: memberId, data: data, updatedAt: now_() }]);
+  } else rows.forEach(function (r) { remove_('icons', r); });
+}
+function opSetIcon_(ctx) {
+  if (!setlogOn_()) throw err_('unknown_op', 'この操作はありません。');
+  const me = requireRole_(ctx, ['admin', 'manager', 'leader', 'member']);
+  const v = iconValue_(ctx.req);
+  return withLock_(function () {
+    const m = memberOrThrow_(me.id);
+    const s = peopleRow_(m);
+    s.icon = v.val; s.updatedAt = now_();
+    update_('people', s);
+    iconPhotoSet_(m.id, v.data);
+    return { ok: true, memberId: m.id, ic: v.val, data: v.data || undefined };
+  });
+}
+function opIcons_(ctx) {
+  if (!setlogOn_()) throw err_('unknown_op', 'この操作はありません。');
+  requireView_(ctx);
+  const want = {};
+  (Array.isArray(ctx.req.ids) ? ctx.req.ids : []).slice(0, 300).forEach(function (id) { want[String(id)] = 1; });
+  const icons = {};
+  table_('icons').rows.forEach(function (r) { if (want[r.memberId] && r.data) icons[r.memberId] = r.data; });
+  const vers = {};
+  members_().forEach(function (m) { if (want[m.id] && m.set && m.set.icon) vers[m.id] = m.set.icon; });
+  return { ok: true, icons: icons, vers: vers };
+}
+function opResetIcon_(ctx) {
+  if (!setlogOn_()) throw err_('unknown_op', 'この操作はありません。');
+  const me = requireRole_(ctx, ['admin', 'manager']);
+  const m = memberOrThrow_(String(ctx.req.memberId || ''));
+  return withLock_(function () {
+    const s = peopleRow_(m);
+    if (s.icon) { s.icon = ''; s.updatedAt = now_(); update_('people', s); }
+    iconPhotoSet_(m.id, '');
+    log_(me, 'アイコンを元に戻す', m.name);
+    return { ok: true, memberId: m.id, ic: '' };
+  });
 }

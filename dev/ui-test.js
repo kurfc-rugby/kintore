@@ -331,6 +331,25 @@ const ok = (c, label) => { if (c) { pass++; console.log('  ✓ ' + label); } els
 
   console.log('■ 管理者（共通名簿）');
   await login('管理 太郎（管理者）', 'test-admin-1');
+  // 免除（けが・試験など）。v2.13.0 から「種目の動画」とボタンの名前・関数の名前が重なって、追加・取り消し・免除のある人のページが動かなかった
+  await page.evaluate(() => { location.hash = '#members'; }); await page.waitForTimeout(600);
+  await page.click('.mlist li a'); await page.waitForSelector('.profile');
+  const exHash = await page.evaluate(() => location.hash);
+  await page.click('[data-act="exempt-new"]'); await page.waitForSelector('form[data-form="exempt"]', { timeout: 3000 }).catch(() => {});
+  ok(await count('form[data-form="exempt"]') === 1, '「免除を追加」で免除の入力が開く（種目の動画の入力ではない）');
+  if (await count('form[data-form="exempt"]')) { await page.click('form[data-form="exempt"] button[type="submit"]'); await page.waitForTimeout(900); }
+  await page.evaluate(() => { location.hash = '#rank'; }); await page.waitForTimeout(400);
+  await page.evaluate((h) => { location.hash = h; }, exHash); await page.waitForTimeout(700);
+  ok(await count('.profile') === 1 && await count('.exlist li') === 1, '免除がある人のページも開ける（免除が一覧に出る）');
+  if (await count('[data-act="exempt-del"]')) { await page.click('[data-act="exempt-del"]'); await page.click('[data-act="exempt-del"]'); await page.waitForTimeout(900); }
+  ok(await count('.exlist li') === 0, '免除を取り消せる（2回押し）');
+  await page.evaluate(() => { location.hash = '#settings'; }); await page.waitForTimeout(500);
+  if (await count('[data-act="offs-open"]')) {
+    await page.click('[data-act="offs-open"]'); await page.waitForSelector('.sheet');
+    await page.click('.sheet [data-act="exempt-new"]'); await page.waitForSelector('form[data-form="exempt"]', { timeout: 3000 }).catch(() => {});
+    ok(await count('form[data-form="exempt"] input[name="memberId"][value="ALL"]') === 1, '「部全体のオフ期間」の追加も、免除の入力が開く');
+    await page.keyboard.press('Escape'); await page.waitForTimeout(300);
+  }
   await go('#home');
   ok((await text('.banner.warn')).includes('マネ さくら'), '暗証番号の再発行の依頼がホームに出る');
   await go('#settings');

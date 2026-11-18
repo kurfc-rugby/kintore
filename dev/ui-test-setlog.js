@@ -249,6 +249,59 @@ const shot = async (p, name) => { if (SHOT) { require('fs').mkdirSync(SHOT, { re
   await shot(p, '12-guest');
   await p.keyboard.press('Escape');
 
+  console.log('■ アイコン（一人一人が決める）');
+  {
+    const c3 = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 1, isMobile: true, hasTouch: true, reducedMotion: 'reduce' });
+    await c3.route(/fonts\.(googleapis|gstatic)\.com/, (r) => r.abort());
+    await c3.addInitScript(() => { localStorage.setItem('kintoreTest.guided', '1'); });
+    const q = await c3.newPage(); q.on('pageerror', (e) => { errors.push(e.message); console.log('    画面のエラー：', e.message, String(e.stack || '').split('\n').slice(1, 3).join(' / ')); }); q.on('dialog', (d) => d.accept());
+    await q.goto(BASE); await q.waitForSelector('.login-gate');
+    await pick(q, '森 健太');
+    await q.fill('form[data-form="mlogin"] input[name="pin"]', 'mori-pin-1');
+    await q.click('form[data-form="mlogin"] button[type="submit"]'); await q.waitForSelector('.board'); await q.waitForTimeout(600);
+    ok(await q.locator('.selfcard .av-i').count() === 1, 'まだ決めていない人は、名前の頭文字のアイコン');
+    await q.click('.selfcard'); await q.waitForTimeout(600);
+    const myHash = await q.evaluate(() => location.hash);
+    if (!await q.locator('[data-act="icon-edit"]').count()) console.log('    診断：', myHash, await q.evaluate(() => JSON.stringify({ guide: !!document.querySelector('#guide-root *'), sheet: !!document.querySelector('#sheet-root .sheet'), prof: (document.querySelector('.profile') || {}).outerHTML ? document.querySelector('.profile').outerHTML.slice(0, 200) : 'なし', main: document.querySelector('#main').innerText.slice(0, 200) })));
+    await q.click('[data-act="icon-edit"]', { timeout: 5000 }); await q.waitForSelector('.ice');
+    await q.click('.ice-em[data-v="🦁"]'); await q.click('.ice-col[data-v="#1f3a68"]');
+    await shot(q, '20-icon-emoji');
+    await q.click('[data-act="ice-save"]'); await q.waitForSelector('.ice', { state: 'detached', timeout: 5000 });
+    ok(await q.locator('.profile-t h1 .av-e').innerText() === '🦁', '絵文字と色を選んで「これにする」→ 自分のページにアイコンが出る');
+    await q.evaluate(() => { location.hash = '#rank'; }); await q.waitForTimeout(800);
+    ok(await q.locator('.rrank .av-e', { hasText: '🦁' }).count() + await q.locator('.pod-j .av-e', { hasText: '🦁' }).count() >= 1, 'ランキングにもアイコンが出る');
+    await shot(q, '21-icon-ranking');
+    await q.evaluate(() => { location.hash = '#clips'; }); await q.waitForTimeout(800);
+    ok(await q.locator('.clip-meta .av').count() > 0, '動画の一覧にもアイコンが出る');
+    // 写真
+    await q.evaluate((h) => { location.hash = h; }, myHash); await q.waitForTimeout(500);
+    await q.click('[data-act="icon-edit"]'); await q.waitForSelector('.ice');
+    await q.click('[data-act="ice-kind"][data-v="p"]');
+    ok(await q.locator('[data-act="ice-save"][disabled]').count() === 1, '写真を選ぶまで「これにする」は押せない');
+    await q.setInputFiles('#ice-file', 'dev/fixtures-face.jpg'); await q.waitForSelector('#ice-crop');
+    const box = await q.locator('#ice-crop').boundingBox();
+    await q.mouse.move(box.x + box.width / 2, box.y + box.height / 2); await q.mouse.down(); await q.mouse.move(box.x + box.width / 2 + 60, box.y + box.height / 2, { steps: 5 }); await q.mouse.up();
+    await q.locator('#ice-zoom').fill('1.6');
+    await shot(q, '22-icon-photo');
+    await q.click('[data-act="ice-save"]'); await q.waitForSelector('.ice', { state: 'detached', timeout: 5000 });
+    ok(await q.locator('.profile-t h1 img.av').count() === 1, '写真を丸く切り抜いて、アイコンにできる');
+    // ほかの人（マネージャー）から見る・元に戻す
+    const c4 = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 1, isMobile: true, hasTouch: true, reducedMotion: 'reduce' });
+    await c4.route(/fonts\.(googleapis|gstatic)\.com/, (r) => r.abort());
+    await c4.addInitScript(() => { localStorage.setItem('kintoreTest.guided', '1'); });
+    const g4 = await c4.newPage(); g4.on('pageerror', (e) => errors.push(e.message)); g4.on('dialog', (d) => d.accept());
+    await g4.goto(BASE); await g4.waitForSelector('.login-gate');
+    await pick(g4, 'マネ 花子');
+    await g4.fill('form[data-form="mlogin"] input[name="pin"]', 'test-mgr-01');
+    await g4.click('form[data-form="mlogin"] button[type="submit"]'); await g4.waitForSelector('.board'); await g4.waitForTimeout(500);
+    await g4.evaluate((h) => { location.hash = h; }, myHash); await g4.waitForTimeout(1500);
+    ok(await g4.locator('.profile-t h1 img.av').count() === 1, 'ほかの人の画面にも写真のアイコンが出る（写真はあとから取る）');
+    ok(await g4.locator('[data-act="icon-edit"]').count() === 0 && await g4.locator('[data-act="icon-reset"]').count() === 1, 'マネージャーには「アイコンを元に戻す」だけが出る');
+    await g4.click('[data-act="icon-reset"]'); await g4.waitForTimeout(1200);
+    ok(await g4.locator('.profile-t h1 .av-i').count() === 1, '元に戻すと頭文字のアイコンになる');
+    await c4.close(); await c3.close();
+  }
+
   console.log('■ 見るだけの人');
   const g = await mk();
   await g.p.goto(BASE); await g.p.waitForSelector('.login-gate');

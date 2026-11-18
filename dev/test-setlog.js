@@ -301,6 +301,35 @@ section('テスト環境の守り');
 ok(api({ op: 'saveMember', token: A, member: { id: id['森 健太'], name: '森 健太', grade: '2年' } }).error === 'test_env', 'テスト環境からは会計アプリの名簿を書き換えられない');
 ok(gas.run('withReq', (f) => f.weeklyBackup_()) === null, 'テスト環境ではバックアップを取らない');
 
+section('アイコン（一人一人が決める）');
+{
+  const IS = id['石川 大地'], MOi = id['森 健太'];
+  const jpg = Buffer.concat([Buffer.from([0xFF, 0xD8, 0xFF, 0xE0]), Buffer.alloc(600, 7)]).toString('base64');
+  let r = api({ op: 'setIcon', token: ISHI, kind: 'e', emoji: '🔥', color: '#8c1d2f' });
+  ok(r.ok && r.ic === 'e:#8c1d2f:🔥', '絵文字と背景の色でアイコンを決められる');
+  ok(api({ op: 'state', token: MORI2 }).members.find((m) => m.id === IS).ic === 'e:#8c1d2f:🔥', 'ほかの人の画面にもアイコンが出る（部員の一覧に入る）');
+  ok(api({ op: 'setIcon', token: ISHI, kind: 'e', emoji: 'abc', color: '#8c1d2f' }).error === 'bad_icon', '絵文字でない文字はだめ');
+  ok(api({ op: 'setIcon', token: ISHI, kind: 'e', emoji: '<b>', color: '#8c1d2f' }).error === 'bad_icon', 'タグのような文字はだめ');
+  ok(api({ op: 'setIcon', token: ISHI, kind: 'e', emoji: '🔥', color: 'red' }).error === 'bad_icon', '決まった色のほかはだめ');
+  r = api({ op: 'setIcon', token: ISHI, kind: 'p', data: jpg });
+  ok(r.ok && /^p:/.test(r.ic) && r.data === jpg, '写真でもアイコンを決められる');
+  const rows = gas.sheet('アイコン写真').data.filter((row) => row[0] === IS);
+  ok(rows.length === 1, '写真は「アイコン写真」に1人1行');
+  const ic = api({ op: 'icons', token: MORI2, ids: [IS, MOi] });
+  ok(ic.ok && ic.icons[IS] === jpg && !ic.icons[MOi] && ic.vers[IS] === r.ic, 'ほかの人は写真をまとめて取れる（版も一緒に）');
+  r = api({ op: 'setIcon', token: ISHI, kind: 'p', data: jpg });
+  ok(gas.sheet('アイコン写真').data.filter((row) => row[0] === IS).length === 1, '写真を変えても行は増えない');
+  ok(api({ op: 'setIcon', token: ISHI, kind: 'p', data: Buffer.from('not a jpeg, just text that is long enough to pass the size check '.repeat(5)).toString('base64') }).error === 'bad_icon', 'JPEG でないものはだめ');
+  ok(api({ op: 'setIcon', token: ISHI, kind: 'p', data: Buffer.concat([Buffer.from([0xFF, 0xD8]), Buffer.alloc(40 * 1024)]).toString('base64') }).error === 'bad_icon', '大きすぎる写真はだめ');
+  ok(api({ op: 'resetIcon', token: MORI2, memberId: IS }).error === 'forbidden', '選手はほかの人のアイコンを戻せない');
+  r = api({ op: 'resetIcon', token: MG, memberId: IS });
+  ok(r.ok && !api({ op: 'state', token: MORI2 }).members.find((m) => m.id === IS).ic && !gas.sheet('アイコン写真').data.some((row) => row[0] === IS), 'マネージャーはアイコンを元に戻せる（写真も消える）');
+  api({ op: 'setIcon', token: MORI2, kind: 'e', emoji: '💪', color: '#1f3a68' });
+  r = api({ op: 'setIcon', token: MORI2, kind: '' });
+  ok(r.ok && r.ic === '' && !api({ op: 'state', token: ISHI }).members.find((m) => m.id === MOi).ic, '自分でアイコンを外せる');
+  ok(api({ op: 'setIcon', token: G, kind: 'e', emoji: '🔥', color: '#8c1d2f' }).error === 'forbidden', '見るだけの人はアイコンを決めない');
+}
+
 console.log('\n==============================');
 console.log('合格 ' + pass + ' / 不合格 ' + fail);
 if (fail) { console.log('不合格：\n- ' + failed.join('\n- ')); process.exit(1); }

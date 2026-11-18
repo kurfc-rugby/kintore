@@ -1003,6 +1003,20 @@ ok(res2 === 'ok' && gas.sheet('旧_部員（v1）') && !gas.sheet('旧_部員（
 const pin2 = gas.run('registerAdmin_', '長谷川 湊');
 ok(/^\d{6}$/.test(pin2) && api({ op: 'state' }).staff.some((s) => s.name === '長谷川 湊'), 'スプレッドシートのメニューから名簿にいる人を管理者にできる');
 
+section('同じ名前の関数（あとの方が前の方を上書きしてしまう）');
+for (const f of ['app.js', 'logic.js', 'sw.js', 'gas/Code.gs']) {
+  const src = require('fs').readFileSync(require('path').join(__dirname, '..', f), 'utf8');
+  const seen = {}, dup = [];
+  src.split('\n').forEach((line) => { const mm = line.match(/^(\s*)(?:async\s+)?function\s+([A-Za-z0-9_$]+)\s*\(/); if (mm) { const k = mm[1].length + ':' + mm[2]; if (seen[k]) dup.push(mm[2]); seen[k] = 1; } });
+  ok(!dup.length, f + '：同じ名前の関数がない' + (dup.length ? '（' + dup.join('、') + '）' : ''));
+}
+{ // ボタンの動き（data-act）の名前が2つあると、あとの方だけが動く
+  const src = require('fs').readFileSync(require('path').join(__dirname, '..', 'app.js'), 'utf8');
+  const seen = {}, dup = [];
+  src.split('\n').forEach((line) => { const mm = line.match(/^    '([a-z0-9-]+)':/); if (mm) { if (seen[mm[1]]) dup.push(mm[1]); seen[mm[1]] = 1; } });
+  ok(!dup.length, 'app.js：ボタンの動きの名前（data-act）が重なっていない' + (dup.length ? '（' + dup.join('、') + '）' : ''));
+}
+
 console.log('\n==============================');
 console.log('合格 ' + pass + ' / 不合格 ' + fail);
 if (fail) { console.log('不合格:\n - ' + failed.join('\n - ')); process.exit(1); }

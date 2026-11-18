@@ -1528,3 +1528,43 @@ body.cam-open { overflow: hidden; }
 .qsw { display: flex; flex-direction: column; gap: 8px; }
 .qsw .btn { justify-content: flex-start; text-align: left; flex-wrap: wrap; gap: 2px 10px; min-height: 48px; }
 .qsw .btn small { font-weight: 400; opacity: .8; }
+
+/* ---------- アイコン（一人一人が決める） ---------- */
+.av { display: inline-grid; place-items: center; flex: none; width: 28px; height: 28px; border-radius: 50%; object-fit: cover; overflow: hidden; vertical-align: middle; line-height: 1; font-size: 16px; background: var(--soft); box-shadow: 0 0 0 1px var(--line); user-select: none; }
+.av-e { background: var(--av); box-shadow: none; }
+.av-i { background: var(--soft); color: var(--sub); font-weight: 800; font-size: 13px; }
+.av-xs { width: 20px; height: 20px; font-size: 11.5px; }
+.av-xs.av-i { font-size: 10px; }
+.av-sm { width: 28px; height: 28px; font-size: 16px; }
+.av-md { width: 36px; height: 36px; font-size: 20px; }
+.av-xl { width: 128px; height: 128px; font-size: 68px; }
+.av-xl.av-i { font-size: 48px; }
+.rname.has-av { display: flex; align-items: center; gap: 8px; }
+.rname.has-av > span { min-width: 0; }
+.pod-j { position: relative; display: flex; justify-content: center; width: 100%; }
+.pod-j .av-badge { position: absolute; right: 2%; top: -4px; width: 30%; height: auto; aspect-ratio: 1; max-width: 40px; font-size: clamp(12px, 4.2vw, 22px); box-shadow: 0 0 0 2px var(--paper); }
+.goal-list a > .av { align-self: center; margin-right: -2px; }
+.self-t > .av { margin-right: 5px; vertical-align: -4px; }
+.mrow-n b.has-av { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.clip-meta b { display: flex; align-items: center; gap: 5px; }
+.clip-who a { display: inline-flex; align-items: center; gap: 8px; }
+.profile-t h1 { display: flex; align-items: center; gap: 8px; }
+.icon-bar { margin: -6px 0 12px; }
+.icon-bar .btn .av { margin-right: 6px; }
+.ice { display: grid; gap: 12px; }
+.ice-prev { display: grid; place-items: center; padding: 4px 0; }
+.ice-crop { width: min(70vw, 256px); height: auto; aspect-ratio: 1; border-radius: 50%; touch-action: none; cursor: grab; box-shadow: 0 0 0 3px var(--ink); background: #fff; }
+.ice-tabs { justify-self: center; }
+.ice-h { font-size: 13px; font-weight: 800; color: var(--sub); margin: 2px 0 -4px; }
+.ice-emojis { display: grid; grid-template-columns: repeat(8, 1fr); gap: 4px; }
+.ice-em { aspect-ratio: 1; border: 1px solid var(--line); border-radius: 10px; background: var(--paper); font-size: 22px; line-height: 1; padding: 0; }
+.ice-em.on { border: 2px solid var(--ink); background: var(--soft); }
+.ice-other { display: grid; gap: 4px; font-size: 13px; font-weight: 700; color: var(--sub); }
+.ice-other input { font-size: 18px; }
+.ice-colors { display: grid; grid-template-columns: repeat(8, 1fr); gap: 6px; max-width: 360px; }
+.ice-col { width: 100%; height: auto; aspect-ratio: 1; padding: 0; border-radius: 50%; border: 0; background: var(--av); box-shadow: 0 0 0 1px var(--line); }
+.ice-col.on { box-shadow: 0 0 0 3px var(--paper), 0 0 0 5px var(--ink); }
+.ice-photo-btns { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; }
+.ice-photo-btns .btn { cursor: pointer; }
+.ice-zoom { display: grid; gap: 4px; font-size: 13px; font-weight: 700; color: var(--sub); }
+.ice .actions { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; }

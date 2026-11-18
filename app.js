@@ -3,7 +3,7 @@
   'use strict';
   const L = window.KLogic;
   const API = window.KINTORE_API;
-  const VERSION = '2.22.0-t26';
+  const VERSION = '2.22.0-t28';
   const WD = ['日', '月', '火', '水', '木', '金', '土'];
   const PERM = { admin: '管理者', manager: 'マネージャー', leader: 'FWリーダー', member: '一般部員', guest: '見るだけ' };
   const MODE = { leader: 'メニュー参加', self: '自主トレ' };
@@ -669,7 +669,7 @@
     let h = '<section class="block goal"><div class="block-h"><h2>週' + g + '回（マスト）' + (isNow ? 'まだの人' : '届かなかった人') + '</h2><span class="count">' + miss.length + '人</span></div>';
     if (!miss.length) h += '<p class="goal-all">' + icon('check') + '全員が週' + g + '回を達成' + (isNow ? 'しています' : 'しました') + '。</p>';
     else {
-      const li = (r) => '<li><a href="#member/' + r.id + '"><span class="goal-n">' + esc(r.name) + '</span>' +
+      const li = (r) => '<li><a href="#member/' + r.id + '">' + avatarOf(r.id, 'av-xs') + '<span class="goal-n">' + esc(r.name) + '</span>' +
         '<span class="goal-c"><b class="num">' + r.w.count + '</b>/' + r.w.need + '</span>' +
         '<span class="goal-s' + (isNow ? '' : ' ng') + '">' + (isNow ? 'あと' + r.w.left : '届かず') + '</span></a></li>';
       const FIRST = 8;
@@ -745,7 +745,7 @@
     const order = !tie && top.length === 3 ? [top[1], top[0], top[2]] : top;
     return '<ol class="podium n' + top.length + (tie ? ' tie' + (top.length > 3 ? ' many' : '') : '') + '">' + order.map((r) =>
       '<li class="pod r' + r.rank + (r.rank === 1 ? ' lead' : '') + '"><a href="#member/' + r.id + '" aria-label="' + r.rank + '位 ' + esc(r.name) + ' ' + r.done + '回">' +
-      jersey({ num: r.rank, suffix: '位', name: r.name.split(/\s+/)[0], shine: r.rank === 1 && top.filter((x) => x.rank === 1).length === 1 }) +
+      '<span class="pod-j">' + jersey({ num: r.rank, suffix: '位', name: r.name.split(/\s+/)[0], shine: r.rank === 1 && top.filter((x) => x.rank === 1).length === 1 }) + avatarOf(r.id, 'av-badge') + '</span>' +
       '<span class="pod-name">' + esc(r.name) + '</span>' +
       '<span class="pod-val"><span class="num">' + r.done + '</span>回' + (r.rate !== null ? '<small>' + Math.round(r.rate * 100) + '%</small>' : '') + '</span>' +
       '</a></li>').join('') + '</ol>';
@@ -753,7 +753,7 @@
   function rankRow(r) {
     return '<li class="rrank' + (r.rank && r.rank <= 3 ? ' is-top' : '') + '"><a href="#member/' + r.id + '">' +
       '<span class="rk">' + (r.rank === null ? '－' : r.rank + '<small>位</small>') + '</span>' +
-      '<span class="rname"><b>' + esc(r.name) + '</b><small><span class="pos-tag g-' + (r.group || 'X') + '">' + posLabel(r) + '</span></small></span>' +
+      (iconsOn() ? '<span class="rname has-av">' + avatarOf(r.id, 'av-sm') + '<span>' : '<span class="rname">') + '<b>' + esc(r.name) + '</b><small><span class="pos-tag g-' + (r.group || 'X') + '">' + posLabel(r) + '</span></small></span>' + (iconsOn() ? '</span>' : '') +
       '<span class="rcount"><span class="num">' + r.done + '</span>回</span>' +
       '<span class="rrate">' + (r.rate === null ? '<span class="dash">－</span>' : '<span class="num">' + Math.round(r.rate * 100) + '</span>%') + '</span>' +
       '</a></li>';
@@ -899,7 +899,7 @@
     const ms = milestoneOf(m);
     if (ms && !store.get('cele:' + m.id + ':' + ms.key, 0)) S.celebrate = { key: 'cele:' + m.id + ':' + ms.key, text: '通算' + ms.n + '回になりました' };
     return '<a class="selfcard' + (ms ? ' mile' : '') + '" href="#member/' + m.id + '"><span class="self-j">' + jersey({ num: c, name: m.name.split(/\s+/)[0] }) + '</span>' +
-      '<span class="self-t"><small>わたし</small><b>' + esc(m.name) + '</b>' + (ms ? '<span class="self-m">通算<b class="num">' + ms.n + '</b>回 達成！</span>' : '') +
+      '<span class="self-t"><small>わたし</small>' + avatar(m, 'av-xs') + '<b>' + esc(m.name) + '</b>' + (ms ? '<span class="self-m">通算<b class="num">' + ms.n + '</b>回 達成！</span>' : '') +
       '<span class="self-s' + (hit ? ' ok' : '') + '">' + state + (streak ? '・' + streak + '週連続' : '') + '</span>' +
       '<span class="self-p">' + vsLastWeek(c, lastWeekSoFar(m, today)) + '</span>' +
       (sum.total ? '<span class="self-c">' + fromNames(recent) + '応援が届いています ' + sum.html + '</span>' : '') + '</span>' + icon('next') + '</a>';
@@ -1110,7 +1110,7 @@
       const r = cnt[m.id];
       return '<li><a href="#member/' + m.id + '">' +
         '<span class="rec-pos g-' + (m.player ? (m.group || 'X') : 'X') + '">' + (m.player ? esc(m.position || m.group || '－') : 'MG') + '</span>' +
-        '<span class="mrow-n"><b>' + esc(m.name) + '</b><small>' + (m.grade ? esc(m.grade) + '・' : '') + (m.player ? posText(m) + '・' + MODE[m.mode] : esc(m.clubRole)) +
+        '<span class="mrow-n">' + (iconsOn() ? '<b class="has-av">' + avatar(m, 'av-xs') + esc(m.name) + '</b>' : '<b>' + esc(m.name) + '</b>') + '<small>' + (m.grade ? esc(m.grade) + '・' : '') + (m.player ? posText(m) + '・' + MODE[m.mode] : esc(m.clubRole)) +
         (m.perm !== 'member' ? '<span class="chip role">' + PERM[m.perm] + '</span>' : '') + '</small></span>' +
         (m.player ? '<span class="mrow-c">今月<span class="num">' + (r ? r.done : 0) + '</span>回</span>' : '<span class="mrow-c"></span>') + '</a></li>';
     };
@@ -1151,11 +1151,15 @@
     const pos = posOf(m.position);
     let h = '<div class="profile"><a class="ibtn back" href="#members" data-act="go-back" aria-label="戻る">' + icon('back') + '</a>' +
       '<div class="profile-j">' + jersey({ num: pos ? pos.numbers[0] : '', name: m.name.split(/\s+/)[0] }) + '</div>' +
-      '<div class="profile-t"><h1>' + esc(m.name) + '</h1>' +
+      '<div class="profile-t"><h1>' + (iconsOn() ? avatar(m, 'av-md') : '') + esc(m.name) + '</h1>' +
       '<p class="profile-pos">' + (m.player ? (pos ? '<b>' + esc(pos.code) + '</b>' + esc(pos.name) : '<b>' + esc(m.group || '－') + '</b>ポジション未設定') + (m.subs && m.subs.length ? '<span>サブ ' + m.subs.map(esc).join('・') + '</span>' : '') : '<b>' + esc(m.clubRole) + '</b>') + '</p>' +
       '<div class="chips">' + (m.grade ? '<span class="chip">' + esc(m.grade) + '</span>' : '') + (m.player ? '<span class="chip mode-' + m.mode + '">' + MODE[m.mode] + '</span>' : '') +
       (m.perm !== 'member' ? '<span class="chip role">' + PERM[m.perm] + '</span>' : '') + (!m.active ? '<span class="chip">在籍なし</span>' : '') + '</div></div>' +
       (can('admin') ? '<button class="btn small" data-act="member-edit" data-id="' + m.id + '">編集</button>' : '') + '</div>';
+    if (iconsOn() && me() && me().perm !== 'guest') {
+      if (me().id === m.id) h += '<div class="toolbar icon-bar"><button class="btn small" data-act="icon-edit">' + avatar(m, 'av-xs') + (m.ic ? 'アイコンを変える' : 'アイコンを決める') + '</button></div>';
+      else if (m.ic && (can('admin') || me().perm === 'manager')) h += '<div class="toolbar icon-bar"><button class="btn small" data-act="icon-reset" data-id="' + m.id + '">アイコンを元に戻す</button></div>';
+    }
     if (!m.player) return h + '<p class="empty">選手ではないため、筋トレの記録はありません。</p>';
     const ms = milestoneOf(m);
     if (ms) h += '<section class="mile-card"><div class="mile-n"><span class="num">' + ms.n + '</span><small>回</small></div><div class="mile-t"><b>通算' + ms.n + '回 達成</b><small>' + mdw(ms.date) + '・これまでの「実施した」が' + ms.n + '回になりました</small>' +
@@ -1411,7 +1415,7 @@
     const mine = (d.exempts || []).filter((e) => e.memberId === m.id).sort((a, b) => (a.from < b.from ? 1 : -1));
     const staff = can('record');
     if (!mine.length && !staff) return '';
-    let h = '<section class="block"><div class="block-h"><h2>免除</h2>' + (staff ? '<button class="btn small" data-act="ex-new" data-id="' + m.id + '">' + icon('plus') + '免除を追加</button>' : '') + '</div>';
+    let h = '<section class="block"><div class="block-h"><h2>免除</h2>' + (staff ? '<button class="btn small" data-act="exempt-new" data-id="' + m.id + '">' + icon('plus') + '免除を追加</button>' : '') + '</div>';
     if (!mine.length) h += '<p class="empty small">けが・病気などで筋トレできない期間を登録すると、その日は週' + goal() + '回の判定とメニューの対象から外れます。</p>';
     else h += '<ul class="exlist">' + mine.map((e) => exRow(e, today)).join('') + '</ul>';
     return h + '</section>';
@@ -1421,7 +1425,7 @@
     const canDel = can('admin') || (can('record') && e.memberId !== 'ALL' && e.createdBy === me().id);
     return '<li><span class="ex-d">' + mdw(e.from) + '〜' + mdw(e.to) + '<small class="ex-st s-' + (state === '期間中' ? 'now' : state === '予定' ? 'next' : 'past') + '">' + state + '</small></span>' +
       '<span class="ex-r">' + esc((e.reason || '免除').replace('怪我', 'けが')) + (e.note ? '<small>' + esc(e.note) + '</small>' : '') + '</span>' +
-      (canDel ? '<button class="textbtn" data-act="ex-del" data-id="' + e.id + '">取り消す</button>' : '') + '</li>';
+      (canDel ? '<button class="textbtn" data-act="exempt-del" data-id="' + e.id + '">取り消す</button>' : '') + '</li>';
   }
   function openExempt(memberId) {
     const team = memberId === 'ALL';
@@ -1444,7 +1448,7 @@
     openSheet('部全体のオフ期間',
       '<p class="lead-line small">試験期間・合宿・年末年始など、部全体で筋トレの目標をなしにする期間です。この期間は全員の「週' + goal() + '回」とメニューの対象から外れます。</p>' +
       (offs.length ? '<ul class="exlist">' + offs.map((e) => exRow(e, today)).join('') + '</ul>' : '<p class="empty small">まだ登録されていません。</p>') +
-      '<div class="actions"><button class="btn" data-act="sheet-close">閉じる</button><button class="btn primary" data-act="ex-new" data-id="ALL">' + icon('plus') + 'オフ期間を追加</button></div>');
+      '<div class="actions"><button class="btn" data-act="sheet-close">閉じる</button><button class="btn primary" data-act="exempt-new" data-id="ALL">' + icon('plus') + 'オフ期間を追加</button></div>');
   }
 
   // ---------- メニュー ----------
@@ -1591,7 +1595,7 @@
     }
     return /首/.test(name) ? ['首'] : [];
   }
-  function exRow(x) {
+  function exLibRow(x) {
     const pts = (x.points || '').split('\n')[0];
     return '<li><button class="exlib-v" data-act="ex-open" data-id="' + x.id + '"><span class="exlib-play">' + icon('play') + '</span><span class="exlib-t"><b>' + esc(x.name) + '</b>' +
       (x.parts.length || (x.gear || []).length ? '<span class="exparts">' + x.parts.map((p) => '<i>' + p + '</i>').join('') + gearTag(x.gear) + '</span>' : '') +
@@ -1614,10 +1618,10 @@
     if (parts.length) h += '<div class="fbar"><div class="seg small exparts-bar" role="group" aria-label="部位別">' +
       '<button data-act="ex-part" data-v="" aria-pressed="' + !S.exPart + '">すべて</button>' +
       parts.map((p) => '<button data-act="ex-part" data-v="' + p + '" aria-pressed="' + (S.exPart === p) + '">' + p + '<small>' + count[p] + '</small></button>').join('') + '</div></div>';
-    if (S.exPart) return h + '<ul class="exlib">' + ex.filter((x) => x.parts.indexOf(S.exPart) >= 0).map(exRow).join('') + '</ul>';
+    if (S.exPart) return h + '<ul class="exlib">' + ex.filter((x) => x.parts.indexOf(S.exPart) >= 0).map(exLibRow).join('') + '</ul>';
     // すべて：いちばん初めの部位ごとに見出し（部位なしは最後）
     const groups = EX_PARTS.map((p) => [p, ex.filter((x) => x.parts[0] === p)]).concat([['そのほか', ex.filter((x) => !x.parts.length)]]).filter((g) => g[1].length);
-    return h + groups.map((g) => (groups.length > 1 ? '<h2 class="dayhead">' + g[0] + '</h2>' : '') + '<ul class="exlib">' + g[1].map(exRow).join('') + '</ul>').join('');
+    return h + groups.map((g) => (groups.length > 1 ? '<h2 class="dayhead">' + g[0] + '</h2>' : '') + '<ul class="exlib">' + g[1].map(exLibRow).join('') + '</ul>').join('');
   }
   // ---------- まとめて登録：SAVAS「筋トレ辞典」（自重・ダンベルなど）と LIFE FIT「マシンの使い方」 ----------
   const SV_SRC = {
@@ -2571,7 +2575,7 @@
       { r: 'record', sel: '.rec-more', t: 'その他', p: '<b>1週間まとめて記録・修正</b>（表）と、<b>取り消した記録</b>はここです。' },
       { r: 'record', sel: segOf('[data-act="rec-sort"]'), t: '並び順', p: '名前順・ポジション順などに並べ替えられます。FW・BKの絞り込みも上にあります。' },
       { r: 'home', sel: '.share-row', t: 'LINEで知らせる', p: '「まだの人」の一覧を、<b>LINE用の文章</b>にしてコピー・送信できます。' },
-      { r: 'member', arg: firstPlayer, sel: '[data-act="ex-new"][data-id]', t: '免除', p: 'けが・試験などで今週休む人は、その人のページで<b>「免除を追加」</b>。週{g}回の対象から外れます。' }
+      { r: 'member', arg: firstPlayer, sel: '[data-act="exempt-new"][data-id]', t: '免除', p: 'けが・試験などで今週休む人は、その人のページで<b>「免除を追加」</b>。週{g}回の対象から外れます。' }
     ] },
     leader: { name: 'FWリーダー', perm: 'menu', steps: [
       { r: 'menus', prep: () => { S.menuTab = 'upcoming'; }, sel: '[data-act="menu-new"]', t: 'メニューを作る', p: '日付・対象（全体・FW・BK・ポジション）・内容を入れて保存すると、対象の人に<b>通知</b>が届きます。' },
@@ -3078,6 +3082,154 @@
   const gated = () => !!(S.data && (S.data.locked || S.data.needLogin));
   const loginAll = () => !!(S.data && (S.data.loginAll || S.data.needLogin));
   const mePlayer = () => { const m = me(); if (!m || !S.data.members) return null; const x = S.data.members.find((y) => y.id === m.id); return x && x.player && x.active ? x : null; };
+
+  // ---------- アイコン（一人一人が決める。絵文字と背景の色、または写真） ----------
+  // 部員の ic：「e:色:絵文字」か「p:版」。写真は op icons でまとめて取り、端末に版ごとにしまう（localStorage の icons）
+  const ICON_COLORS = ['#8c1d2f', '#1b1b1b', '#1f3a68', '#2b7bb9', '#1f7a4d', '#b8860b', '#c2185b', '#6b7280'];
+  const ICON_EMOJIS = ['🔥', '💪', '🏉', '⚡', '🌟', '😎', '🦁', '🐯', '🐻', '🐺', '🦍', '🦅', '🐉', '🦈', '🐗', '🐂', '🥩', '🍙', '👊', '🛡️', '⚔️', '🎯', '🚀', '👑', '💯', '🌊', '🌸', '🍀', '☀️', '🌙', '🎸', '🐶'];
+  S.icons = store.get('icons', {});
+  let iconWant = null;
+  const iconsOn = () => !!(S.data && S.data.loginAll);
+  function iconPhoto(m) {
+    const c = S.icons[m.id];
+    if (c && c.v === m.ic) return c.d;
+    if (!iconWant) { iconWant = new Set(); setTimeout(fetchIcons, 0); }
+    iconWant.add(m.id);
+    return '';
+  }
+  async function fetchIcons() {
+    const ids = [...(iconWant || [])]; iconWant = null;
+    if (!ids.length) return;
+    try {
+      const r = await api('icons', { ids: ids });
+      ids.forEach((id) => { const m = memberById(id); S.icons[id] = { v: (r.vers && r.vers[id]) || (m && m.ic) || '', d: (r.icons && r.icons[id]) || '' }; });
+      saveIcons();
+      if (!$('#cam-root .cam')) render();
+    } catch (e) { /* 次に開いたときにもう一度 */ }
+  }
+  function saveIcons() {
+    const keep = {};
+    (S.data.members || []).forEach((m) => { if (m.ic && m.ic.slice(0, 2) === 'p:' && S.icons[m.id] && S.icons[m.id].v === m.ic) keep[m.id] = S.icons[m.id]; });
+    S.icons = keep;
+    store.set('icons', keep);
+  }
+  const iconInitial = (name) => Array.from(String(name || '').trim())[0] || '？';
+  /** 部員のアイコン。cls：av-xs（20px）・av-sm（28px）・av-md（36px）・av-lg（72px）・av-badge（ジャージの上） */
+  function avatar(m, cls) {
+    if (!m || !iconsOn()) return '';
+    const c = 'av' + (cls ? ' ' + cls : ''), ic = m.ic || '';
+    if (ic.slice(0, 2) === 'p:') {
+      const d = iconPhoto(m);
+      if (d) return '<img class="' + c + '" src="data:image/jpeg;base64,' + d + '" alt="" loading="lazy" decoding="async">';
+    }
+    if (ic.slice(0, 2) === 'e:') {
+      const i = ic.indexOf(':', 2), col = ic.slice(2, i), em = ic.slice(i + 1);
+      if (ICON_COLORS.indexOf(col) >= 0) return '<span class="' + c + ' av-e" style="--av:' + col + '" aria-hidden="true">' + esc(em) + '</span>';
+    }
+    return '<span class="' + c + ' av-i" aria-hidden="true">' + esc(iconInitial(m.name)) + '</span>';
+  }
+  const avatarOf = (id, cls) => avatar(memberById(id), cls);
+  // 自分のアイコンを決めるシート
+  function openIconEditor() {
+    const m = me() && memberById(me().id);
+    if (!m) return;
+    const ic = m.ic || '', isE = ic.slice(0, 2) === 'e:', i = isE ? ic.indexOf(':', 2) : -1;
+    S.iced = { kind: ic.slice(0, 2) === 'p:' ? 'p' : 'e', emoji: isE ? ic.slice(i + 1) : '🔥', color: isE ? ic.slice(2, i) : ICON_COLORS[0], img: null, zoom: 1, x: 0, y: 0, had: !!ic };
+    openSheet('自分のアイコン', iconEditorHtml());
+    iconEditorWire();
+  }
+  function iconEditorHtml() {
+    const E = S.iced, m = memberById(me().id);
+    const prev = E.kind === 'e' ? '<span class="av av-xl av-e" style="--av:' + E.color + '">' + esc(E.emoji) + '</span>' :
+      E.img ? '<canvas class="ice-crop" id="ice-crop" width="256" height="256" aria-label="写真の位置と大きさ（指で動かせます）"></canvas>' : avatar(m, 'av-xl');
+    return '<div class="ice"><div class="ice-prev">' + prev + '</div>' +
+      '<div class="seg ice-tabs" role="group" aria-label="アイコンの種類"><button data-act="ice-kind" data-v="e" aria-pressed="' + (E.kind === 'e') + '">絵文字</button><button data-act="ice-kind" data-v="p" aria-pressed="' + (E.kind === 'p') + '">写真</button></div>' +
+      (E.kind === 'e' ?
+        '<p class="ice-h">絵文字</p><div class="ice-emojis">' + ICON_EMOJIS.map((x) => '<button class="ice-em' + (x === E.emoji ? ' on' : '') + '" data-act="ice-emoji" data-v="' + esc(x) + '" aria-pressed="' + (x === E.emoji) + '">' + esc(x) + '</button>').join('') + '</div>' +
+        '<label class="ice-other">ほかの絵文字<input id="ice-other" maxlength="8" inputmode="text" autocomplete="off" placeholder="キーボードの絵文字を1つ" value="' + (ICON_EMOJIS.indexOf(E.emoji) < 0 ? esc(E.emoji) : '') + '"></label>' +
+        '<p class="ice-h">背景の色</p><div class="ice-colors">' + ICON_COLORS.map((c) => '<button class="ice-col' + (c === E.color ? ' on' : '') + '" style="--av:' + c + '" data-act="ice-color" data-v="' + c + '" aria-label="色 ' + c + '" aria-pressed="' + (c === E.color) + '"></button>').join('') + '</div>' :
+        '<div class="ice-photo-btns"><label class="btn">' + icon('cam') + '写真を撮る<input type="file" accept="image/*" capture="user" id="ice-cam" hidden></label>' +
+        '<label class="btn">アルバムから選ぶ<input type="file" accept="image/*" id="ice-file" hidden></label></div>' +
+        (E.img ? '<label class="ice-zoom">大きさ<input type="range" id="ice-zoom" min="1" max="3" step="0.01" value="' + E.zoom + '"></label><p class="hint">写真を指で動かして、丸の中に顔を合わせてください。</p>' :
+          '<p class="hint">顔が写った写真がおすすめです。丸く切り抜いて使います。部のみんなが見るので、自分の写真か、人に見せてよいものにしてください。</p>')) +
+      '<p class="form-err" id="ice-err" role="alert" hidden></p>' +
+      '<div class="actions">' + (E.had ? '<button class="btn" data-act="ice-clear">アイコンを外す</button>' : '') +
+      '<button class="btn primary" data-act="ice-save"' + (E.kind === 'p' && !E.img ? ' disabled' : '') + '>これにする</button></div></div>';
+  }
+  function iconEditorRedraw() {
+    const b = $('#sheet-root .sheet-b');
+    if (!b || !S.iced) return;
+    b.innerHTML = iconEditorHtml();
+    iconEditorWire();
+  }
+  function iconEditorWire() {
+    const E = S.iced;
+    const other = $('#ice-other');
+    if (other) other.addEventListener('input', () => {
+      const v = Array.from(other.value.trim()).slice(0, 4).join('');
+      if (!v || /^[\x20-\x7e]+$/.test(v)) return;
+      E.emoji = v;
+      const pv = $('#sheet-root .ice-prev .av'); if (pv) pv.textContent = v;
+      document.querySelectorAll('#sheet-root .ice-em.on').forEach((x) => { x.classList.remove('on'); x.setAttribute('aria-pressed', 'false'); });
+    });
+    ['ice-cam', 'ice-file'].forEach((idn) => {
+      const f = $('#' + idn);
+      if (f) f.addEventListener('change', () => { if (f.files && f.files[0]) iconLoadPhoto(f.files[0]); });
+    });
+    const z = $('#ice-zoom');
+    if (z) z.addEventListener('input', () => { E.zoom = Number(z.value) || 1; iconClamp(); iconDrawCrop(); });
+    const cv = $('#ice-crop');
+    if (cv && E.img) {
+      iconDrawCrop();
+      let drag = null;
+      cv.addEventListener('pointerdown', (e) => { drag = { x: e.clientX, y: e.clientY, ox: E.x, oy: E.y, k: 256 / cv.getBoundingClientRect().width }; cv.setPointerCapture(e.pointerId); });
+      cv.addEventListener('pointermove', (e) => { if (!drag) return; E.x = drag.ox + (e.clientX - drag.x) * drag.k; E.y = drag.oy + (e.clientY - drag.y) * drag.k; iconClamp(); iconDrawCrop(); });
+      const end = () => { drag = null; };
+      cv.addEventListener('pointerup', end); cv.addEventListener('pointercancel', end);
+    }
+  }
+  function iconLoadPhoto(file) {
+    const url = URL.createObjectURL(file), img = new Image();
+    img.onload = () => { S.iced.img = img; S.iced.zoom = 1; S.iced.x = 0; S.iced.y = 0; iconEditorRedraw(); };
+    img.onerror = () => { URL.revokeObjectURL(url); const e = $('#ice-err'); if (e) { e.hidden = false; e.textContent = 'この写真は読み込めませんでした。別の写真を選んでください。'; } };
+    img.src = url;
+  }
+  // 写真は丸の中を必ずうめる（すき間ができない範囲でだけ動かせる）
+  function iconScale() { const E = S.iced; return Math.max(256 / E.img.naturalWidth, 256 / E.img.naturalHeight) * E.zoom; }
+  function iconClamp() {
+    const E = S.iced, k = iconScale(), mx = Math.max(0, (E.img.naturalWidth * k - 256) / 2), my = Math.max(0, (E.img.naturalHeight * k - 256) / 2);
+    E.x = Math.max(-mx, Math.min(mx, E.x)); E.y = Math.max(-my, Math.min(my, E.y));
+  }
+  function iconDraw(ctx, size) {
+    const E = S.iced, k = iconScale() * size / 256, w = E.img.naturalWidth * k, h = E.img.naturalHeight * k;
+    ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, size, size);
+    ctx.drawImage(E.img, size / 2 - w / 2 + E.x * size / 256, size / 2 - h / 2 + E.y * size / 256, w, h);
+  }
+  function iconDrawCrop() { const cv = $('#ice-crop'); if (cv && S.iced.img) iconDraw(cv.getContext('2d'), 256); }
+  async function iconSave(btn, clear) {
+    const E = S.iced, m = memberById(me().id);
+    const err = (t) => { const e = $('#ice-err'); if (e) { e.hidden = false; e.textContent = t; } };
+    let req;
+    if (clear) req = { kind: '' };
+    else if (E.kind === 'e') req = { kind: 'e', emoji: E.emoji, color: E.color };
+    else {
+      if (!E.img) return err('写真を選んでください。');
+      const c = document.createElement('canvas'); c.width = 128; c.height = 128;
+      iconDraw(c.getContext('2d'), 128);
+      req = { kind: 'p', data: c.toDataURL('image/jpeg', 0.85).split(',')[1] || '' };
+    }
+    await busy(btn, async () => {
+      try {
+        const r = await api('setIcon', req);
+        m.ic = r.ic || '';
+        if (r.data) S.icons[m.id] = { v: r.ic, d: r.data };
+        saveIcons();
+        if (E.img && E.img.src) URL.revokeObjectURL(E.img.src);
+        S.iced = null; closeSheet(); render();
+        toast(clear ? 'アイコンを外しました' : 'アイコンを変えました');
+      } catch (e) { err(e.message); }
+    });
+  }
   const GRADE_ORDER = ['4年', '3年', '2年', '1年', 'M2', 'M1'];
   /** ログインの画面（ログインしていない人に出すのはこれだけ） */
   function loginView() {
@@ -3723,7 +3875,7 @@
       c.nv ? '<span class="clip-tag wait">動画を送信中</span>' : (staff && c.nf ? '<span class="clip-tag flag">気になる ' + c.nf + '</span>' : '');
     return '<button class="clip-card" data-act="clip-open" data-id="' + esc(c.id) + '">' +
       '<span class="clip-th">' + (th ? '<img src="data:image/jpeg;base64,' + th + '" alt="" loading="lazy">' : '<span class="clip-ph" aria-hidden="true">' + icon('cam') + '</span>') + tag + '</span>' +
-      '<span class="clip-meta">' + (opt && opt.noName ? '' : '<b>' + esc(memberName(c.m)) + '</b>') + '<small>' + (opt && opt.date ? mdw(c.d) + ' ' : '') + esc((c.at || '').slice(11, 16)) + '</small></span></button>';
+      '<span class="clip-meta">' + (opt && opt.noName ? '' : '<b>' + avatarOf(c.m, 'av-xs') + esc(memberName(c.m)) + '</b>') + '<small>' + (opt && opt.date ? mdw(c.d) + ' ' : '') + esc((c.at || '').slice(11, 16)) + '</small></span></button>';
   }
   function vClips() {
     const today = S.data.today, staff = can('anyStaff');
@@ -3805,7 +3957,7 @@
       '<div class="clip-cancel" id="clip-cancel" hidden><form data-form="clipcancel" class="form"><input type="hidden" name="id" value="' + esc(c.id) + '">' +
       '<label>取り消す理由<span class="opt">本人に届きます（なくてもよい）</span><input name="reason" maxlength="80" placeholder="例：ジムで撮った動画ではない"></label>' +
       '<p class="form-err" role="alert" hidden></p><div class="actions"><button type="button" class="btn" data-act="clip-cancel-close">やめる</button><button class="btn danger" type="submit">取り消す</button></div></form></div>' +
-      '<p class="hint"><a href="#member/' + encodeURIComponent(c.m) + '">' + esc(name) + ' さんのページへ</a></p>');
+      '<p class="hint clip-who"><a href="#member/' + encodeURIComponent(c.m) + '">' + avatarOf(c.m, 'av-sm') + esc(name) + ' さんのページへ</a></p>');
     try {
       let url = S.clipUrl[c.id];
       if (!url && c.nv && own) {
@@ -3990,8 +4142,8 @@
     'pin-change': () => openPinChange(false),
     'goal-open': () => openGoal(),
     'offs-open': () => openOffs(),
-    'ex-new': (el) => openExempt(el.dataset.id),
-    'ex-del': async (el) => {
+    'exempt-new': (el) => openExempt(el.dataset.id),
+    'exempt-del': async (el) => {
       // 確認のダイアログは使わず、2回押しで確定
       if (el.dataset.armed !== '1') { el.dataset.armed = '1'; el.textContent = 'もう一度押すと取り消し'; setTimeout(() => { if (el.isConnected) { el.dataset.armed = ''; el.textContent = '取り消す'; } }, 4000); return; }
       try {
@@ -4260,6 +4412,17 @@
       if (CAM.blob && !confirm('撮った動画を送らずに閉じますか？')) return; dropDraft(CAM.at); camClose();
     },
     'cam-bg': () => { camMeterStop(); camClose(); render(); toast('動画はアプリを閉じても送ります'); },
+    'icon-edit': () => openIconEditor(),
+    'ice-kind': (el) => { if (!S.iced) return; S.iced.kind = el.dataset.v === 'p' ? 'p' : 'e'; iconEditorRedraw(); },
+    'ice-emoji': (el) => { if (!S.iced) return; S.iced.emoji = el.dataset.v; iconEditorRedraw(); },
+    'ice-color': (el) => { if (!S.iced) return; S.iced.color = el.dataset.v; iconEditorRedraw(); },
+    'ice-save': (el) => iconSave(el, false),
+    'ice-clear': (el) => { if (confirm('アイコンを外しますか？（名前の頭文字が出ます）')) iconSave(el, true); },
+    'icon-reset': (el) => busy(el, async () => {
+      const m = memberById(el.dataset.id);
+      if (!m || !confirm(m.name + ' さんのアイコンを元に戻しますか？\n（ふさわしくない写真のときなど。本人はまた決め直せます）')) return;
+      try { await api('resetIcon', { memberId: m.id }); m.ic = ''; saveIcons(); render(); toast('アイコンを元に戻しました'); } catch (e) { toast(e.message, 'err'); }
+    }),
     'cam-meter-close': () => { camMeterStop(); camClose(); render(); },
     'cam-flip': () => { CAM.facing = CAM.facing === 'user' ? 'environment' : 'user'; camStart(); },
     'cam-shoot': () => camShoot(),
