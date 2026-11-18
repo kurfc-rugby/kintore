@@ -3,7 +3,7 @@
   'use strict';
   const L = window.KLogic;
   const API = window.KINTORE_API;
-  const VERSION = '2.21.1';
+  const VERSION = '2.21.2';
   const WD = ['日', '月', '火', '水', '木', '金', '土'];
   const PERM = { admin: '管理者', manager: 'マネージャー', leader: 'FWリーダー', member: '一般部員' };
   const MODE = { leader: 'メニュー参加', self: '自主トレ' };
@@ -1397,7 +1397,7 @@
     const mine = (d.exempts || []).filter((e) => e.memberId === m.id).sort((a, b) => (a.from < b.from ? 1 : -1));
     const staff = can('record');
     if (!mine.length && !staff) return '';
-    let h = '<section class="block"><div class="block-h"><h2>免除</h2>' + (staff ? '<button class="btn small" data-act="ex-new" data-id="' + m.id + '">' + icon('plus') + '免除を追加</button>' : '') + '</div>';
+    let h = '<section class="block"><div class="block-h"><h2>免除</h2>' + (staff ? '<button class="btn small" data-act="exempt-new" data-id="' + m.id + '">' + icon('plus') + '免除を追加</button>' : '') + '</div>';
     if (!mine.length) h += '<p class="empty small">けが・病気などで筋トレできない期間を登録すると、その日は週' + goal() + '回の判定とメニューの対象から外れます。</p>';
     else h += '<ul class="exlist">' + mine.map((e) => exRow(e, today)).join('') + '</ul>';
     return h + '</section>';
@@ -1407,7 +1407,7 @@
     const canDel = can('admin') || (can('record') && e.memberId !== 'ALL' && e.createdBy === me().id);
     return '<li><span class="ex-d">' + mdw(e.from) + '〜' + mdw(e.to) + '<small class="ex-st s-' + (state === '期間中' ? 'now' : state === '予定' ? 'next' : 'past') + '">' + state + '</small></span>' +
       '<span class="ex-r">' + esc((e.reason || '免除').replace('怪我', 'けが')) + (e.note ? '<small>' + esc(e.note) + '</small>' : '') + '</span>' +
-      (canDel ? '<button class="textbtn" data-act="ex-del" data-id="' + e.id + '">取り消す</button>' : '') + '</li>';
+      (canDel ? '<button class="textbtn" data-act="exempt-del" data-id="' + e.id + '">取り消す</button>' : '') + '</li>';
   }
   function openExempt(memberId) {
     const team = memberId === 'ALL';
@@ -1430,7 +1430,7 @@
     openSheet('部全体のオフ期間',
       '<p class="lead-line small">試験期間・合宿・年末年始など、部全体で筋トレの目標をなしにする期間です。この期間は全員の「週' + goal() + '回」とメニューの対象から外れます。</p>' +
       (offs.length ? '<ul class="exlist">' + offs.map((e) => exRow(e, today)).join('') + '</ul>' : '<p class="empty small">まだ登録されていません。</p>') +
-      '<div class="actions"><button class="btn" data-act="sheet-close">閉じる</button><button class="btn primary" data-act="ex-new" data-id="ALL">' + icon('plus') + 'オフ期間を追加</button></div>');
+      '<div class="actions"><button class="btn" data-act="sheet-close">閉じる</button><button class="btn primary" data-act="exempt-new" data-id="ALL">' + icon('plus') + 'オフ期間を追加</button></div>');
   }
 
   // ---------- メニュー ----------
@@ -1577,7 +1577,7 @@
     }
     return /首/.test(name) ? ['首'] : [];
   }
-  function exRow(x) {
+  function exLibRow(x) {
     const pts = (x.points || '').split('\n')[0];
     return '<li><button class="exlib-v" data-act="ex-open" data-id="' + x.id + '"><span class="exlib-play">' + icon('play') + '</span><span class="exlib-t"><b>' + esc(x.name) + '</b>' +
       (x.parts.length || (x.gear || []).length ? '<span class="exparts">' + x.parts.map((p) => '<i>' + p + '</i>').join('') + gearTag(x.gear) + '</span>' : '') +
@@ -1600,10 +1600,10 @@
     if (parts.length) h += '<div class="fbar"><div class="seg small exparts-bar" role="group" aria-label="部位別">' +
       '<button data-act="ex-part" data-v="" aria-pressed="' + !S.exPart + '">すべて</button>' +
       parts.map((p) => '<button data-act="ex-part" data-v="' + p + '" aria-pressed="' + (S.exPart === p) + '">' + p + '<small>' + count[p] + '</small></button>').join('') + '</div></div>';
-    if (S.exPart) return h + '<ul class="exlib">' + ex.filter((x) => x.parts.indexOf(S.exPart) >= 0).map(exRow).join('') + '</ul>';
+    if (S.exPart) return h + '<ul class="exlib">' + ex.filter((x) => x.parts.indexOf(S.exPart) >= 0).map(exLibRow).join('') + '</ul>';
     // すべて：いちばん初めの部位ごとに見出し（部位なしは最後）
     const groups = EX_PARTS.map((p) => [p, ex.filter((x) => x.parts[0] === p)]).concat([['そのほか', ex.filter((x) => !x.parts.length)]]).filter((g) => g[1].length);
-    return h + groups.map((g) => (groups.length > 1 ? '<h2 class="dayhead">' + g[0] + '</h2>' : '') + '<ul class="exlib">' + g[1].map(exRow).join('') + '</ul>').join('');
+    return h + groups.map((g) => (groups.length > 1 ? '<h2 class="dayhead">' + g[0] + '</h2>' : '') + '<ul class="exlib">' + g[1].map(exLibRow).join('') + '</ul>').join('');
   }
   // ---------- まとめて登録：SAVAS「筋トレ辞典」（自重・ダンベルなど）と LIFE FIT「マシンの使い方」 ----------
   const SV_SRC = {
@@ -2552,7 +2552,7 @@
       { r: 'record', sel: '.rec-more', t: 'その他', p: '<b>1週間まとめて記録・修正</b>（表）と、<b>取り消した記録</b>はここです。' },
       { r: 'record', sel: segOf('[data-act="rec-sort"]'), t: '並び順', p: '名前順・ポジション順などに並べ替えられます。FW・BKの絞り込みも上にあります。' },
       { r: 'home', sel: '.share-row', t: 'LINEで知らせる', p: '「まだの人」の一覧を、<b>LINE用の文章</b>にしてコピー・送信できます。' },
-      { r: 'member', arg: firstPlayer, sel: '[data-act="ex-new"][data-id]', t: '免除', p: 'けが・試験などで今週休む人は、その人のページで<b>「免除を追加」</b>。週{g}回の対象から外れます。' }
+      { r: 'member', arg: firstPlayer, sel: '[data-act="exempt-new"][data-id]', t: '免除', p: 'けが・試験などで今週休む人は、その人のページで<b>「免除を追加」</b>。週{g}回の対象から外れます。' }
     ] },
     leader: { name: 'FWリーダー', perm: 'menu', steps: [
       { r: 'menus', prep: () => { S.menuTab = 'upcoming'; }, sel: '[data-act="menu-new"]', t: 'メニューを作る', p: '日付・対象（全体・FW・BK・ポジション）・内容を入れて保存すると、対象の人に<b>通知</b>が届きます。' },
@@ -3191,8 +3191,8 @@
     'pin-change': () => openPinChange(false),
     'goal-open': () => openGoal(),
     'offs-open': () => openOffs(),
-    'ex-new': (el) => openExempt(el.dataset.id),
-    'ex-del': async (el) => {
+    'exempt-new': (el) => openExempt(el.dataset.id),
+    'exempt-del': async (el) => {
       // 確認のダイアログは使わず、2回押しで確定
       if (el.dataset.armed !== '1') { el.dataset.armed = '1'; el.textContent = 'もう一度押すと取り消し'; setTimeout(() => { if (el.isConnected) { el.dataset.armed = ''; el.textContent = '取り消す'; } }, 4000); return; }
       try {
