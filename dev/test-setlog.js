@@ -483,8 +483,24 @@ section('免除の申し込み（選手が申し込み、主将・副主将が�
   ok(!s9.exJudge && s9.me.perm === 'member', '役割を「部員」に戻すと、認められなくなり、リーダーでもなくなる');
   setRole('石川 大地', '主将');
   const s8 = api({ op: 'state', token: ISHI });
-  ok(s8.exJudge === 1 && s8.me.perm === 'member', '主将は免除の申し込みを認められる（リーダーにはならない）');
+  ok(s8.exJudge === 1 && s8.me.perm === 'captain', '名簿の役割が主将の選手は、自動で権限も主将（免除の申し込みを認められる）');
   setRole('石川 大地', '部員');
+  ok(!api({ op: 'state', token: ISHI }).exJudge, '役割を戻すと、認められなくなる');
+  { // アプリの権限で主将・副主将にしても認められる（名簿の役割は部員のまま）
+    api({ op: 'saveMember', token: A, member: { id: id['小川 陽向'], perm: 'leader' } });
+    const ogw = api({ op: 'state', token: A }).members.find((m) => m.id === id['小川 陽向']);
+    ok(ogw.perm === 'leader' && !ogw.autoL, '権限を副主将にできる');
+    const rp = api({ op: 'resetPin', token: A, id: id['小川 陽向'] });
+    const lg0 = api({ op: 'login', memberId: id['小川 陽向'], pin: rp.tempPin });
+    api({ op: 'changePin', token: lg0.token, oldPin: rp.tempPin, newPin: 'ogawa-lead-1' });
+    const OGL = api({ op: 'login', memberId: id['小川 陽向'], pin: 'ogawa-lead-1' }).token;
+    ok(api({ op: 'state', token: OGL }).exJudge === 1, '権限が副主将の人は、免除の申し込みを認められる');
+    api({ op: 'saveMember', token: A, member: { id: id['小川 陽向'], perm: 'captain' } });
+    const OGC = api({ op: 'login', memberId: id['小川 陽向'], pin: 'ogawa-lead-1' }).token; // 権限を変えるとログインし直し（暗証番号はそのまま）
+    const sc = api({ op: 'state', token: OGC });
+    ok(sc.me && sc.me.perm === 'captain' && sc.exJudge === 1, '権限が主将の人も、免除の申し込みを認められる');
+    api({ op: 'saveMember', token: A, member: { id: id['小川 陽向'], perm: 'member' } });
+  }
   const lg = api({ op: 'logs', token: A }).logs.map((x) => x.action).join(' ');
   ok(/免除を申し込み/.test(lg) && /免除の申し込みを認めた/.test(lg) && /免除の申し込みを認めなかった/.test(lg), '操作履歴に残る');
 }

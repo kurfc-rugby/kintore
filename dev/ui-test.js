@@ -203,7 +203,7 @@ const ok = (c, label) => { if (c) { pass++; console.log('  ✓ ' + label); } els
   await logout();
 
   console.log('■ FWリーダー');
-  ok(await login('前田 剛（FWリーダー）', 'test-lead-1'), 'FWリーダーで初めてログインしても「画面で案内を見る？」が出る');
+  ok(await login('前田 剛（副主将）', 'test-lead-1'), 'FWリーダーで初めてログインしても「画面で案内を見る？」が出る');
   await go('#help'); await page.click('[data-act="help-role"][data-v="leader"]'); await page.waitForTimeout(300);
   await page.click('.tourcard [data-act="tour-start"]');
   const leadTitles = [];

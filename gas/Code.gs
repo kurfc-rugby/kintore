@@ -112,7 +112,7 @@ const DATE_COLS = { start: 1, left: 1, effDate: 1, date: 1, from: 1, to: 1, repe
 
 const ENC = {
   mode: { leader: 'リーダーメニュー', self: '自主トレ' },
-  perm: { admin: '管理者', manager: 'マネージャー', leader: 'FWリーダー', member: '一般部員', guest: '見るだけ' },
+  perm: { admin: '管理者', manager: 'マネージャー', captain: '主将', leader: '副主将', member: '一般部員', guest: '見るだけ' },
   status: { done: '実施した', not: '実施していない' },
   mgroup: { FW: 'FW', BK: 'BK', ALL: '全体' },
   fbkind: { idea: '要望', bug: '不具合', other: 'その他' },
@@ -133,7 +133,9 @@ const FIELD_ENC = {
   exemptReqs: { status: 'exreqst' },
   guests: { mustChange: 'bool' }
 };
-const STAFF = { admin: 1, manager: 1, leader: 1 };
+const STAFF = { admin: 1, manager: 1, captain: 1, leader: 1 };
+/** 前の呼び方でシートに書いてあるもの（読むときだけ使う。書くときは今の呼び方） */
+const ENC_OLD = { perm: { 'FWリーダー': 'leader', 'FW・BKリーダー': 'leader', 'BKリーダー': 'leader', 'リーダー': 'leader' } };
 
 // ---------------------------------------------------------------------------
 // 入口
@@ -349,6 +351,7 @@ function decodeField_(tkey, key, s) {
   const map = ENC[kind];
   for (const k in map) if (map[k] === s) return k;
   if (map[s] !== undefined) return s;
+  if (ENC_OLD[kind] && ENC_OLD[kind][s]) return ENC_OLD[kind][s];
   if (kind === 'bool') return (s === 'TRUE' || s === 'true' || s === '1') ? '1' : '0';
   return s;
 }
@@ -592,6 +595,8 @@ function onEdit(e) {
     const name = e && e.range ? e.range.getSheet().getName() : '';
     const keys = Object.keys(DEF).filter(function (k) { return DEF[k].name === name; });
     if (keys.length) bumpTables_(keys);
+    if (keys.indexOf('people') >= 0) bumpPeopleGen_();
+    if (keys.indexOf('sessions') >= 0) bumpSesGen_();
   } catch (x) { /* noop */ }
 }
 
@@ -839,10 +844,11 @@ function mergeMember_(r, s) {
     autoLeader: autoLeader_(r, s), set: s
   };
 }
-/** 名簿の役割が「副主将」の在籍の選手は、権限が一般部員でも FW・BKリーダー（メニューを作れる）として扱う。
+/** 名簿の役割が「主将」「副主将」の在籍の選手は、権限が一般部員でも、アプリの権限も主将・副主将（メニューを作れる・免除を認める）として扱う。
  *  部員設定の権限は書き換えない（副主将でなくなれば元に戻る）。管理者・マネージャーの人はそのまま */
-function autoLeader_(r, s) { const p = (s && s.perm) || 'member'; return p === 'member' && r.role === '副主将' && !!r.active && !r.gone && !!r.player; }
-function memberPerm_(r, s) { return autoLeader_(r, s) ? 'leader' : ((s && s.perm) || 'member'); }
+const ROLE_PERM = { '主将': 'captain', '副主将': 'leader' };
+function autoLeader_(r, s) { const p = (s && s.perm) || 'member'; return p === 'member' && !!ROLE_PERM[r.role] && !!r.active && !r.gone && !!r.player; }
+function memberPerm_(r, s) { return autoLeader_(r, s) ? ROLE_PERM[r.role] : ((s && s.perm) || 'member'); }
 function memberById_(id) {
   return members_().filter(function (m) { return m.id === String(id); })[0] || null;
 }
@@ -1124,7 +1130,8 @@ function resolveSession_(ctx) {
 
 function requireRole_(ctx, perms) {
   if (!ctx.me) throw err_('auth', 'ログインが必要です。');
-  if (perms.indexOf(ctx.me.perm) < 0) throw err_('forbidden', 'この操作をする権限がありません。');
+  // 主将は、副主将（leader）ができることはすべてできる
+  if (perms.indexOf(ctx.me.perm) < 0 && !(ctx.me.perm === 'captain' && perms.indexOf('leader') >= 0)) throw err_('forbidden', 'この操作をする権限がありません。');
   return ctx.me;
 }
 
@@ -1302,7 +1309,7 @@ function memberWire_(m, admin) {
   const g = m.set || {};
   if (g.targetWeight) { o.goalW = Number(g.targetWeight); o.goalD = g.targetDate || ''; }
   if (g.icon && setlogOn_()) o.ic = g.icon; // アイコン：「e:色:絵文字」か「p:版」（写真は icons で取る）
-  if (m.autoLeader) o.autoL = 1; // 名簿の役割が「副主将」なので、自動で FW・BKリーダー（メニューを作れる）
+  if (m.autoLeader) o.autoL = 1; // 名簿の役割が「主将」「副主将」なので、自動でアプリの権限も主将・副主将
   if (admin) {
     const s = m.set || {};
     o.pinSet = !!s.pinHash; o.mustChange = s.mustChange === '1';
@@ -1396,7 +1403,7 @@ function buildState_(ctx, today, pub) {
   if (pub) { const sw = stampsAll_(addDays_(today, -STAMP_DAYS)); base.stamps = sw.list; mine = sw.mine; }
   else base.stamps = stampsWire_(addDays_(today, -STAMP_DAYS), ctx.req.device);
   lap_('b.stamps');
-  // 型は全員が見られる（作る・直す・消すのは管理者・FWリーダーだけ）
+  // 型は全員が見られる（作る・直す・消すのは管理者・主将・副主将だけ）
   base.templates = table_('templates').rows.filter(function (t) { return !t.deletedAt; }).map(templateWire_);
   if (admin) {
     base.pinRequests = pinRequests_(); base.feedbackOpen = table_('feedback').rows.filter(function (f) { return !f.doneAt; }).length;
@@ -1568,7 +1575,7 @@ function opDeleteRecord_(ctx) {
 }
 
 // ---------------------------------------------------------------------------
-// メニュー（管理者・FWリーダー）
+// メニュー（管理者・主将・副主将）
 // ---------------------------------------------------------------------------
 function text_(v, max, label, required) {
   const s = String(v == null ? '' : v).replace(/\r\n?/g, '\n').trim();
@@ -1672,7 +1679,7 @@ function activeAdmins_() {
 }
 function describe_(m) {
   const pos = m.position ? m.position + (m.subs.length ? '/' + m.subs.join('/') : '') : (m.group || '－');
-  return (m.player ? pos + '・' + ENC.mode[m.mode] : '選手以外') + '・' + ENC.perm[m.perm] + (m.clubRole && CAPTAIN_ROLES[m.clubRole] ? '・' + m.clubRole : '');
+  return (m.player ? pos + '・' + ENC.mode[m.mode] : '選手以外') + '・' + ENC.perm[m.perm] + (m.clubRole && CAPTAIN_ROLES[m.clubRole] && m.clubRole !== ENC.perm[m.perm] ? '・' + m.clubRole : '');
 }
 
 /** 筋トレの項目（取り組み方・権限・開始日）を書き、必要なら履歴を足す */
@@ -2362,7 +2369,7 @@ function pruneStamps_(today) {
 }
 
 // ---------------------------------------------------------------------------
-// メニューの型（テンプレート）と繰り返し（管理者・FWリーダー）
+// メニューの型（テンプレート）と繰り返し（管理者・主将・副主将）
 //   型はそのまま「型から作る」に使える。曜日を選ぶと、その曜日のメニューを今日から4週間先まで自動で作る（毎日のばす）。
 //   型を直すと、まだだれも手で直していない今日以降のメニューもそろえる。手で直した・消したメニューは触らない。
 // ---------------------------------------------------------------------------
@@ -2501,7 +2508,7 @@ function opCopyMenu_(ctx) {
   });
 }
 
-/** これまでのメニューの一覧（引き継ぎ用。管理者・FWリーダー・マネージャー） */
+/** これまでのメニューの一覧（引き継ぎ用。管理者・主将・副主将・マネージャー） */
 function opMenuArchive_(ctx) {
   requireRole_(ctx, ['admin', 'leader', 'manager']);
   const list = table_('menus').rows.filter(function (w) { return !w.deletedAt; })
@@ -2605,7 +2612,7 @@ function lifeAndPast_(from) {
 }
 
 // ---------------------------------------------------------------------------
-// 体重・体組成（入力は管理者・マネージャー・FWリーダー。数値はだれでも見られる。メモはスタッフだけ）
+// 体重・体組成（入力は管理者・マネージャー・主将・副主将。数値はだれでも見られる。メモはスタッフだけ）
 // ---------------------------------------------------------------------------
 const BODY_RANGE = { weight: [20, 250, '体重'], fat: [1, 70, '体脂肪率'], muscle: [5, 150, '筋肉量'] };
 function bodyNum_(v, key) {
@@ -2802,7 +2809,7 @@ function opLogoutSession_(ctx) {
 }
 
 // ---------------------------------------------------------------------------
-// 役職（権限）をまとめて付け替え（新年度のFWリーダー・マネージャーの交代）。管理者だけ
+// 役職（権限）をまとめて付け替え（新年度の主将・副主将・マネージャーの交代）。管理者だけ
 //   新しくログインする人には暗証番号を発行して返す（この画面にだけ出す）。外れた人はログインできなくなる。
 // ---------------------------------------------------------------------------
 function opBulkPerms_(ctx) {
@@ -3459,7 +3466,7 @@ function registerAdmin_(name) {
 }
 
 // ---------------------------------------------------------------------------
-// 種目の動画（FWリーダー・管理者が登録。みんなが見られる）
+// 種目の動画（主将・副主将・管理者が登録。みんなが見られる）
 // ---------------------------------------------------------------------------
 function exercisesWire_() {
   return table_('exercises').rows.filter(function (x) { return !x.deletedAt; })
@@ -3597,7 +3604,7 @@ function opRegister_(ctx) {
   return withLock_(function () {
     const m = memberById_(id);
     if (!m || !m.active || m.gone) throw err_('not_found', 'その名前は見つかりません。');
-    if (STAFF[m.perm]) throw err_('staff', 'スタッフ（管理者・マネージャー・FW・BKリーダー（副主将））は、管理者からもらった暗証番号でログインしてください。');
+    if (STAFF[m.perm]) throw err_('staff', 'スタッフ（管理者・マネージャー・主将・副主将）は、管理者からもらった暗証番号でログインしてください。');
     if (m.set && m.set.pinHash) throw err_('already', 'この名前はもう登録されています。自分で登録していなければ、管理者に「登録を消して」と伝えてください。');
     const s = peopleRow_(m);
     s.pinSalt = randomHex_().slice(0, 32);
@@ -4301,7 +4308,7 @@ function opClipFlag_(ctx) {
 function notifyStaffClip_(title, body) {
   try {
     const staff = {};
-    members_().forEach(function (m) { if (m.active && !m.gone && (m.perm === 'admin' || m.perm === 'manager' || m.perm === 'leader')) staff[m.id] = 1; });
+    members_().forEach(function (m) { if (m.active && !m.gone && STAFF[m.perm]) staff[m.id] = 1; });
     const rows = pushTargets_('clipq').filter(function (r) { return staff[r.staffId]; }); // 「動画の確認」をオンにしたスタッフだけ
     sendPush_(rows, function () { return { title: title, body: body, url: './#clips/queue', tag: 'clipq' }; });
   } catch (x) { console.error(x); }
@@ -4491,17 +4498,17 @@ const EXREQ_BACK_DAYS = 14;   // 何日前の分まで申し込めるか（休�
 const EXREQ_MAX_DAYS = 120;   // 一度に申し込める長さ
 const EXREQ_AHEAD_DAYS = 180; // どこまで先の分を申し込めるか
 const EXREQ_PENDING_MAX = 3;
-/** 主将・副主将（名簿の役割。会計アプリと共通）：免除の申し込みを認める。副主将は FW・BKリーダーでもある（mergeMember_） */
+/** 主将・副主将：免除の申し込みを認める。アプリの権限（主将・副主将）か、名簿の役割（会計アプリと共通）のどちらかで決まる */
 const CAPTAIN_ROLES = { '主将': 1, '副主将': 1 };
 function isCaptain_(m) { return !!(m && CAPTAIN_ROLES[m.clubRole] && m.player && m.active && !m.gone && setlogOn_()); }
 /** 申し込みを認められる人：管理者か、主将・副主将（ログインできる人だけ） */
 function canJudgeExempt_(me) {
   if (!me || me.perm === 'guest') return false;
-  return me.perm === 'admin' || isCaptain_(memberById_(me.id));
+  return me.perm === 'admin' || me.perm === 'captain' || me.perm === 'leader' || isCaptain_(memberById_(me.id));
 }
 function exReqJudges_() {
   const out = {};
-  members_().forEach(function (m) { if (m.active && !m.gone && (m.perm === 'admin' || isCaptain_(m))) out[m.id] = 1; });
+  members_().forEach(function (m) { if (m.active && !m.gone && (m.perm === 'admin' || m.perm === 'captain' || m.perm === 'leader' || isCaptain_(m))) out[m.id] = 1; });
   return out;
 }
 function exReqWire_(r) {

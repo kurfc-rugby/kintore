@@ -412,7 +412,7 @@ const shot = async (p, name) => { if (SHOT) { require('fs').mkdirSync(SHOT, { re
     await ad.p.evaluate((id) => { location.hash = '#member/' + id; }, IS); await ad.p.waitForTimeout(700);
     await ad.p.evaluate(async () => { await fetch('/__role?name=' + encodeURIComponent('石川 大地') + '&role=' + encodeURIComponent('副主将')); });
     await ad.p.reload(); await ad.p.waitForTimeout(1200);
-    ok(/BKリーダー|FWリーダー/.test(await ad.p.locator('#main').innerText()) && /副主将/.test(await ad.p.locator('#main').innerText()), '副主将の部員のページに「副主将」と「FW（BK）リーダー」が出る');
+    { const mt = await ad.p.locator('.profile').first().innerText(); ok(/副主将/.test(mt) && !/リーダー/.test(mt) && (mt.match(/副主将/g) || []).length === 1, '副主将の部員のページに「副主将」が1つだけ出る（リーダーとは出ない）'); }
     await ad.p.click('[data-act="member-edit"]'); await ad.p.waitForSelector('form[data-form="member"]');
     ok(/副主将.*なので/.test(await ad.p.locator('.sheet').innerText()) && await ad.p.locator('.sheet select[name="perm"]').inputValue() === 'member', '編集画面：権限は一般部員のまま、副主将なので自動でリーダーと出る');
     await ad.p.click('.sheet [data-act="sheet-close"]'); await ad.p.waitForTimeout(300);

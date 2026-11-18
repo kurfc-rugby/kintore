@@ -445,6 +445,29 @@ ok(api({ op: 'exemptRequest', token: MX, from: '2026-11-10', to: '2026-11-12', r
   ok(rp.ok && api({ op: 'state' }).staff.some((x) => x.name === nm && x.perm === 'leader'), '管理者が暗証番号を出すと、リーダーとしてログインの一覧に出る');
   gas.accountingEdit((sh) => { const k = sh.data.findIndex((x) => x[0] === nm); sh.data[k][sh.data[0].indexOf('役割')] = '部員'; });
   ok(api({ op: 'state' }).members.find((m) => m.name === nm).perm === 'member', '役割を戻すと一般部員に戻る');
+  gas.accountingEdit((sh) => { const k = sh.data.findIndex((x) => x[0] === nm); sh.data[k][sh.data[0].indexOf('役割')] = '主将'; });
+  ok(api({ op: 'state' }).members.find((m) => m.name === nm).perm === 'captain', '名簿の役割が主将の選手は、自動で権限も主将');
+  gas.accountingEdit((sh) => { const k = sh.data.findIndex((x) => x[0] === nm); sh.data[k][sh.data[0].indexOf('役割')] = '部員'; });
+}
+{ // 権限「主将」：副主将（メニューを作る）ができることはすべてできる
+  const nm = '長谷川 湊', mid = api({ op: 'state' }).members.find((m) => m.name === nm).id;
+  ok(api({ op: 'saveMember', token: A, member: { id: mid, perm: 'captain' } }).ok, '権限を主将にできる');
+  const peopleSh = gas.sheet('部員設定'), pc = peopleSh.data[0].indexOf('権限');
+  ok(peopleSh.data.some((r) => r[pc] === '主将'), 'シートには「主将」と書く');
+  const CP = staffLogin(mid, 'captain-pin-1');
+  ok(api({ op: 'state', token: CP }).me.perm === 'captain', '主将がログインできる');
+  const cm = api({ op: 'saveMenu', token: CP, menu: menu({ date: '2026-11-14', group: 'FW', title: '主将のメニュー' }) });
+  ok(cm.ok, '主将はメニューを作れる');
+  ok(api({ op: 'deleteMenu', token: CP, id: cm.menu ? cm.menu.id : cm.id }).ok, '主将はメニューを消せる');
+  ok(api({ op: 'saveRecords', token: CP, date: '2026-11-13', items: [{ memberId: mid, done: true }] }).error === 'forbidden', '主将は実施記録はつけられない（マネージャーの仕事）');
+  api({ op: 'saveMember', token: A, member: { id: mid, perm: 'member' } });
+  // 前の呼び方（FWリーダー）でシートに書いてあっても、副主将として読む
+  const row = peopleSh.data.findIndex((r) => r[0] === mid);
+  peopleSh.data[row][pc] = 'FWリーダー';
+  gas.run('onEdit', { range: { getSheet: () => ({ getName: () => '部員設定' }) } });
+  ok(api({ op: 'state', token: A }).members.find((m) => m.id === mid).perm === 'leader', 'シートに前の呼び方「FWリーダー」とあっても、副主将として読む');
+  peopleSh.data[row][pc] = '一般部員';
+  gas.run('onEdit', { range: { getSheet: () => ({ getName: () => '部員設定' }) } });
 }
 ok(api({ op: 'saveExempt', token: A, memberId: someone.id, from: '2026-11-20', to: '2026-11-10', reason: '怪我' }).error === 'bad_range', '終了日が開始日より前なら登録しない');
 const off = api({ op: 'saveExempt', token: A, memberId: 'ALL', from: '2026-11-10', to: '2026-11-12', reason: '試験期間', note: '前期試験' });
