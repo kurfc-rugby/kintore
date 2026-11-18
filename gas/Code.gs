@@ -3981,7 +3981,10 @@ function clipAddRow_(me, k, thumb, file, bytes, T, draft, presetId) {
     c = { id: presetId || ('C' + Utilities.getUuid().replace(/-/g, '').slice(0, 12)), memberId: me.id, date: k.date, recordedAt: k.at, uploadedAt: file ? now : '', fileId: file ? file.getId() : '',
       mime: k.mime, size: bytes ? String(bytes.length) : '', code: String(clipCode_(k.date)), status: canceledDay ? 'pending' : 'ok', flags: '[]', canceledBy: '', canceledAt: '', reason: '', checkedBy: '', deletedAt: '' };
     insert_('clips', [c]);
-    if (thumb) insert_('clipThumbs', [{ id: c.id, thumb: thumb }]);
+    if (thumb) {
+      insert_('clipThumbs', [{ id: c.id, thumb: thumb }]);
+      if (thumb.length < 90000) { try { CacheService.getScriptCache().put('th:' + c.id, thumb, THUMB_TTL); } catch (x) { /* noop */ } }
+    }
   }
   lap('ins');
   let recorded = false;
@@ -4203,10 +4206,25 @@ function clipTimes() {
   return l;
 }
 /** サムネイルを、要る分の行だけ読む（シートは大きいので、まず動画IDの列だけ読んで行を探す） */
-function clipThumbsFor_(ids) {
+/** サムネイルは動画ごとに1回書くだけで変わらないので、動画IDごとにキャッシュに覚える */
+const THUMB_TTL = 21600;
+function clipThumbsFor_(ids0) {
   const out = {};
+  if (!Object.keys(ids0).length) return out;
+  if (REQ_ && REQ_.tables.clipThumbs) { REQ_.tables.clipThumbs.rows.forEach(function (t) { if (ids0[t.id]) out[t.id] = t.thumb; }); return out; }
+  let got = {};
+  try { got = CacheService.getScriptCache().getAll(Object.keys(ids0).map(function (id) { return 'th:' + id; })) || {}; } catch (x) { got = {}; }
+  const ids = {};
+  Object.keys(ids0).forEach(function (id) { const v = got['th:' + id]; if (v) out[id] = v; else ids[id] = 1; });
   if (!Object.keys(ids).length) return out;
-  if (REQ_ && REQ_.tables.clipThumbs) { REQ_.tables.clipThumbs.rows.forEach(function (t) { if (ids[t.id]) out[t.id] = t.thumb; }); return out; }
+  const found = clipThumbsSheet_(ids);
+  const put = {};
+  Object.keys(found).forEach(function (id) { out[id] = found[id]; if (found[id] && found[id].length < 90000) put['th:' + id] = found[id]; });
+  if (Object.keys(put).length) { try { CacheService.getScriptCache().putAll(put, THUMB_TTL); } catch (x) { /* 覚えられなくても動く */ } }
+  return out;
+}
+function clipThumbsSheet_(ids) {
+  const out = {};
   const sheet = ss_().getSheetByName(DEF.clipThumbs.name);
   if (!sheet) return out;
   const last = sheet.getLastRow();
