@@ -3,7 +3,7 @@
   'use strict';
   const L = window.KLogic;
   const API = window.KINTORE_API;
-  const VERSION = '2.23.0-t32';
+  const VERSION = '2.23.0-t33';
   const WD = ['日', '月', '火', '水', '木', '金', '土'];
   const PERM = { admin: '管理者', manager: 'マネージャー', leader: 'FW・BKリーダー', member: '一般部員', guest: '見るだけ' };
   // その人の権限の呼び方：リーダーは、グループで FW・BKリーダー／BKリーダー（副主将は自動でリーダー）
@@ -1193,19 +1193,19 @@
     }
     if (tab === 'body') return h + (bodyBlock(m) || emptyState('list', '体重の記録はまだありません', 'スタッフが測定した値を入れると、ここに変化が出ます。'));
     const atNow = mo.from === tm.from;
-    h += memberClips(m.id);
+    h += memberClips(m.id, mo);
     h += '<section class="block"><div class="mcal-nav"><button class="ibtn" data-act="mmonth" data-v="-1" aria-label="前の月">' + icon('back') + '</button>' +
       '<b>' + ymLabel(mo.from) + '</b><button class="ibtn" data-act="mmonth" data-v="1" aria-label="次の月"' + (atNow ? ' disabled' : '') + '>' + icon('next') + '</button></div>' +
       '<div class="mcal"><div class="mcal-w">' + ['月', '火', '水', '木', '金', '土', '日'].map((w) => '<span>' + w + '</span>').join('') + '</div><div class="mcal-g">';
     const lead = (L.dow(mo.from) + 6) % 7;
     for (let i = 0; i < lead; i++) h += '<span class="mday blank"></span>';
-    const hist = [], cmap = clipDayMap(m.id);
+    const hist = [], cmap = clipDayMap(m.id, mo);
     L.dateList(mo.from, mo.to).forEach((dt) => {
       const st = L.cellState(S.idx, m, dt, today);
       const menus = (S.idx.menusByDate[dt] || []).filter((w) => w.targets.indexOf(m.id) >= 0);
       const cl = cmap[dt], cls = 'mday s-' + st + (dt === today ? ' today' : '') + (cl ? ' has-clip' : '');
       const inner = '<span class="mday-n">' + +dt.slice(8, 10) + '</span><span class="mday-m" aria-hidden="true">' + CELL[st][0] + '</span><span class="sr">' + cellOf(st)[1] + '</span>';
-      // その日の動画があれば、押すと開く（動画は1か月で消えるので、最近の日だけ）
+      // その日の動画があれば、押すと開く（動画は3か月で消えるので、それより前の日は出ない）
       h += cl ? '<button type="button" class="' + cls + '" data-act="clip-open" data-id="' + cl.id + '" aria-label="' + mdw(dt) + '：' + cellOf(st)[1] + '。動画を見る">' + inner + '<i class="mday-cam" aria-hidden="true"></i></button>'
         : '<span class="' + cls + '">' + inner + '</span>';
       const r = L.getRec(S.idx, m.id, dt);
@@ -2378,7 +2378,7 @@
         '<ul class="dots"><li><b>iPhone</b>：送り終わるまでアプリを開いたままにしてください（閉じると、次にアプリを開いたときに続きを送ります）</li>' +
         '<li><b>Android</b>：「待たずに戻る」で閉じても、裏で送ります</li>' +
         '<li>電波が弱くて送れないと、画面の上に<b>「送れていない動画」</b>が出ます。電波のよいところで<b>「送る」</b>を押すと送り直せます</li>' +
-        '<li>動画は<b>1か月</b>で消えます。みんなの動画は<b>「動画」</b>で見られます</li>' +
+        '<li>動画は<b>3か月</b>で消えます。みんなの動画は<b>「動画」</b>で見られます</li>' +
         '<li>スタッフに取り消されると「実施した」が外れます。撮り直すと<b>確認待ち</b>になり、スタッフが確認すると「実施した」に戻ります</li>' +
         '<li>動画が24時間届かないときも、「実施した」は自動で外れます</li></ul>' +
         tip('「今日の数字」は毎日変わる数字です。アプリのカメラで、その日に撮ったことがわかるようにしています。')] : null,
@@ -2551,7 +2551,7 @@
   }
 
   /** 使い方の動画を全画面で再生する（黒い画面いっぱい。×・画面の外・戻るボタン・Esc で閉じる） */
-  const howtoSrc = (ext) => (loginAll() ? 'media/howto-login.' + ext + '?v=2' : 'media/howto.' + ext + '?v=3');
+  const howtoSrc = (ext) => (loginAll() ? 'media/howto-login.' + ext + '?v=3' : 'media/howto.' + ext + '?v=3');
   function howtoLen() { return loginAll() ? '1分' : '40秒'; }
   function openVideo() {
     closeVideo();
@@ -3439,6 +3439,7 @@
   // ---- 撮る（アプリの中のカメラだけ。音なし2秒。日時と今日の数字を動画に入れる） ----
   const CAM = { stream: null, facing: 'environment', raf: 0, rec: null, blob: null, url: '', thumb: '', at: '', mime: '', busy: false };
   const CLIP_SEC = 2;
+  const CLIP_KEEP = 90; // 動画は3か月で消える（サーバーの CLIP_KEEP_DAYS と同じ）
   // 画質。縦3:横4（スマホのカメラ（4:3）をほぼ切らずに使える）。使うのは std（720×960・30fps・1.5Mbps・約400KB）に決めた。ほかは見比べたときの記録として残す
   const CLIP_Q = {
     xlo: { w: 480, h: 640, bps: 500000, cam: [1280, 960], label: 'かなり軽く', spec: '480×640・0.5Mbps' },
@@ -3798,7 +3799,7 @@
   S.marked = {};
   /** 読み込み済みの動画の一覧（その日・その人）に1本入れる／置きかえる。一覧は捨てない（捨てると「読み込んでいます」に戻ってしまう） */
   function cacheUpsert(c) {
-    ['d:' + c.d, 'm:' + c.m].forEach((k) => {
+    ['d:' + c.d, 'm:' + c.m + ':' + c.d.slice(0, 7)].forEach((k) => {
       const l = S.clipCache[k];
       if (!Array.isArray(l)) return;
       const rest = l.filter((x) => x.id !== c.id && !(x.local && x.at === c.at && x.m === c.m));
@@ -4063,7 +4064,7 @@
     if (list === undefined) loadClips('d:' + day, { from: day, to: day });
     // 前の日の一覧も先に取っておく（「＜」ですぐ出る）。今の日を読み終わってから
     const prev = L.addDays(day, -1);
-    if (Array.isArray(list) && S.clipCache['d:' + prev] === undefined && prev >= L.addDays(today, -31)) setTimeout(() => loadClips('d:' + prev, { from: prev, to: prev }, { ahead: true }), 300);
+    if (Array.isArray(list) && S.clipCache['d:' + prev] === undefined && prev >= L.addDays(today, -CLIP_KEEP)) setTimeout(() => loadClips('d:' + prev, { from: prev, to: prev }, { ahead: true }), 300);
     const n = Array.isArray(list) ? list.length : (S.data.clips || []).filter((c) => c.d === day && c.st !== 'canceled').length;
     h += '<div class="pbar clip-pbar"><div class="pnav"><button class="ibtn" data-act="clip-day" data-v="-1" aria-label="前の日">' + icon('back') + '</button>' +
       '<div class="plabel"><b>' + (day === today ? '今日' : day === L.addDays(today, -1) ? '昨日' : (Math.round((L.parse(today) - L.parse(day)) / 864e5)) + '日前') + '</b><span>' + mdw(day) + '・' + n + '本</span></div>' +
@@ -4090,21 +4091,24 @@
       (mePlayer() ? (mine ? '<p class="clip-done">' + icon('check') + '今日の1本は出しました' + (qList().some((x) => x.at.slice(0, 10) === today) ? '<small>' + (S.clipSending ? '<span class="spin"></span>動画を送っています…' : '動画はまだ送れていません') + '</small>' : '') + '</p>' : wait ? '<p class="clip-done wait">確認待ちです。スタッフが確認すると「実施した」になります</p>' : held ? '<p class="clip-done wait">' + (S.clipSending ? '<span class="spin"></span>今日の1本を送っています…' : '今日の1本はまだ送れていません。電波のよい所で「送る」を押してください') + '</p>' : '<button class="btn primary wide cam-cta" data-act="cam-open">' + icon('cam') + '今日の1本を撮る（' + CLIP_SEC + '秒）</button>') : '') +
       (strip.length ? '<div class="clip-strip">' + strip.slice(0, 12).map((c) => clipCard(c)).join('') + '</div>' : Array.isArray(list) ? '<p class="empty small">まだだれも出していません。</p>' : '') + '</section>';
   }
-  /** 部員ページの動画（1か月） */
-  function memberClips(id) {
+  /** 部員ページの動画：カレンダーで見ている月の分（動画は3か月で消える） */
+  const memberClipKey = (id, mo) => 'm:' + id + ':' + mo.from.slice(0, 7);
+  function memberClips(id, mo) {
     if (!loginAll()) return '';
-    const today = S.data.today, key = 'm:' + id;
+    const today = S.data.today, key = memberClipKey(id, mo), keep = L.addDays(today, -CLIP_KEEP);
+    const head = '<section class="block"><div class="block-h"><h2>動画（' + +mo.from.slice(5, 7) + '月）</h2><span class="count">3か月で消えます</span></div>';
+    if (mo.to < keep) return head + '<p class="empty small">この月の動画は、もう消えています（3か月で消えます）。</p></section>';
     const list = S.clipCache[key];
-    if (list === undefined) setTimeout(() => loadClips(key, { memberId: id, from: L.addDays(today, -31), to: today }), 0);
-    return '<section class="block"><div class="block-h"><h2>動画</h2><span class="count">1か月で消えます</span></div>' +
-      (!Array.isArray(list) ? '<p class="empty small">読み込んでいます…</p>' : list.length ? '<div class="clip-grid">' + list.map((c) => clipCard(c, { date: true, noName: true })).join('') + '</div>' : '<p class="empty small">この1か月の動画はありません。</p>') + '</section>';
+    if (list === undefined) setTimeout(() => loadClips(key, { memberId: id, from: mo.from < keep ? keep : mo.from, to: mo.to > today ? today : mo.to }), 0);
+    return head + (!Array.isArray(list) ? '<p class="empty small">読み込んでいます…</p>' : list.length ? '<div class="clip-grid">' + list.map((c) => clipCard(c, { date: true, noName: true })).join('') + '</div>' : '<p class="empty small">この月の動画はありません。</p>') + '</section>';
   }
   /** その人の、日付ごとの動画（見られるもの：消えていない・下書きでない）。部員のページのカレンダーと履歴から開く。1日に何本かあれば、実施した＞確認待ち＞取り消し、同じなら新しい方 */
-  function clipDayMap(mid) {
+  function clipDayMap(mid, mo) {
     const out = {};
     if (!loginAll()) return out;
     const rank = (c) => (c.st === 'ok' ? 3 : c.st === 'pending' ? 2 : 1);
-    const list = (Array.isArray(S.clipCache['m:' + mid]) ? S.clipCache['m:' + mid] : []).concat((S.data.clips || []).filter((c) => c.m === mid));
+    const ck = mo ? S.clipCache[memberClipKey(mid, mo)] : null;
+    const list = (Array.isArray(ck) ? ck : []).concat((S.data.clips || []).filter((c) => c.m === mid));
     list.forEach((c) => {
       if (c.m !== mid || c.gone || c.local || c.st === 'draft') return;
       const o = out[c.d];

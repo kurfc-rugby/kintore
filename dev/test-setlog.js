@@ -1,5 +1,5 @@
 // setlog（v3・テスト環境）の自動テスト：node dev/test-setlog.js
-// 部員全員のログイン・自分で登録・見るだけの人・動画（撮る→自動で実施した→気になる→取り消し→撮り直しは確認待ち→1か月で消える）
+// 部員全員のログイン・自分で登録・見るだけの人・動画（撮る→自動で実施した→気になる→取り消し→撮り直しは確認待ち→3か月で消える）
 const { create, seedMaster } = require('./mock-gas');
 const L = require('../logic.js');
 
@@ -344,35 +344,39 @@ ok(!gas.sheet('実施記録').data.some((row) => row.indexOf(IS) >= 0 && row.ind
 ok(api({ op: 'clipUpload', token: ISHI, mime: 'video/mp4', data: vid, thumb, recordedAt: at4, code: code4 }).error === 'too_late', 'あとから動画が来ても受け付けない');
 gas.clock.offset -= 3 * 3600000; gas.shiftDays(-2);
 
-section('1か月で消える');
+section('3か月で消える');
+const trashed = () => Object.values(gas.drive.files).filter((f) => f.trashed).length;
+const tr0 = trashed();
+gas.shiftDays(60);
+ok(gas.run('withReq', (f) => f.purgeClips_()) === 0 && trashed() === tr0, '2か月たっても、動画はまだ消えない');
 gas.shiftDays(33);
 gas.run('withReq', (f) => f.purgeClips_());
-ok(Object.values(gas.drive.files).every((f) => f.trashed), 'ドライブの動画はゴミ箱へ');
+ok(Object.values(gas.drive.files).every((f) => f.trashed), '3か月たつと、ドライブの動画はゴミ箱へ');
 ok(api({ op: 'clipVideo', token: G, id: clip1 }).error, '消えた動画は見られない');
 ok(gas.sheet('動画のサムネイル').data.length === 1, 'サムネイルも消える');
-gas.shiftDays(-33);
+gas.shiftDays(-93);
 
 section('動画が消えたあとは、ふつうの記録にもどる');
 {
   const st0 = api({ op: 'state', token: MG });
   const gone = st0.clips.find((c) => c.st === 'ok' && c.gone && st0.records.some((x) => x[0] === c.m && x[1] === c.d && x[2] === 1) && !st0.clips.some((y) => y.m === c.m && y.d === c.d && y.st === 'ok' && !y.gone));
   ok(!!gone, '消えた動画の日の「実施した」がある');
-  if (gone) ok(api({ op: 'deleteRecord', token: A, date: gone.d, memberId: gone.m }).ok, '動画が消えたあと（1か月たったなど）は、ふつうの記録にもどり、管理者が外せる');
+  if (gone) ok(api({ op: 'deleteRecord', token: A, date: gone.d, memberId: gone.m }).ok, '動画が消えたあと（3か月たったなど）は、ふつうの記録にもどり、管理者が外せる');
 }
 
 section('古い動画の行は「動画（古い）」へ移す（毎日の手入れ）');
 {
   const before = gas.sheet('動画').data.length - 1;
-  gas.shiftDays(61);
+  gas.shiftDays(121);
   const n = gas.run('withReq', (f) => f.archiveClips_());
   const old = gas.sheet('動画（古い）'), after = gas.sheet('動画').data.length - 1;
   const hd = old.data[0], dcol = hd.indexOf('削除日時'), scol = hd.indexOf('状態');
-  ok(n > 0 && old.data.length - 1 === n && after === before - n, '60日より前の動画の行は「動画（古い）」へ移る（' + n + '行）');
+  ok(n > 0 && old.data.length - 1 === n && after === before - n, '120日より前の動画の行は「動画（古い）」へ移る（' + n + '行）');
   ok(old.data.slice(1).every((row) => row[dcol] || row[scol] === '取り消し' || row[scol] === '下書き'), '移すのは、動画のファイルを消した行（と、取り消し・下書き）だけ');
   ok(gas.run('withReq', (f) => f.archiveClips_()) === 0, 'もう一度しても、何も起きない');
   const st = api({ op: 'state', token: MG });
   ok(Array.isArray(st.clips), '移したあとも、画面はふつうに出る');
-  gas.shiftDays(-61);
+  gas.shiftDays(-121);
 }
 
 section('テスト環境の守り');

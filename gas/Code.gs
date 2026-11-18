@@ -79,7 +79,7 @@ const DEF = {
     ['mime', '形式'], ['size', '大きさ'], ['code', '今日の数字'], ['status', '状態'], ['flags', '気になる（部員ID）'],
     ['canceledBy', '取り消した人ID'], ['canceledAt', '取り消し日時'], ['reason', '取り消しの理由'], ['checkedBy', '確認した人ID'], ['deletedAt', '削除日時']] },
   clipThumbs: { name: '動画のサムネイル', cols: [['id', '動画ID'], ['thumb', 'サムネイル（JPEG）']] },
-  // 60日より前の動画の行（動画のファイルはもう消えている）。毎回読む「動画」のシートを小さく保つため、毎日の手入れでここへ移す
+  // 120日より前の動画の行（動画のファイルはもう消えている）。毎回読む「動画」のシートを小さく保つため、毎日の手入れでここへ移す
   clipsOld: { name: '動画（古い）', cols: [
     ['id', '動画ID'], ['memberId', '部員ID'], ['date', '日付'], ['recordedAt', '撮影日時'], ['uploadedAt', '送信日時'], ['fileId', 'ファイルID'],
     ['mime', '形式'], ['size', '大きさ'], ['code', '今日の数字'], ['status', '状態'], ['flags', '気になる（部員ID）'],
@@ -1297,7 +1297,7 @@ function opSaveRecordsWeek_(ctx) {
 }
 /** 1日ぶんの記録（ロックの中で呼ぶ）。inserted … 新しく「実施した」になった行 */
 /** その日の本人の動画（取り消されていない・まだ消えていない）がある「実施した」（全員ログイン版）。
- *  記録の画面からは外さず、動画の取り消しで外す（動画と「実施した」が食いちがわないように）。1か月たって動画が消えたら、ふつうの記録にもどる */
+ *  記録の画面からは外さず、動画の取り消しで外す（動画と「実施した」が食いちがわないように）。3か月たって動画が消えたら、ふつうの記録にもどる */
 function fromVideo_(r) {
   if (!r || r.status !== 'done' || !setlogOn_()) return false;
   return table_('clips').rows.some(function (c) { return c.memberId === r.memberId && c.date === r.date && c.status === 'ok' && !c.deletedAt; });
@@ -1943,7 +1943,7 @@ function ensureHourly_() {
 const BACKUP_EVERY_DAYS = 7;
 const BACKUP_KEEP_DAYS = 62;
 // 写さないもの：ログイン（復元すると全員がログインし直しになるだけ）、動画のサムネイル・アイコンの写真（画像の文字が大きく、毎週写すと
-// バックアップが数十MB〜になって重く・失敗しやすくなる。サムネイルは1か月で消え、アイコンは決め直せるので、なくても困らない）
+// バックアップが数十MB〜になって重く・失敗しやすくなる。サムネイルは3か月で消え、アイコンは決め直せるので、なくても困らない）
 const BACKUP_SKIP = { sessions: 1, clipThumbs: 1, icons: 1 };
 const BACKUP_TITLE = 'KURFC 筋トレ管理 バックアップ（自動・2か月で消えます）';
 const LOG_ARCHIVE = '操作履歴（古い分）';
@@ -3342,7 +3342,7 @@ function opImportExercises_(ctx) {
 //   スクリプトのプロパティ SETLOG=1 のときだけ動く。本番（SETLOG なし）は今までどおり
 // ---------------------------------------------------------------------------
 const LONG_SESSION_DAYS = 180;       // 開くたびに、この日数だけのばす
-const CLIP_KEEP_DAYS = 30;           // 動画は1か月で消す
+const CLIP_KEEP_DAYS = 90;           // 動画は3か月で消す（ドライブは選手30人・週3回で約0.5〜0.8GB）
 const CLIP_MAX_BYTES = 2 * 1024 * 1024;
 const CLIP_LATE_HOURS = 24;          // 撮ってから24時間以内に届いたものだけ
 const CLIP_MIMES = { 'video/mp4': 'mp4', 'video/webm': 'webm', 'video/quicktime': 'mov' };
@@ -4024,7 +4024,7 @@ function clipFolder_() {
   const props = PropertiesService.getScriptProperties();
   const id = props.getProperty('CLIP_FOLDER');
   if (id) { try { return DriveApp.getFolderById(id); } catch (x) { /* 消された */ } }
-  const f = DriveApp.createFolder('KURFC 筋トレ 動画' + (isTestEnv_() ? '（テスト）' : '') + '（1か月で消えます）');
+  const f = DriveApp.createFolder('KURFC 筋トレ 動画' + (isTestEnv_() ? '（テスト）' : '') + '（3か月で消えます）');
   props.setProperty('CLIP_FOLDER', f.getId());
   return f;
 }
@@ -4051,7 +4051,7 @@ function opClipVideo_(ctx) {
   const c = table_('clips').rows.filter(function (x) { return x.id === String(ctx.req.id || '') && shown_(x); })[0];
   if (!c) throw err_('not_found', 'その動画は見つかりません。');
   if (c.status === 'canceled' && !STAFF[me.perm] && c.memberId !== me.id) throw err_('not_found', 'その動画は見つかりません。');
-  if (c.deletedAt) throw err_('gone', '1か月たったので、この動画は消えました。');
+  if (c.deletedAt) throw err_('gone', '3か月たったので、この動画は消えました。');
   const fid = c.fileId || (pendGet_(c.memberId, c.recordedAt) || {}).f;
   if (!fid) throw err_('not_yet', 'この動画はまだ届いていません（撮った人のスマホから送っているところです）。');
   let blob;
@@ -4134,7 +4134,7 @@ function opClipApprove_(ctx) {
     return { ok: true, clip: clipWire_(c, me), recorded: recorded, records: recordsWire_(c.date, c.date) };
   });
 }
-/** 1か月より古い動画をドライブから消す（行は残す） */
+/** 3か月より古い動画をドライブから消す（行は残す） */
 function purgeClips_() {
   const limit = addDays_(today_(), -CLIP_KEEP_DAYS);
   const old = table_('clips').rows.filter(function (c) { return !c.deletedAt && c.date < limit; });
@@ -4238,11 +4238,11 @@ function opResetIcon_(ctx) {
 }
 
 // ---------------------------------------------------------------------------
-// 古い動画の行を「動画（古い）」へ移す（毎日の手入れ）。動画のファイルは1か月で消えるが、行は残るので、
-// 1年で数千行になり、毎回の読み込みが少しずつ重くなる。60日より前で、ファイルを消した（または取り消し・下書きの）行だけ移す。
+// 古い動画の行を「動画（古い）」へ移す（毎日の手入れ）。動画のファイルは3か月で消えるが、行は残るので、
+// 1年で数千行になり、毎回の読み込みが少しずつ重くなる。120日より前で、ファイルを消した（または取り消し・下書きの）行だけ移す。
 // 一度に移すのは200行まで（ロックを長く持たない）
 // ---------------------------------------------------------------------------
-const CLIP_ARCHIVE_DAYS = 60;
+const CLIP_ARCHIVE_DAYS = 120; // 動画を消す（90日）より後
 function archiveClips_() {
   const limit = addDays_(today_(), -CLIP_ARCHIVE_DAYS);
   const due = function (c) { return c.date < limit && (c.deletedAt || c.status === 'canceled' || c.status === 'draft'); };
