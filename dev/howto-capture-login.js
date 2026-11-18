@@ -74,9 +74,9 @@ const jst = (minAgo) => {
   const l3 = { img: await shot() };
   scenes.push({ id: 'login', beats: [l1, l2, l3] });
 
-  // 2 ホーム（スクロール）
+  // 2 ホーム（スクロール）：見る場面の最初に使う
   await go('#home');
-  scenes.push({ id: 'home', beats: [await scrollBeat('.block.feed')] });
+  const homeScroll = await scrollBeat('.block.feed');
 
   // 3 撮る：赤いボタンで2秒 → 送る → メーター
   await go('#home');
@@ -96,20 +96,21 @@ const jst = (minAgo) => {
   await wait(3500);
   await page.evaluate(() => { const b = document.querySelector('[data-act="cam-close"]'); if (b) b.click(); }); await wait(600);
 
-  // 4 みんなの動画：一覧 → 押すと再生
-  await go('#clips');
+  // 4 見る：ホーム（今日の動画の「すべて見る」）→ みんなの動画 → 押すと再生 → ランキング（横にはらうと前の月）
+  await go('#home');
+  const v0 = await tapBeat('.home-clips a.more[href="#clips"]', 0, 1200);
+  await page.evaluate(() => window.scrollTo(0, 0)); await wait(300);
   const v1 = await tapBeat('.clip-card', 1, 1600);
   const v2 = { img: await shot() };
-  scenes.push({ id: 'clips', beats: [v1, v2] });
   await page.keyboard.press('Escape'); await wait(500);
-
-  // 5 ランキング：横にはらうと前の月
   await go('#rank');
   await page.click('[data-act="kind"][data-v="month"]'); await wait(700);
   const r1 = await shot();
   await page.click('[data-act="period"][data-v="-1"]'); await wait(700);
   const r2 = await shot();
-  scenes.push({ id: 'rank', beats: [{ img: r1, swipe: true }, { img: r2 }] });
+  scenes.push({ id: 'watch', beats: [v0, v1, v2, { img: r1, swipe: true }, { img: r2 }] });
+  // 1分版でも、場面ごとの素材は残す（40秒版の組み立て用）
+  scenes.push({ id: 'home', beats: [homeScroll] }, { id: 'clips', beats: [v1, v2] }, { id: 'rank', beats: [{ img: r1, swipe: true }, { img: r2 }] });
   await toNow();
 
   // 6 自分のページ：カレンダーの印を押すと、その日の動画

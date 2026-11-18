@@ -34,7 +34,7 @@ const DEF = {
     ['start', '開始日'], ['left', '退部日'],
     ['pinHash', '暗証番号ハッシュ'], ['pinSalt', 'ソルト'], ['mustChange', '要変更'], ['failCount', '失敗回数'],
     ['lockUntil', 'ロック解除'], ['createdAt', '作成日時'], ['updatedAt', '更新日時'], ['pinReqAt', '暗証番号の再発行依頼'],
-    ['targetWeight', '目標体重(kg)'], ['targetDate', '目標体重の期日'], ['icon', 'アイコン'], ['captain', 'キャプテン']] },
+    ['targetWeight', '目標体重(kg)'], ['targetDate', '目標体重の期日'], ['icon', 'アイコン']] },
   history: { name: '設定変更履歴', cols: [
     ['memberId', '部員ID'], ['effDate', '適用開始日'], ['group', 'グループ'], ['mode', '取り組み方'],
     ['position', 'ポジション'], ['subPositions', 'サブポジション'], ['by', '変更者ID'], ['at', '変更日時']] },
@@ -84,7 +84,7 @@ const DEF = {
     ['id', '動画ID'], ['memberId', '部員ID'], ['date', '日付'], ['recordedAt', '撮影日時'], ['uploadedAt', '送信日時'], ['fileId', 'ファイルID'],
     ['mime', '形式'], ['size', '大きさ'], ['code', '今日の数字'], ['status', '状態'], ['flags', '気になる（部員ID）'],
     ['canceledBy', '取り消した人ID'], ['canceledAt', '取り消し日時'], ['reason', '取り消しの理由'], ['checkedBy', '確認した人ID'], ['deletedAt', '削除日時']] },
-  // 免除の申し込み（全員ログイン版）：選手が自分で申し込み、キャプテン（部員設定の「キャプテン」）か管理者が認める
+  // 免除の申し込み（全員ログイン版）：選手が自分で申し込み、主将・副主将（名簿の役割）か管理者が認める
   exemptReqs: { name: '免除の申し込み', cols: [
     ['id', 'ID'], ['memberId', '部員ID'], ['from', '開始日'], ['to', '終了日'], ['reason', '理由'], ['note', 'メモ'], ['status', '状態'],
     ['createdAt', '申し込み日時'], ['decidedBy', '判断した人ID'], ['decidedAt', '判断日時'], ['answer', '返事'], ['exemptId', '免除ID']] },
@@ -121,7 +121,7 @@ const ENC = {
   bool: { '1': 'はい', '0': 'いいえ' }
 };
 const FIELD_ENC = {
-  people: { mode: 'mode', perm: 'perm', mustChange: 'bool', captain: 'bool' },
+  people: { mode: 'mode', perm: 'perm', mustChange: 'bool' },
   history: { mode: 'mode' },
   menus: { group: 'mgroup' },
   records: { status: 'status', target: 'bool' },
@@ -643,10 +643,14 @@ function mergeMember_(r, s) {
     id: r.id, name: r.name, grade: r.grade, clubRole: r.role, active: !!r.active, order: Number(r.order) || 0,
     group: r.group || '', position: r.position || '', subs: (r.subPositions || []).slice(), player: !!r.player, finance: !!r.finance,
     gone: !!r.gone,
-    mode: (s && s.mode) || 'self', perm: (s && s.perm) || 'member', start: (s && s.start) || '', left: (s && s.left) || '',
-    set: s
+    mode: (s && s.mode) || 'self', perm: memberPerm_(r, s), start: (s && s.start) || '', left: (s && s.left) || '',
+    autoLeader: autoLeader_(r, s), set: s
   };
 }
+/** 名簿の役割が「副主将」の在籍の選手は、権限が一般部員でも FW・BKリーダー（メニューを作れる）として扱う。
+ *  部員設定の権限は書き換えない（副主将でなくなれば元に戻る）。管理者・マネージャーの人はそのまま */
+function autoLeader_(r, s) { const p = (s && s.perm) || 'member'; return p === 'member' && r.role === '副主将' && !!r.active && !r.gone && !!r.player; }
+function memberPerm_(r, s) { return autoLeader_(r, s) ? 'leader' : ((s && s.perm) || 'member'); }
 function memberById_(id) {
   return members_().filter(function (m) { return m.id === String(id); })[0] || null;
 }
@@ -1107,7 +1111,7 @@ function memberWire_(m, admin) {
   const g = m.set || {};
   if (g.targetWeight) { o.goalW = Number(g.targetWeight); o.goalD = g.targetDate || ''; }
   if (g.icon && setlogOn_()) o.ic = g.icon; // アイコン：「e:色:絵文字」か「p:版」（写真は icons で取る）
-  if (g.captain === '1' && setlogOn_()) o.cap = 1; // キャプテン：選手の免除の申し込みを認める
+  if (m.autoLeader) o.autoL = 1; // 名簿の役割が「副主将」なので、自動で FW・BKリーダー（メニューを作れる）
   if (admin) {
     const s = m.set || {};
     o.pinSet = !!s.pinHash; o.mustChange = s.mustChange === '1';
@@ -1472,7 +1476,7 @@ function activeAdmins_() {
 }
 function describe_(m) {
   const pos = m.position ? m.position + (m.subs.length ? '/' + m.subs.join('/') : '') : (m.group || '－');
-  return (m.player ? pos + '・' + ENC.mode[m.mode] : '選手以外') + '・' + ENC.perm[m.perm] + (isCaptain_(m) ? '・キャプテン' : '');
+  return (m.player ? pos + '・' + ENC.mode[m.mode] : '選手以外') + '・' + ENC.perm[m.perm] + (m.clubRole && CAPTAIN_ROLES[m.clubRole] ? '・' + m.clubRole : '');
 }
 
 /** 筋トレの項目（取り組み方・権限・開始日）を書き、必要なら履歴を足す */
@@ -1483,7 +1487,6 @@ function applyAppFields_(m, d, me, now) {
   if (d.mode !== undefined) s.mode = d.mode;
   if (d.perm !== undefined) s.perm = d.perm;
   if (d.start !== undefined) s.start = d.start;
-  if (d.captain !== undefined) s.captain = d.captain;
   s.nameMemo = m.name; s.updatedAt = now;
   if (permChanged && !STAFF[s.perm]) { s.pinHash = ''; s.pinSalt = ''; s.mustChange = '0'; s.failCount = '0'; s.lockUntil = ''; }
   update_('people', s);
@@ -1520,7 +1523,6 @@ function memberInput_(src, isNew) {
     d.perm = src.perm;
   }
   if (src.start !== undefined) d.start = src.start ? reqDate_(src.start, '開始日') : '';
-  if (src.captain !== undefined) d.captain = src.captain ? '1' : '0';
   return d;
 }
 
@@ -1746,7 +1748,7 @@ function exemptsWire_(from, to, me) {
       const team = e.memberId === 'ALL';
       const o = { id: e.id, memberId: e.memberId, from: e.from, to: e.to,
         reason: team || staff ? e.reason : '', note: staff ? e.note : '', createdBy: staff ? e.createdBy : '' };
-      if (staff && setlogOn_() && fromExReq_(e)) o.req = 1; // 選手の申し込みから（キャプテンが認めた）。マネージャーも取り消せる
+      if (staff && setlogOn_() && fromExReq_(e)) o.req = 1; // 選手の申し込みから（主将・副主将が認めた）。マネージャーも取り消せる
       return o;
     });
 }
@@ -3390,7 +3392,7 @@ function opRegister_(ctx) {
   return withLock_(function () {
     const m = memberById_(id);
     if (!m || !m.active || m.gone) throw err_('not_found', 'その名前は見つかりません。');
-    if (STAFF[m.perm]) throw err_('staff', 'スタッフ（管理者・マネージャー・FWリーダー）は、管理者からもらった暗証番号でログインしてください。');
+    if (STAFF[m.perm]) throw err_('staff', 'スタッフ（管理者・マネージャー・FW・BKリーダー（副主将））は、管理者からもらった暗証番号でログインしてください。');
     if (m.set && m.set.pinHash) throw err_('already', 'この名前はもう登録されています。自分で登録していなければ、管理者に「登録を消して」と伝えてください。');
     const s = peopleRow_(m);
     s.pinSalt = randomHex_().slice(0, 32);
@@ -4260,16 +4262,18 @@ function archiveClips_() {
 // ---------------------------------------------------------------------------
 // 免除の申し込み（全員ログイン版）
 //   選手：自分のページから申し込む（期間・理由・メモ）。申し込み中なら取り消せる。
-//   キャプテン（管理者が部員の編集で「キャプテン」にした選手）と管理者：認める／認めない。認めると、ふつうの免除になる。
-//   理由・メモは、本人と、認める人（キャプテン・管理者）にだけ見える。認めたあとの免除は、今までどおりスタッフに見える。
+//   主将・副主将（名簿の役割）と管理者：認める／認めない。認めると、ふつうの免除になる。
+//   理由・メモは、本人と、認める人（主将・副主将・管理者）にだけ見える。認めたあとの免除は、今までどおりスタッフに見える。
 // ---------------------------------------------------------------------------
 const EXREQ_REASONS = ['けが', '病気・体調不良', '試験', '就活・実習', '家の用事', 'その他'];
 const EXREQ_BACK_DAYS = 14;   // 何日前の分まで申し込めるか（休んだあとで申し込むこともある）
 const EXREQ_MAX_DAYS = 120;   // 一度に申し込める長さ
 const EXREQ_AHEAD_DAYS = 180; // どこまで先の分を申し込めるか
 const EXREQ_PENDING_MAX = 3;
-function isCaptain_(m) { return !!(m && m.set && m.set.captain === '1' && m.player && m.active && !m.gone && setlogOn_()); }
-/** 申し込みを認められる人：管理者か、キャプテン（ログインできる人だけ） */
+/** 主将・副主将（名簿の役割。会計アプリと共通）：免除の申し込みを認める。副主将は FW・BKリーダーでもある（mergeMember_） */
+const CAPTAIN_ROLES = { '主将': 1, '副主将': 1 };
+function isCaptain_(m) { return !!(m && CAPTAIN_ROLES[m.clubRole] && m.player && m.active && !m.gone && setlogOn_()); }
+/** 申し込みを認められる人：管理者か、主将・副主将（ログインできる人だけ） */
 function canJudgeExempt_(me) {
   if (!me || me.perm === 'guest') return false;
   return me.perm === 'admin' || isCaptain_(memberById_(me.id));
@@ -4339,7 +4343,7 @@ function opExemptRequest_(ctx) {
 function opExemptDecide_(ctx) {
   if (!setlogOn_()) throw err_('forbidden', 'この操作はできません。');
   const me = requireRole_(ctx, ['member', 'leader', 'manager', 'admin']);
-  if (!canJudgeExempt_(me)) throw err_('forbidden', '免除の申し込みを認められるのは、キャプテンと管理者です。');
+  if (!canJudgeExempt_(me)) throw err_('forbidden', '免除の申し込みを認められるのは、主将・副主将と管理者です。');
   const id = String(ctx.req.id || '');
   const ok = !!ctx.req.ok;
   const answer = text_(ctx.req.answer, 60, '返事', false);
@@ -4347,7 +4351,7 @@ function opExemptDecide_(ctx) {
     const r = table_('exemptReqs').rows.filter(function (x) { return x.id === id; })[0];
     if (!r) throw err_('not_found', 'その申し込みは見つかりません。');
     if (r.status !== 'pending') throw err_('decided', r.status === 'canceled' ? '本人が取り消しました。' : 'もう決まっています（' + ENC.exreqst[r.status] + '）。');
-    if (r.memberId === me.id) throw err_('own', '自分の申し込みは、ほかのキャプテンか管理者が認めます。');
+    if (r.memberId === me.id) throw err_('own', '自分の申し込みは、ほかの主将・副主将か管理者が認めます。');
     const m = memberById_(r.memberId);
     const now = now_();
     if (ok) {
@@ -4367,7 +4371,7 @@ function opExemptDecide_(ctx) {
     const span = q.from.slice(5).replace('-', '/') + '〜' + q.to.slice(5).replace('-', '/');
     sendPush_(rows, function () {
       return ok ? { title: '免除が認められました', body: span + '（' + q.reason + '）は、週の目標の判定から外れます。', url: './#home', tag: 'exreq' }
-        : { title: '免除は認められませんでした', body: span + (q.ans ? '：' + q.ans : '') + '。わからないときはキャプテンに聞いてください。', url: './#home', tag: 'exreq' };
+        : { title: '免除は認められませんでした', body: span + (q.ans ? '：' + q.ans : '') + '。わからないときは主将・副主将に聞いてください。', url: './#home', tag: 'exreq' };
     });
   } catch (x) { console.error(x); }
   return res;

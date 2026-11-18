@@ -334,7 +334,7 @@ const shot = async (p, name) => { if (SHOT) { require('fs').mkdirSync(SHOT, { re
     await q.evaluate(() => { location.hash = '#help'; }); await q.waitForTimeout(500);
     await q.click('[data-act="help-role"][data-v="all"]'); await q.waitForTimeout(300);
     ok(/今日の1本を撮る/.test(await q.locator('#main').innerText()) && /自分のアイコン/.test(await q.locator('#main').innerText()), '使い方ガイドに「今日の1本を撮る」「自分のアイコン」がある');
-    ok(/howto-login\.jpg/.test(await q.locator('.howvid img').getAttribute('src')), '使い方ガイドの40秒の動画は、全員ログイン版（ログイン・撮る）のもの');
+    ok(/howto-login\.jpg/.test(await q.locator('.howvid img').getAttribute('src')), '使い方ガイドの動画は、全員ログイン版（1分）のもの');
     const vok = await q.evaluate(async () => { const r = await fetch('media/howto-login.mp4'); return r.ok && (await r.blob()).size > 100000; });
     ok(vok, '全員ログイン版の使い方動画のファイルがある');
     await q.evaluate(() => { location.hash = '#record'; }); await q.waitForTimeout(500);
@@ -388,7 +388,7 @@ const shot = async (p, name) => { if (SHOT) { require('fs').mkdirSync(SHOT, { re
   ok(await g.p.locator('.board').count() === 1 && await g.p.locator('.nav .shoot').count() === 0, '見るだけの人はホームを見られる（「撮る」は出ない）');
   await g.c.close();
 
-  console.log('■ 免除の申し込み（選手 → キャプテン）・カレンダーから動画・編集画面の「登録を消す」');
+  console.log('■ 免除の申し込み（選手 → 主将・副主将）・副主将は自動でリーダー・カレンダーから動画・編集画面の「登録を消す」');
   {
     const loginAs = async (who, pin) => {
       const x = await mk();
@@ -397,7 +397,7 @@ const shot = async (p, name) => { if (SHOT) { require('fs').mkdirSync(SHOT, { re
       await x.p.click('form[data-form="mlogin"] button[type="submit"]'); await x.p.waitForSelector('.board'); await x.p.waitForTimeout(700);
       return x;
     };
-    // 管理者：石川さんをキャプテンにする（部員の編集）。森さんの編集画面には、登録の状態と「登録を消す」
+    // 石川さんを副主将にする（名簿の役割は会計アプリと共通なので、模擬の名簿を直接変える）。森さんの編集画面には、登録の状態と「登録を消す」
     const ad = await loginAs('管理 太郎', 'test-admin-1');
     const idOf = async (pg, name) => pg.evaluate(async (n) => {
       const tk = JSON.parse(localStorage.getItem('kintoreTest.token') || '""');
@@ -408,12 +408,14 @@ const shot = async (p, name) => { if (SHOT) { require('fs').mkdirSync(SHOT, { re
     await ad.p.evaluate((id) => { location.hash = '#member/' + id; }, MO); await ad.p.waitForTimeout(700);
     await ad.p.click('[data-act="member-edit"]'); await ad.p.waitForSelector('form[data-form="member"]');
     ok(/登録済み/.test(await ad.p.locator('.sheet .reg-st').innerText()) && await ad.p.locator('.sheet [data-act="unreg"][data-back="member"]').count() === 1, '部員の編集画面に、アプリの登録の状態と「登録を消す」がある');
-    ok(await ad.p.locator('.sheet input[name="captain"]').count() === 1, '部員の編集画面に「キャプテン」がある');
     await ad.p.click('.sheet [data-act="sheet-close"]'); await ad.p.waitForTimeout(300);
     await ad.p.evaluate((id) => { location.hash = '#member/' + id; }, IS); await ad.p.waitForTimeout(700);
+    await ad.p.evaluate(async () => { await fetch('/__role?name=' + encodeURIComponent('石川 大地') + '&role=' + encodeURIComponent('副主将')); });
+    await ad.p.reload(); await ad.p.waitForTimeout(1200);
+    ok(/BKリーダー|FWリーダー/.test(await ad.p.locator('#main').innerText()) && /副主将/.test(await ad.p.locator('#main').innerText()), '副主将の部員のページに「副主将」と「FW（BK）リーダー」が出る');
     await ad.p.click('[data-act="member-edit"]'); await ad.p.waitForSelector('form[data-form="member"]');
-    await ad.p.check('.sheet input[name="captain"]');
-    await ad.p.click('form[data-form="member"] button[type="submit"]'); await ad.p.waitForTimeout(1500);
+    ok(/副主将.*なので/.test(await ad.p.locator('.sheet').innerText()) && await ad.p.locator('.sheet select[name="perm"]').inputValue() === 'member', '編集画面：権限は一般部員のまま、副主将なので自動でリーダーと出る');
+    await ad.p.click('.sheet [data-act="sheet-close"]'); await ad.p.waitForTimeout(300);
     // 選手（森）：自分のページから免除を申し込む
     const pl = await loginAs('森 健太', 'mori-pin-1');
     await pl.p.click('.selfcard'); await pl.p.waitForTimeout(800);
@@ -430,20 +432,20 @@ const shot = async (p, name) => { if (SHOT) { require('fs').mkdirSync(SHOT, { re
     await pl.p.fill('form[data-form="exreq"] input[name="note"]', '左肩の痛み');
     await pl.p.click('form[data-form="exreq"] button[type="submit"]'); await pl.p.waitForTimeout(1500);
     ok(/申し込み中/.test(await pl.p.locator('.exreq-mine').innerText().catch(() => '')), '選手が自分のページから免除を申し込める（「申し込み中」と出る）');
-    // キャプテン（石川）：ホームに申し込みが出て、認める
+    // 副主将（石川）：ホームに申し込みが出て、認める
     const cp = await loginAs('石川 大地', 'ishi-pin-1');
-    ok(await cp.p.locator('[data-act="exreqs-open"]').count() === 1 && /森 健太/.test(await cp.p.locator('[data-act="exreqs-open"]').innerText()), 'キャプテンのホームに「免除の申し込みが1件（森 健太）」が出る');
+    ok(await cp.p.locator('[data-act="exreqs-open"]').count() === 1 && /森 健太/.test(await cp.p.locator('[data-act="exreqs-open"]').innerText()), '副主将のホームに「免除の申し込みが1件（森 健太）」が出る');
     await cp.p.click('[data-act="exreqs-open"]'); await cp.p.waitForSelector('.sheet .exreqs');
-    ok(/左肩の痛み/.test(await cp.p.locator('.sheet .exreqs').innerText()), 'キャプテンには、理由とメモが見える');
+    ok(/左肩の痛み/.test(await cp.p.locator('.sheet .exreqs').innerText()), '副主将には、理由とメモが見える');
     await cp.p.click('.sheet [data-act="exreq-ok"]'); await cp.p.waitForTimeout(1800);
     ok(await cp.p.locator('[data-act="exreqs-open"]').count() === 0, '認めると、ホームの申し込みが消える');
     await pl.p.evaluate(() => { location.hash = '#home'; }); await pl.p.reload(); await pl.p.waitForSelector('.board'); await pl.p.waitForTimeout(600);
     await pl.p.evaluate((id) => { location.hash = '#member/' + id; }, MO); await pl.p.waitForTimeout(900);
     ok(!/申し込み中/.test(await pl.p.locator('#main').innerText()) && await pl.p.locator('.exlist:not(.exreq-mine) li').count() >= 1, '選手のページに、認められた免除が出る');
     const st3 = await ad.p.evaluate(async () => { const tk = JSON.parse(localStorage.getItem('kintoreTest.token') || '""'); return fetch('/exec', { method: 'POST', body: JSON.stringify({ op: 'state', token: tk }) }).then((r) => r.json()); });
-    ok(st3.exempts.some((e) => e.memberId === MO && e.req === 1), '管理者には、本人の申し込みから（キャプテンが認めた）とわかる');
-    // 石川さんのキャプテンを外しておく（このあとのテストのため）
-    await ad.p.evaluate(async (id) => { const tk = JSON.parse(localStorage.getItem('kintoreTest.token') || '""'); await fetch('/exec', { method: 'POST', body: JSON.stringify({ op: 'saveMember', token: tk, member: { id: id, captain: false } }) }); }, IS);
+    ok(st3.exempts.some((e) => e.memberId === MO && e.req === 1), '管理者には、本人の申し込みから（副主将が認めた）とわかる');
+    // 石川さんの役割を戻しておく（このあとのテストのため）
+    await ad.p.evaluate(async () => { await fetch('/__role?name=' + encodeURIComponent('石川 大地') + '&role=' + encodeURIComponent('部員')); });
     await ad.c.close(); await pl.c.close(); await cp.c.close();
   }
 

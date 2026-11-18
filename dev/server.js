@@ -119,6 +119,11 @@ let OPDELAY = {}; const OPLOG = [];
 http.createServer((req, res) => {
   if (req.url.split('?')[0] === '/__ops') { res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(OPLOG.splice(0))); return; }
   const url = req.url.split('?')[0];
+  if (url === '/__role') { // テスト用：会計アプリで名簿の役割を変えたことにする（例 /__role?name=森 健太&role=副主将）
+    const q = new URL(req.url, 'http://x').searchParams;
+    gas.accountingEdit((sh) => { const k = sh.data.findIndex((x) => x[0] === q.get('name')); if (k > 0) sh.data[k][sh.data[0].indexOf('役割')] = q.get('role'); });
+    res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ ok: true })); return;
+  }
   if (url === '/__delay') { // テスト用：操作ごとに返事を遅らせる（例 /__delay?clipStart=3000&clipDraft=1500）
     OPDELAY = {}; new URL(req.url, 'http://x').searchParams.forEach((v, k) => { OPDELAY[k] = +v; });
     res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ ok: true, delay: OPDELAY })); return;

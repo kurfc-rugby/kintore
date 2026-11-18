@@ -6,7 +6,8 @@ import json, os, subprocess, sys, math
 from PIL import Image, ImageDraw, ImageFont
 
 CAP, OUT = sys.argv[1], sys.argv[2]
-LOGIN = len(sys.argv) > 3 and sys.argv[3] == 'login'
+LOGIN = len(sys.argv) > 3 and sys.argv[3] in ('login', 'login1m')
+LONG = len(sys.argv) > 3 and sys.argv[3] == 'login1m'
 os.makedirs(OUT, exist_ok=True)
 W, H, FPS = 720, 1280, 30
 BG = (110, 47, 52)
@@ -42,8 +43,20 @@ SCENES_LOGIN = {
     'icon': (4.5, 'アイコンも\n自分で決められる', '7/8'),
     'help': (3.5, 'わからないときは\n右上の「？」', '8/8'),
 }
+# 全員ログイン版・1分：場面を4つに絞り、画面ごとに字幕を変える（ゆっくり：1つの画面に2〜3.5秒）
+#   (場面の長さ, 表紙の字幕, 番号, [画面ごとの字幕…])
+SCENES_LONG = {
+    'title': (3.0, 'KURFC 筋トレ\n使い方（1分）', '', None),
+    'login': (11.0, '', '1/4', ['名前の一覧から\n自分を選ぶ', '自分だけの暗証番号を\n決めて「登録してはじめる」', 'ログインできました\n次からはこの暗証番号で']),
+    'shoot': (17.0, '', '2/4', ['筋トレをしたら\n下の「撮る」', '赤いボタンを押すと\n2秒撮れます', '日時と今日の数字は\n自動で入ります', '見返して「送る」\n（撮り直しもできる）', 'その日はすぐ\n「実施した」になります', '送り終わったら完了\n動画は1か月で消えます']),
+    'watch': (15.0, '', '3/4', ['ホームに\nみんなの今日の動画', '押すと再生\n応援も送れる', '動画を見て\n応援を送ろう', 'ランキングで\n今月の順位', '横にはらうと\n前の月も見られる']),
+    'member': (10.5, '', '4/4', ['「わたし」で\n自分のページ', 'カレンダーの印を押すと', 'その日の動画が見られる']),
+    'help': (3.5, 'わからないときは\n右上の「？」', '', None),
+}
 if LOGIN:
     SCENES = SCENES_LOGIN
+if LONG:
+    SCENES = {k: v[:3] for k, v in SCENES_LONG.items()}
 
 mask = Image.new('L', (SW, SH), 0)
 ImageDraw.Draw(mask).rounded_rectangle((0, 0, SW - 1, SH - 1), R, fill=255)
@@ -107,9 +120,13 @@ def render_scene(idx, sc):
     prev = os.environ.get('PREVIEW')
     p = None if prev else subprocess.Popen(['ffmpeg', '-v', 'error', '-y', '-f', 'rawvideo', '-pix_fmt', 'rgb24', '-s', '%dx%d' % (W, H), '-r', str(FPS), '-i', '-',
                           '-c:v', 'libx264', '-crf', '20', '-preset', 'veryfast', '-pix_fmt', 'yuv420p', '-r', str(FPS), tmp], stdin=subprocess.PIPE)
+    caps = SCENES_LONG[sc['id']][3] if LONG else None
+    if caps: assert len(caps) == len(beats), (sc['id'], len(caps), len(beats))
+    bgs = [base(c, num) for c in caps] if caps else None
     bg = base(cap, num)
     for f in range(nf):
         bi = min(len(beats) - 1, int(f / per)); b = beats[bi]
+        if bgs: bg = bgs[bi]
         lt = (f - bi * per) / per  # その画面の中での進み 0→1
         frame = bg.copy()
         scr = scroll_frame(b, lt) if 'scroll' in b else screen(b['img'])
@@ -151,7 +168,7 @@ def render_scene(idx, sc):
     return dst
 
 scenes = json.load(open(os.path.join(CAP, 'beats.json')))
-order = ['title', 'login', 'home', 'shoot', 'clips', 'rank', 'member', 'icon', 'help'] if LOGIN else ['title', 'home', 'self', 'rank', 'member', 'cheer', 'form', 'feedback', 'help']
+order = ['title', 'login', 'shoot', 'watch', 'member', 'help'] if LONG else ['title', 'login', 'home', 'shoot', 'clips', 'rank', 'member', 'icon', 'help'] if LOGIN else ['title', 'home', 'self', 'rank', 'member', 'cheer', 'form', 'feedback', 'help']
 NAME = 'howto-login' if LOGIN else 'howto'
 byid = {s['id']: s for s in scenes}
 files = []
