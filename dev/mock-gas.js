@@ -187,7 +187,7 @@ function create(opts) {
     DriveApp: (() => {
       let n = 0;
       const mkFile = (blob, folder) => { const id = 'FILE_' + (++n); const f = { id, blob, folder, trashed: false, getId: () => id, getBlob: () => blob, setTrashed: (v) => { f.trashed = !!v; } }; drive.files[id] = f; return f; };
-      const mkFolder = (name) => { const id = 'FOLDER_' + (++n); const f = { id, name, getId: () => id, createFile: (blob) => mkFile(blob, id) }; drive.folders[id] = f; return f; };
+      const mkFolder = (name) => { const id = 'FOLDER_' + (++n); const f = { id, name, getId: () => id, getName: () => f.name, setName: (v) => { f.name = v; return f; }, createFile: (blob) => mkFile(blob, id) }; drive.folders[id] = f; return f; };
       return {
         createFolder: (name) => mkFolder(name),
         getFolderById: (id) => { const f = drive.folders[id]; if (!f) throw new Error('no folder'); return f; },
@@ -206,7 +206,7 @@ function create(opts) {
   if (opts.withLibrary !== false) sandbox.KurfcRoster = KurfcRoster;
   vm.createContext(sandbox);
   const code = fs.readFileSync(path.join(__dirname, '..', 'gas', 'Code.gs'), 'utf8');
-  vm.runInContext(code + '\n;this.__fn = {handle_, setup, registerAdmin_, onEdit, doPost, doGet, onOpen, menuRegisterAdmin, pinHash_, today_, pushHourly, warmTables_, setupPush, ecSign_, utf8_, pruneStamps_: function (d) { REQ_ = { tables: {}, ss: null, roster: null }; try { pruneStamps_(d); } finally { REQ_ = null; } }, menuBackupNow, menuRestoreBackup, withReq: function (f) { REQ_ = { tables: {}, ss: null, roster: null }; try { return f({ setupTestEnv, purgeClips_, archiveClips_, dailyMaint_, expireClips_, attachPendingMaybe_, clipCode_, backupNow_, restoreBackup_, archiveLogs_, weeklyBackup_, backupBook_, readBackupTab_, goalHist_, weekGoalAt_ }); } finally { REQ_ = null; } }};', sandbox, { filename: 'Code.gs' });
+  vm.runInContext(code + '\n;this.__fn = {handle_, setup, registerAdmin_, onEdit, doPost, doGet, onOpen, menuRegisterAdmin, pinHash_, today_, pushHourly, warmTables_, renameClipFolder_, setupPush, ecSign_, utf8_, pruneStamps_: function (d) { REQ_ = { tables: {}, ss: null, roster: null }; try { pruneStamps_(d); } finally { REQ_ = null; } }, menuBackupNow, menuRestoreBackup, withReq: function (f) { REQ_ = { tables: {}, ss: null, roster: null }; try { return f({ setupTestEnv, purgeClips_, archiveClips_, dailyMaint_, expireClips_, attachPendingMaybe_, clipCode_, backupNow_, restoreBackup_, archiveLogs_, weeklyBackup_, backupBook_, readBackupTab_, goalHist_, weekGoalAt_ }); } finally { REQ_ = null; } }};', sandbox, { filename: 'Code.gs' });
   const fn = sandbox.__fn;
 
   const api = {

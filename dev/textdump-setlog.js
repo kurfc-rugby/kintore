@@ -5,7 +5,7 @@ const fs = require('fs');
 const OUT = process.argv[2] || '/tmp/textdump';
 const BASE = 'http://localhost:' + (process.argv[3] || '8767') + '/';
 fs.mkdirSync(OUT, { recursive: true });
-const ROUTES = ['', '#rank', '#calendar', '#menus', '#members', '#settings', '#help', '#clips', '#clips/queue', '#record', '#logs', '#feedback', '#archive', '#exercises'];
+const ROUTES = ['', '#rank', '#cal', '#menus', '#members', '#settings', '#help', '#clips', '#clips/queue', '#record', '#logs', '#feedback', '#archive'];
 (async () => {
   const b = await chromium.launch({ executablePath: process.env.CHROME || undefined, args: ['--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream'] });
   const errors = [];
@@ -77,7 +77,7 @@ const ROUTES = ['', '#rank', '#calendar', '#menus', '#members', '#settings', '#h
   };
   await session('選手', pickLogin('石川 大地', 'dump-pin-1'));
   await session('マネージャー', pickLogin('マネ 花子', 'test-mgr-01'));
-  await session('FWリーダー', pickLogin('前田 剛', 'test-lead-1'));
+  await session('副主将', pickLogin('前田 剛', 'test-lead-1'));
   await session('管理者', pickLogin('管理 太郎', 'test-admin-1'));
   fs.writeFileSync(OUT + '/errors.txt', errors.join('\n'));
   await b.close();

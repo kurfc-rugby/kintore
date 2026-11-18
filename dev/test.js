@@ -443,6 +443,8 @@ ok(api({ op: 'exemptRequest', token: MX, from: '2026-11-10', to: '2026-11-12', r
   ok(m1 && m1.perm === 'leader' && m1.autoL === 1, '副主将は自動で FW・BKリーダー');
   const rp = api({ op: 'resetPin', token: A, id: m1.id });
   ok(rp.ok && api({ op: 'state' }).staff.some((x) => x.name === nm && x.perm === 'leader'), '管理者が暗証番号を出すと、リーダーとしてログインの一覧に出る');
+  const bp = api({ op: 'bulkPerms', token: A, rows: [{ id: m1.id, perm: 'member' }] });
+  ok(bp.ok && bp.changed === 0 && api({ op: 'state' }).members.find((m) => m.name === nm).perm === 'leader', '名簿の役割で副主将の人は、役職のまとめての付け替えで一般部員にしても変わらない（数えない）');
   gas.accountingEdit((sh) => { const k = sh.data.findIndex((x) => x[0] === nm); sh.data[k][sh.data[0].indexOf('役割')] = '部員'; });
   ok(api({ op: 'state' }).members.find((m) => m.name === nm).perm === 'member', '役割を戻すと一般部員に戻る');
   gas.accountingEdit((sh) => { const k = sh.data.findIndex((x) => x[0] === nm); sh.data[k][sh.data[0].indexOf('役割')] = '主将'; });
@@ -466,6 +468,11 @@ ok(api({ op: 'exemptRequest', token: MX, from: '2026-11-10', to: '2026-11-12', r
   peopleSh.data[row][pc] = 'FWリーダー';
   gas.run('onEdit', { range: { getSheet: () => ({ getName: () => '部員設定' }) } });
   ok(api({ op: 'state', token: A }).members.find((m) => m.id === mid).perm === 'leader', 'シートに前の呼び方「FWリーダー」とあっても、副主将として読む');
+  const mc = peopleSh.data[0].indexOf('取り組み方');
+  peopleSh.data[row][mc] = 'リーダーメニュー';
+  gas.run('onEdit', { range: { getSheet: () => ({ getName: () => '部員設定' }) } });
+  ok(api({ op: 'state', token: A }).members.find((m) => m.id === mid).mode === 'leader', '取り組み方の前の呼び方「リーダーメニュー」も「メニュー参加」として読む');
+  ok(peopleSh.data.some((r) => r[mc] === 'メニュー参加'), 'シートには「メニュー参加」と書く');
   peopleSh.data[row][pc] = '一般部員';
   gas.run('onEdit', { range: { getSheet: () => ({ getName: () => '部員設定' }) } });
 }

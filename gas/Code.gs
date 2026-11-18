@@ -10,7 +10,7 @@
  * 最初にやること：スプレッドシートのメニュー「筋トレ管理」→「管理者を登録」
  * 詳しくは 04_ドキュメント/筋トレ管理アプリ_使い方と引き継ぎ.md
  */
-const APP_VERSION = '2.23.0';
+const APP_VERSION = '2.24.0';
 const SCHEMA_VERSION = '12';
 const TZ = 'Asia/Tokyo';
 const SESSION_DAYS = 90;
@@ -111,7 +111,7 @@ function gearOf_(v) { return EX_GEAR.filter(function (g) { return Array.isArray(
 const DATE_COLS = { start: 1, left: 1, effDate: 1, date: 1, from: 1, to: 1, repeatFrom: 1, repeatTo: 1, targetDate: 1 };
 
 const ENC = {
-  mode: { leader: 'リーダーメニュー', self: '自主トレ' },
+  mode: { leader: 'メニュー参加', self: '自主トレ' },
   perm: { admin: '管理者', manager: 'マネージャー', captain: '主将', leader: '副主将', member: '一般部員', guest: '見るだけ' },
   status: { done: '実施した', not: '実施していない' },
   mgroup: { FW: 'FW', BK: 'BK', ALL: '全体' },
@@ -135,7 +135,7 @@ const FIELD_ENC = {
 };
 const STAFF = { admin: 1, manager: 1, captain: 1, leader: 1 };
 /** 前の呼び方でシートに書いてあるもの（読むときだけ使う。書くときは今の呼び方） */
-const ENC_OLD = { perm: { 'FWリーダー': 'leader', 'FW・BKリーダー': 'leader', 'BKリーダー': 'leader', 'リーダー': 'leader' } };
+const ENC_OLD = { perm: { 'FWリーダー': 'leader', 'FW・BKリーダー': 'leader', 'BKリーダー': 'leader', 'リーダー': 'leader' }, mode: { 'リーダーメニュー': 'leader' } };
 
 // ---------------------------------------------------------------------------
 // 入口
@@ -531,7 +531,11 @@ function bumpTables_(keys) {
   if (REQ_ && REQ_.tg) keys.forEach(function (k) { REQ_.tg[k] = o[tgenKey_(k)]; });
   if (REQ_ && REQ_.cpre) Object.keys(o).forEach(function (k) { REQ_.cpre[k] = o[k]; });
 }
-function bumpAllTables_() { bumpTables_(Object.keys(DEF)); }
+/** シートを丸ごと書きかえたとき（バックアップから戻す・シートを作り直す）：覚えているものを全部忘れる */
+function bumpAllTables_() {
+  bumpTables_(Object.keys(DEF));
+  try { bumpPeopleGen_(); bumpSesGen_(); CacheService.getScriptCache().remove('k:clipidx'); } catch (x) { console.error(x); }
+}
 const tdataKey_ = function (k, gen) { return 't:' + k + ':' + gen; };
 /** 1回目に表が要るとき、覚えてある表をまとめて取り出す（キャッシュへの問い合わせを1〜2回で済ませる） */
 function tcachePrefetch_() {
@@ -2356,6 +2360,14 @@ function dailyMaint_() {
     pruneStamps_(today);
     setSetting_('maintOn', today);
   });
+  if (setlogOn_()) { try { renameClipFolder_(); } catch (x) { console.error(x); } }
+}
+/** 動画のフォルダの名前を、今の保存期間に合わせる（前に「1か月で消えます」で作ったフォルダ。1日1回） */
+function renameClipFolder_() {
+  const id = PropertiesService.getScriptProperties().getProperty('CLIP_FOLDER');
+  if (!id) return;
+  const f = DriveApp.getFolderById(id), name = f.getName();
+  if (/1か月/.test(name)) f.setName(name.replace('1か月', '3か月'));
 }
 function pruneStamps_(today) {
   const t = table_('stamps');
@@ -2830,6 +2842,7 @@ function opBulkPerms_(ctx) {
     Object.keys(want).forEach(function (id) {
       const m = memberById_(id);
       if (!m || !m.active || m.gone || m.perm === want[id]) return;
+      if (m.autoLeader && want[id] === 'member') return; // 名簿の役割（主将・副主将）で決まっている人は、役割を変えないと一般部員に戻らない
       const before = m.perm;
       applyAppFields_(m, { perm: want[id] }, me, now);
       changed.push(m.name + '（' + ENC.perm[before] + '→' + ENC.perm[m.perm] + '）');

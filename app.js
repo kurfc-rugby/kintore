@@ -3,7 +3,7 @@
   'use strict';
   const L = window.KLogic;
   const API = window.KINTORE_API;
-  const VERSION = '2.23.0';
+  const VERSION = '2.24.0-t1';
   const WD = ['日', '月', '火', '水', '木', '金', '土'];
   const PERM = { admin: '管理者', manager: 'マネージャー', captain: '主将', leader: '副主将', member: '一般部員', guest: '見るだけ' };
   // 権限を選ぶ一覧の並び
@@ -751,7 +751,7 @@
     if (menus.length) {
       h += '<ul class="today-menus">' + menus.map((w) => '<li><button data-act="menu-open" data-id="' + w.id + '">' + targetChip(w) + '<b>' + esc(w.title) + '</b><span>対象' + w.targets.length + '人</span></button></li>').join('') + '</ul>';
       h += '<p class="today-s">メニュー対象者のうち <b>' + ds.targetDone + '/' + ds.targets + '人</b> が実施' + (ds.targets > ds.targetDone ? (loginAll() ? '。動画を出していない人は明日から「実施していない」になります' : '。記録のない人は明日から「実施していない」になります') : '') + '</p>';
-    } else h += '<p class="today-s">今日のリーダーメニューはありません。</p>';
+    } else h += '<p class="today-s">今日のメニューはありません。</p>';
     if (ds.othersDone) h += '<p class="today-s">メニュー対象以外で実施 <b>' + ds.othersDone + '人</b></p>';
     return h + '</section>';
   }
@@ -1073,7 +1073,7 @@
     if (S.kind === 'month') h += continuityBlock(all.rows);
     h += '<details class="rules"><summary><h3>集計のルール</h3></summary><ul>' +
       '<li><b>実施回数</b>：' + (loginAll() ? '動画を送った日（動画を送れなかった日にマネージャーがつけた分も入ります）' : 'マネージャーが「実施した」と記録した日数') + '。全員が同じ条件です。</li>' +
-      '<li><b>実施率</b>：リーダーメニューに参加している人だけ。実施した対象日 ÷ 対象日。対象日に記録がなければ、翌日から「実施していない」になります（今日の分は、実施したときだけ数えます）。</li>' +
+      '<li><b>実施率</b>：「メニュー参加」の人だけ。実施した対象日 ÷ 対象日。対象日に記録がなければ、翌日から「実施していない」になります（今日の分は、実施したときだけ数えます）。</li>' +
       '<li>自主トレの人は実施率を出さず「－」。実施回数で比べます。</li>' +
       '<li>回数（または実施率）が同じ人は<b>同じ順位</b>です。実施率が同じときの並びは、実施回数の多い人が先。表彰台にも同じ順位で並びます。</li>' +
       '<li>ポジションで絞ると、メインかサブがそのポジションの人が入ります。</li>' +
@@ -1124,7 +1124,7 @@
       h += '<td class="msum"><span class="num">' + n + '</span></td></tr>';
     });
     return h + '</tbody></table></div>' + legend() +
-      '<p class="note">日付の下に線がある日は、リーダーメニューがある日です。名前を押すと、その人のカレンダーと履歴を見られます。</p>';
+      '<p class="note">日付の下に線がある日は、メニューがある日です。名前を押すと、その人のカレンダーと履歴を見られます。</p>';
   }
 
   // ---------- 部員 ----------
@@ -1139,7 +1139,7 @@
       return '<li><a href="#member/' + m.id + '">' +
         '<span class="rec-pos g-' + (m.player ? (m.group || 'X') : 'X') + '">' + (m.player ? esc(m.position || m.group || '－') : 'MG') + '</span>' +
         '<span class="mrow-n">' + (iconsOn() ? '<b class="has-av">' + avatar(m, 'av-xs') + esc(m.name) + '</b>' : '<b>' + esc(m.name) + '</b>') + '<small>' + (m.grade ? esc(m.grade) + '・' : '') + (m.player ? posText(m) + '・' + MODE[m.mode] : esc(m.clubRole)) +
-        (m.perm !== 'member' ? '<span class="chip role">' + permLabel(m) + '</span>' : '') + '</small></span>' +
+        (m.perm !== 'member' && (m.player || m.clubRole !== permLabel(m)) ? '<span class="chip role">' + permLabel(m) + '</span>' : '') + '</small></span>' +
         (m.player ? '<span class="mrow-c">今月<span class="num">' + (r ? r.done : 0) + '</span>回</span>' : '<span class="mrow-c"></span>') + '</a></li>';
     };
     let h = '';
@@ -1182,7 +1182,7 @@
       '<div class="profile-t"><h1>' + (iconsOn() ? avatar(m, 'av-md') : '') + esc(m.name) + '</h1>' +
       '<p class="profile-pos">' + (m.player ? (pos ? '<b>' + esc(pos.code) + '</b>' + esc(pos.name) : '<b>' + esc(m.group || '－') + '</b>ポジション未設定') + (m.subs && m.subs.length ? '<span>サブ ' + m.subs.map(esc).join('・') + '</span>' : '') : '<b>' + esc(m.clubRole) + '</b>') + '</p>' +
       '<div class="chips">' + (m.grade ? '<span class="chip">' + esc(m.grade) + '</span>' : '') + (m.player ? '<span class="chip mode-' + m.mode + '">' + MODE[m.mode] + '</span>' : '') +
-      (m.perm !== 'member' ? '<span class="chip role">' + permLabel(m) + '</span>' : '') + ((m.clubRole === '主将' || m.clubRole === '副主将') && m.clubRole !== permLabel(m) ? '<span class="chip">' + esc(m.clubRole) + '</span>' : '') + (!m.active ? '<span class="chip">在籍なし</span>' : '') + '</div></div>' +
+      (m.perm !== 'member' && (m.player || m.clubRole !== permLabel(m)) ? '<span class="chip role">' + permLabel(m) + '</span>' : '') + ((m.clubRole === '主将' || m.clubRole === '副主将') && m.clubRole !== permLabel(m) ? '<span class="chip">' + esc(m.clubRole) + '</span>' : '') + (!m.active ? '<span class="chip">在籍なし</span>' : '') + '</div></div>' +
       (can('admin') ? '<button class="btn small" data-act="member-edit" data-id="' + m.id + '">編集</button>' : '') + '</div>';
     if (iconsOn() && me() && me().perm !== 'guest') {
       if (me().id === m.id) h += '<div class="toolbar icon-bar"><button class="btn small" data-act="icon-edit">' + avatar(m, 'av-xs') + (m.ic ? 'アイコンを変える' : 'アイコンを決める') + '</button></div>';
@@ -1476,7 +1476,7 @@
       '<div class="two"><label>開始日<input type="date" name="from" value="' + today + '" required></label><label>終了日<input type="date" name="to" value="' + L.addDays(today, 6) + '" required></label></div>' +
       '<label>理由<select name="reason" required>' + reasons.map((r) => '<option>' + r + '</option>').join('') + '</select></label>' +
       '<label>メモ（任意）<input type="text" name="note" maxlength="100" placeholder="' + (team ? '例：前期の試験' : '例：右足首の捻挫、全治2週間') + '"></label>' +
-      (team ? '' : '<p class="hint">理由とメモは、ログインした管理者・マネージャー・主将・副主将にだけ見えます（ふつうの部員の画面には「免除」とだけ出ます）。</p>') +
+      (team ? '' : '<p class="hint">理由とメモは、スタッフ（管理者・マネージャー・主将・副主将）にだけ見えます（ほかの部員の画面には「免除」とだけ出ます）。</p>') +
       '<p class="form-err" hidden></p>' +
       '<div class="actions"><button type="button" class="btn" data-act="sheet-close">やめる</button><button class="btn primary" type="submit">登録する</button></div></form>');
   }
@@ -1513,7 +1513,7 @@
       '<div class="two"><label>開始日<input type="date" name="from" value="' + today + '" min="' + L.addDays(today, -14) + '" required></label><label>終了日<input type="date" name="to" value="' + L.addDays(today, 6) + '" min="' + L.addDays(today, -14) + '" required></label></div>' +
       '<label>理由<select name="reason" required>' + EX_REASONS.map((r) => '<option>' + r + '</option>').join('') + '</select></label>' +
       '<label>メモ（任意）<input type="text" name="note" maxlength="100" placeholder="例：右足首の捻挫、全治2週間"></label>' +
-      '<p class="hint">理由とメモは、主将・副主将とスタッフにだけ見えます（ほかの部員には「免除」とだけ出ます）。2週間前の分まで申し込めます。</p>' +
+      '<p class="hint">理由とメモは、スタッフ（管理者・マネージャー・主将・副主将）にだけ見えます（ほかの部員には「免除」とだけ出ます）。2週間前の分まで申し込めます。</p>' +
       '<p class="form-err" hidden></p>' +
       '<div class="actions"><button type="button" class="btn" data-act="sheet-close">やめる</button><button class="btn primary" type="submit">申し込む</button></div></form>');
   }
@@ -1571,7 +1571,7 @@
     h += near.length ? menuDays(near, today) : '<p class="empty small">今週と来週のメニューはまだありません。</p>';
     if (far.length) h += '<details class="goal-more menu-far"><summary>その先のメニューを見る（' + far.length + '件）</summary>' + menuDays(far, today) + '</details>';
     if (!near.length && !far.length) return h;
-    return h + '<p class="note">メニューの対象は、リーダーメニューに参加している人だけです。ポジションを指定したメニューは、メインかサブがそのポジションの人が対象です。</p>';
+    return h + '<p class="note">メニューの対象は「メニュー参加」の人だけです（自主トレの人は入りません）。ポジションを指定したメニューは、メインかサブがそのポジションの人が対象です。</p>';
   }
   /** 日付の見出しごとにメニューのカードを並べる */
   function menuDays(list, today) {
@@ -1606,7 +1606,7 @@
       '<h3>トレーニング内容</h3>' + contentHtml(t.content) +
       (t.detail ? '<h3>回数・セット数・重量</h3><p class="pre">' + nl2br(t.detail) + '</p>' : '') +
       (t.note ? '<h3>備考</h3><p class="pre">' + nl2br(t.note) + '</p>' : '') +
-      '<p class="note">メニューがない日や自主トレの人向けに、主将・副主将がすすめているメニューです。やったらマネージャーに伝えてください（「実施した」がつきます）。</p></div>');
+      '<p class="note">メニューがない日や自主トレの人向けに、主将・副主将がすすめているメニューです。' + (loginAll() ? 'やったら「撮る」で動画を送ってください（「実施した」になります）。' : 'やったらマネージャーに伝えてください（「実施した」がつきます）。') + '</p></div>');
   }
   // ---------- 種目の動画 ----------
   /** 種目の説明：「ポイント」が空の種目は、動画元（SAVAS・LIFE FIT）の説明の要約で補う（動画のIDで照合） */
@@ -1826,7 +1826,7 @@
       (w.detail ? '<h3>回数・セット数・重量</h3><p class="pre">' + nl2br(w.detail) + '</p>' : '') +
       (w.note ? '<h3>備考</h3><p class="pre">' + nl2br(w.note) + '</p>' : '') +
       '<h3>対象者（' + names.length + '人）</h3><p class="names">' + (names.length ? names.map(esc).join('、') : 'メニュー参加の人がいません。') + '</p>' +
-      '<p class="note">対象はリーダーメニューに参加している人です。' + (w.createdBy ? '作成：' + esc(nameOf(w.createdBy)) : '') + (w.templateId && !w.edited ? '。型を直すと、このメニューもそろいます' : '') + '</p>' +
+      '<p class="note">対象は「メニュー参加」の人です。' + (w.createdBy ? '作成：' + esc(nameOf(w.createdBy)) : '') + (w.templateId && !w.edited ? '。型を直すと、このメニューもそろいます' : '') + '</p>' +
       (can('menu') ? '<div class="actions wrap"><button class="btn" data-act="menu-copy" data-id="' + w.id + '">' + icon('copy') + '別の日にコピー</button><button class="btn" data-act="tpl-from-menu" data-id="' + w.id + '">型にする</button></div>' +
         '<div class="actions"><button class="btn danger" data-act="menu-del" data-id="' + w.id + '">削除</button><button class="btn primary" data-act="menu-edit" data-id="' + w.id + '">編集</button></div>' : '') +
       '</div>');
@@ -1950,7 +1950,7 @@
   }
   function vArchive() {
     let h = '<div class="sub-h"><a class="ibtn" href="#menus" aria-label="戻る">' + icon('back') + '</a><h1>これまでのメニュー</h1></div>';
-    if (!can('archive')) return h + '<p class="empty">ログインした管理者・主将・副主将・マネージャーが見られます。</p>';
+    if (!can('archive')) return h + '<p class="empty">これまでのメニューは、管理者・マネージャー・主将・副主将だけが見られます。</p>';
     if (!S.archive) { loadArchive(); return h + '<p class="empty">読み込み中…</p>'; }
     if (S.archive.err) return h + '<p class="empty">' + esc(S.archive.err) + '</p>';
     const a = S.archive, list = archiveFiltered();
@@ -2093,13 +2093,13 @@
       '<button class="ibtn" data-act="rec-day" data-v="1" aria-label="次の日"' + (date >= today ? ' disabled' : '') + '>' + icon('next') + '</button></div>';
     h += '<div class="rec-menus">' + (menus.length
       ? menus.map((w) => '<button class="mini-menu" data-act="menu-open" data-id="' + w.id + '">' + targetChip(w) + esc(w.title) + '<small>対象' + w.targets.length + '人</small></button>').join('')
-      : '<span>この日のリーダーメニューはありません。自主トレの実施を記録できます。</span>') + '</div>';
+      : '<span>この日のメニューはありません。自主トレの実施を記録できます。</span>') + '</div>';
     // 上は2段：絞り込み＋「その他」（1週間まとめて・取り消した記録）／並び順
     h += '<div class="fbar rec-fbar">' + filterBar(S.rec.group, 'r').replace(/^<div class="fbar">|<\/div>$/g, '') +
       '<button class="btn small rec-more" data-act="rec-more" aria-haspopup="dialog">' + icon('more') + 'その他</button></div>' +
       '<div class="fbar"><div class="seg small" role="group" aria-label="並び順">' + REC_SORTS.map((x) => '<button data-act="rec-sort" data-v="' + x[0] + '" aria-pressed="' + (S.recSort === x[0]) + '">' + x[1] + '</button>').join('') + '</div></div>';
     if (!rows.length) return h + emptyState('people', 'この日に記録できる部員がいません', '部員の在籍期間（開始日・退部日）を確認してください。');
-    const secName = ['リーダーメニューの対象者', '自主トレの人', 'メニュー参加（この日は対象メニューなし）'];
+    const secName = ['メニューの対象者', '自主トレの人', 'メニュー参加（この日は対象メニューなし）'];
     let sec = -1, shown = 0;
     rows.forEach((r) => {
       if (!recVisible(r)) return;
@@ -2290,8 +2290,8 @@
     openSheet('役職をまとめて付け替え',
       '<form data-form="perms" class="form"><p class="lead-line small">新年度に主将・副主将・マネージャーが交代するときに使います。変えた人だけ保存します。</p>' +
       '<p class="hint">' + (loginAll() ? 'まだ登録していない人には、' : '新しくログインする人（一般部員から変えた人）には、') + '最初の暗証番号をまとめて発行して、次の画面に出します。' + (loginAll() ? 'もう自分で登録している人は、今の暗証番号のままです（役職を変えた人は、いったんログアウトされます）。一般部員に戻した人は、暗証番号が消えるので、自分でもう一度登録します。' : '一般部員に戻した人はログインできなくなります。') + '自分自身はここでは変えられません。</p>' +
-      '<ul class="pm-list">' + sorted.map((m) => '<li class="pm-top"><span><b>' + esc(m.name) + '</b><small>' + esc(m.grade || '') + (m.player ? '・' + esc(m.position || m.group || '') : '・' + esc(m.clubRole)) + '</small></span>' +
-        '<select name="p_' + m.id + '" data-cur="' + m.perm + '" aria-label="' + esc(m.name) + 'の権限"' + (m.id === me().id ? ' disabled' : '') + '>' +
+      '<ul class="pm-list">' + sorted.map((m) => '<li class="pm-top"><span><b>' + esc(m.name) + '</b><small>' + esc(m.grade || '') + (m.player ? '・' + esc(m.position || m.group || '') : '・' + esc(m.clubRole)) + (m.autoL ? '・名簿の役割で自動（変えるときは役割を）' : '') + '</small></span>' +
+        '<select name="p_' + m.id + '" data-cur="' + m.perm + '" aria-label="' + esc(m.name) + 'の権限"' + (m.id === me().id || m.autoL ? ' disabled' : '') + '>' +
         PERM_OPTS.map((r) => '<option value="' + r + '"' + (m.perm === r ? ' selected' : '') + '>' + PERM[r] + '</option>').join('') + '</select></li>').join('') + '</ul>' +
       '<p class="form-err" hidden></p><div class="actions sticky"><button type="button" class="btn" data-act="sheet-close">やめる</button><button class="btn primary" type="submit">変更を保存</button></div></form>', { wide: true });
   }
@@ -2456,7 +2456,7 @@
         '<p>免除の日は、その日数ぶん週' + g + '回の必要回数が減り、メニューの×にもなりません。</p>' +
         '<ul class="dots"><li>2週間前の分まで申し込めます。それより前や、スタッフに直接頼みたいときは、マネージャーに伝えてください</li>' +
         '<li>申し込み中なら<b>「取り消す」</b>で取り消せます。認められなかったときは、理由が届きます</li></ul>' +
-        tip('理由とメモは、主将・副主将とスタッフにしか見えません（みんなの画面には「免除」とだけ出ます）。')] :
+        tip('理由とメモは、スタッフ（管理者・マネージャー・主将・副主将）にしか見えません（みんなの画面には「免除」とだけ出ます）。')] :
       ['exempt', 'all', 'けが・病気で休むとき', '免除してもらう',
         '<p>けが・病気・就活などで筋トレできない期間は、<b>マネージャーに伝えてください</b>。「免除」に登録されると、その日数ぶん週' + g + '回の必要回数が減り、メニューの×にもなりません。</p>' +
         tip('免除の理由やメモは、スタッフにしか見えません（みんなの画面には「免除」とだけ出ます）。')],
@@ -2562,7 +2562,10 @@
       (role === 'all' ? '<p class="note is-top">知りたいところを押すと開きます。マネージャー・主将・副主将・管理者の使い方は、上で切り替えてください。</p>' : '<p class="note is-top">ログインしてできることです。みんな向けの使い方は「みんな」にあります。</p>') +
       tourCard(role) +
       '<div class="help">';
-    helpSections().filter((x) => x && show(x[1])).forEach((x, i) => {
+    // マネージャー・主将・副主将の画面は、その立場だけの使い方を先に（スタッフ共通のものはあと）
+    const secs = helpSections().filter((x) => x && show(x[1]));
+    if (role === 'manager' || role === 'leader') secs.sort((a, b) => (a[1] === role ? 0 : 1) - (b[1] === role ? 0 : 1));
+    secs.forEach((x, i) => {
       h += '<details class="hsec" id="h-' + x[0] + '"' + (open === x[0] ? ' open' : '') + '><summary><span class="hnum">' + (i + 1) + '</span><span class="ht"><b>' + x[2] + '</b><small>' + x[3] + '</small></span></summary><div class="hb">' + x[4] + '</div></details>';
     });
     h += '</div><div class="toolbar center"><button class="btn" data-act="guide">はじめの紹介をもう一度見る</button></div>';
@@ -2570,7 +2573,7 @@
   }
 
   /** 使い方の動画を全画面で再生する（黒い画面いっぱい。×・画面の外・戻るボタン・Esc で閉じる） */
-  const howtoSrc = (ext) => (loginAll() ? 'media/howto-login.' + ext + '?v=3' : 'media/howto.' + ext + '?v=3');
+  const howtoSrc = (ext) => (loginAll() ? 'media/howto-login.' + ext + '?v=4' : 'media/howto.' + ext + '?v=3');
   function howtoLen() { return loginAll() ? '1分' : '40秒'; }
   function openVideo() {
     closeVideo();
@@ -2671,7 +2674,7 @@
       if (g.x === 'self') return { t: pl ? '今日の1本を撮る' : '選手の動画を見る', i: 'cam', tour: g.tour, p: () => pl
         ? '筋トレをしたら、下の<b>「撮る」</b>で<b>2秒の動画</b>を撮って送ります。日時と今日の数字は自動で入り、送るとその日は<b>「実施した」</b>になります。ホームの<b>「わたし」</b>に、今週あと何回かが出ます。'
         : '選手は、筋トレをしたらアプリで<b>2秒の動画</b>を撮って送ります。送るとその日は<b>「実施した」</b>になります。動画は<b>「動画」</b>で見られ、応援スタンプも押せます。' };
-      if (g.i === 'home' && /ようこそ/.test(g.t)) return Object.assign({}, g, { p: () => '部員みんなの筋トレの記録と、毎日の<b>2秒の動画</b>を見るアプリです。<b>月曜〜日曜に週{g}回以上</b>がマストです。<br>このあと、<b>実際の画面を見ながら</b>使い方を案内します（1分）。' });
+      if (g.i === 'home' && /ようこそ/.test(g.t)) return Object.assign({}, g, { p: () => '筋トレをしたら<b>2秒の動画</b>を送って記録し、部員みんなの記録と動画を見るアプリです。<b>月曜〜日曜に週{g}回以上</b>がマストです。<br>このあと、<b>実際の画面を見ながら</b>使い方を案内します（1分）。' });
       return g;
     });
   }
@@ -2743,7 +2746,7 @@
       { r: 'clips', arg: () => 'queue', login: 1, sel: '.view-clips .seg', t: '動画の確認', p: '取り消された日に撮り直した<b>確認待ち</b>と、部員が<b>「気になる」</b>を押した動画はここ。見て「問題なし」か「取り消す」を押します。' },
       { r: 'home', sel: ['.nav a.rec', '.nav a[href="#record"]'], t: '記録をつける', p: () => '記録はここから。マネージャーと管理者にだけ出ます。' + (loginAll() ? '動画を送った人は自動で「実施した」なので、ここは<b>動画を送れなかった人の分</b>などです。' : '') },
       { r: 'record', sel: '.rec-date', t: '記録する日', p: 'ふだんは<b>今日</b>。矢印や日付を押すと、前の日の分もつけられます。' },
-      { r: 'record', sel: '.rec-menus', t: 'その日のメニュー', p: 'その日のリーダーメニューです。対象の人が上にまとまって出ます。' },
+      { r: 'record', sel: '.rec-menus', t: 'その日のメニュー', p: 'その日のメニューです。対象の人が上にまとまって出ます。' },
       { r: 'record', sel: '.rec-list .rec-btn', t: '「実施した」を押すだけ', p: 'やった人の<b>「実施した」</b>を押します。もう一度押すと取り消せます。押していない対象者は「実施していない」になります。' },
       { r: 'record', sel: '.rec-bar', t: '保存する', p: '押し終わったら<b>「保存する」</b>。保存するまでは反映されません。' },
       { r: 'record', sel: '.rec-more', t: 'その他', p: '<b>1週間まとめて記録・修正</b>（表）と、<b>取り消した記録</b>はここです。' },
@@ -2759,6 +2762,7 @@
       { r: 'menus', prep: () => { S.menuTab = 'exercises'; }, sel: '[data-act="sv-open"][data-v="savas"]', t: 'SAVASの動画から選ぶ', p: '自重・ダンベルなど<b>365本</b>から、まとめて選んで登録できます。やり方・ポイントも一緒に入ります。' },
       { r: 'menus', prep: () => { S.menuTab = 'exercises'; }, sel: '[data-act="sv-open"][data-v="lifefit"]', t: 'マシンの動画から選ぶ', p: 'ジムのマシン<b>37台</b>の使い方の動画から選べます。' },
       { r: 'menus', prep: () => { S.menuTab = 'exercises'; }, sel: '.exmiss', t: '動画がない種目', p: 'メニューに出てくるのに動画がない種目が、候補として出ます。押すとそのまま登録できます。' },
+      { r: 'home', login: 1, sel: '[data-act="exreqs-open"]', t: '免除の申し込み', p: '選手から免除の申し込みが届くと、ホームのいちばん上に出ます。押して、期間と理由を見て<b>「認める」</b>か<b>「認めない」</b>。' },
       { r: 'home', sel: '.share-row', t: 'LINEで知らせる', p: '「まだの人」の一覧を、<b>LINE用の文章</b>にしてコピー・送信できます。' }
     ] },
     admin: { name: '管理者', perm: 'admin', steps: [
@@ -3023,7 +3027,7 @@
       '<p class="hint">ポジションと取り組み方の変更は今日から反映され、昨日までの記録や集計は変わりません。</p></fieldset>' +
       '<label>筋トレアプリの権限<select name="perm">' + PERM_OPTS.map((r) => '<option value="' + r + '"' + ((v.autoL ? 'member' : v.perm) === r ? ' selected' : '') + '>' + PERM[r] + '</option>').join('') + '</select></label>' +
       (v.autoL ? '<p class="hint">名簿の役割が「' + esc(v.clubRole || PERM[v.perm]) + '」なので、ここが一般部員のままでも <b>' + permLabel(v) + '</b>（メニューを作れる' + (loginAll() ? '・免除の申し込みを認める' : '') + '）になります。</p>' : '') +
-      '<p class="hint">' + (loginAll() ? '一般部員は自分で登録してログインし、動画を送ります。' : '一般部員は見るだけ（ログインなし）。') + 'マネージャーは実施記録' + (loginAll() ? 'と動画の確認' : '') + '、主将・副主将はメニュー' + (loginAll() ? 'と免除の申し込みを認めること' : '') + '、管理者はすべてを操作できます。</p>' +
+      '<p class="hint">' + (loginAll() ? '一般部員は自分で登録してログインし、動画を送ります。' : '一般部員は見るだけ（ログインなし）。') + 'マネージャーは実施記録' + (loginAll() ? 'と動画の確認' : '') + '、主将・副主将はメニュー作り' + (loginAll() ? 'と免除の申し込みの確認' : '') + '、管理者はすべてを操作できます。</p>' +
       '<details class="adv"><summary>くわしい設定</summary><label>記録の開始日<span class="opt">任意</span><input type="date" name="start" value="' + esc(v.start || '') + '"></label><p class="hint">入れると、この日より前は記録の対象になりません（途中入部など）。</p></details>' +
       '<p class="form-err" hidden></p>' +
       '<div class="actions"><button type="button" class="btn" data-act="sheet-close">やめる</button><button class="btn primary" type="submit">' + (m ? '変更を保存' : '部員を追加') + '</button></div>' +

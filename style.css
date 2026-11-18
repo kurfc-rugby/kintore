@@ -587,6 +587,8 @@ button { cursor: pointer; -webkit-tap-highlight-color: transparent; }
 .ex-st.s-now { background: var(--now-bg); color: var(--now-fg); }
 .ex-st.s-next { background: var(--next-bg); color: var(--next-fg); }
 .ex-r small { display: block; font-size: 12px; color: var(--sub); }
+/* スマホの幅では、期間（と状態）を1行目、理由と「取り消す」を2行目に（理由が1文字ずつ折り返さないように） */
+@media (max-width: 480px) { .exlist:not(.sess) li { grid-template-columns: minmax(0, 1fr) auto; } .exlist:not(.sess) .ex-d { grid-column: 1 / -1; } }
 .empty.small { font-size: 13px; padding: 6px 0; }
 .awards .block-h small { font-size: 12px; font-weight: 500; color: var(--sub); }
 .award-list li { display: grid; grid-template-columns: 7.5em minmax(0, 1fr); gap: 10px; align-items: baseline; padding: 10px 2px; border-bottom: 1px solid var(--line); }

@@ -534,6 +534,15 @@ section('アイコン（一人一人が決める）');
   ok(api({ op: 'setIcon', token: G, kind: 'e', emoji: '🔥', color: '#8c1d2f' }).error === 'forbidden', '見るだけの人はアイコンを決めない');
 }
 
+section('動画のフォルダの名前');
+{
+  const fid = gas.props.getProperty('CLIP_FOLDER');
+  const fo = gas.drive.folders[fid];
+  ok(fo && /3か月/.test(fo.name), '新しく作るフォルダは「3か月で消えます」');
+  fo.name = 'KURFC 筋トレ 動画（テスト）（1か月で消えます）';
+  gas.run('renameClipFolder_');
+  ok(/（3か月で消えます）$/.test(fo.name) && !/1か月/.test(fo.name), '前の「1か月で消えます」のフォルダは、1日1回の処理で「3か月」に直す');
+}
 section('シートのキャッシュ');
 ok(afChecks > 10 && !afBad.length, '書いたあとに一緒に返す最新の情報は、読み直したものと同じ（' + afChecks + '回）' + (afBad.length ? '：違い ' + afBad.slice(0, 6).join(' / ') : ''));
 ok(tcChecks > 20 && !tcBad.length, 'キャッシュから読んだ state は、シートから読んだものと同じ（' + tcChecks + '回）' + (tcBad.length ? '：違い ' + tcBad.slice(0, 5).join(' / ') : ''));
