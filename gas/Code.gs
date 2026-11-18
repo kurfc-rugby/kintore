@@ -10,7 +10,7 @@
  * 最初にやること：スプレッドシートのメニュー「筋トレ管理」→「管理者を登録」
  * 詳しくは 04_ドキュメント/筋トレ管理アプリ_使い方と引き継ぎ.md
  */
-const APP_VERSION = '2.21.1';
+const APP_VERSION = '2.22.0';
 const SCHEMA_VERSION = '11';
 const TZ = 'Asia/Tokyo';
 const SESSION_DAYS = 90;
