@@ -563,6 +563,21 @@ section('アイコン（一人一人が決める）');
   ok(api({ op: 'setIcon', token: G, kind: 'e', emoji: '🔥', color: '#8c1d2f' }).error === 'forbidden', '見るだけの人はアイコンを決めない');
 }
 
+section('ドライブに置いた動画が0バイトになったとき（本番で iPhone の動画が再生できなかった）');
+{
+  const atz = jst(0.2), nf0 = Object.keys(gas.drive.files).length;
+  gas.drive.emptyNext = 1;
+  let r2 = api({ op: 'clipDraft', token: ISHI, mime: 'video/mp4', data: vid, thumb, recordedAt: atz, code });
+  const made = Object.values(gas.drive.files).slice(nf0);
+  ok(r2.ok && made.length === 2 && made[0].trashed && !made[1].trashed, '0バイトになったら捨てて置き直す（' + made.length + '個）');
+  gas.drive.emptyNext = 3;
+  const atz2 = jst(0.15);
+  r2 = api({ op: 'clipDraft', token: ISHI, mime: 'video/mp4', data: vid, thumb, recordedAt: atz2, code });
+  ok(r2.error === 'drive_failed' && /スマホに残っています/.test(r2.message), '3回だめならエラー（スマホは動画をしまったまま送り直す）');
+  ok(!Object.values(gas.drive.files).slice(nf0).some((f) => !f.trashed && f.getSize() === 0), '0バイトのファイルは残らない');
+  gas.drive.emptyNext = 0;
+  api({ op: 'clipDraftDrop', token: ISHI, recordedAt: atz });
+}
 section('動画のフォルダの名前');
 {
   const fid = gas.props.getProperty('CLIP_FOLDER');

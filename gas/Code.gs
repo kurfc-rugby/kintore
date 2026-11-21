@@ -4122,7 +4122,7 @@ function opClipUpload_(ctx) {
   const thumb = dup ? '' : clipThumbArg_(ctx);
   T.check = Date.now() - t1;
   const t2 = Date.now();
-  const file = clipFolder_().createFile(Utilities.newBlob(bytes, k.mime, me.id + '_' + k.at.replace(/[^0-9]/g, '') + '.' + CLIP_MIMES[k.mime]));
+  const file = saveClipFile_(bytes, k.mime, me.id + '_' + k.at.replace(/[^0-9]/g, '') + '.' + CLIP_MIMES[k.mime]);
   T.drive = Date.now() - t2;
   const t3 = Date.now();
   const res = withLock_(function () {
@@ -4145,6 +4145,21 @@ function opClipUpload_(ctx) {
 /** 下書き：撮り終わったらすぐ（「送る」を押す前に）動画を送っておく。だれにも見えない。
  *  「送る」（clipStart）で出す／撮り直し・閉じる（clipDraftDrop）で消す／1時間たったら消す。
  *  先に clipStart が着いていたら（動画待ちの行がある）、その行に動画をつける */
+/** 動画をドライブに置く。置けた大きさが送られた大きさと違う（0バイトになった）ときは置き直す。
+ *  2026-11-19 に、受け取った 611KB が 0バイトのファイルになったことがあった（再生できない）。
+ *  置き直してもだめならエラーにする（スマホは動画をしまったまま、あとで送り直す） */
+function saveClipFile_(bytes, mime, name) {
+  const folder = clipFolder_();
+  for (let i = 0; i < 3; i++) {
+    const file = folder.createFile(Utilities.newBlob(bytes, mime, name));
+    let size = 0;
+    try { size = file.getSize(); if (size !== bytes.length) { Utilities.sleep(500); size = DriveApp.getFileById(file.getId()).getSize(); } } catch (x) { size = -1; }
+    if (size === bytes.length) return file;
+    console.error('clip file size mismatch: ' + size + ' / ' + bytes.length + ' (' + name + ')');
+    try { file.setTrashed(true); } catch (x) { /* noop */ }
+  }
+  throw err_('drive_failed', '動画を保存できませんでした。少し待ってからもう一度送ってください（動画はスマホに残っています）。');
+}
 function opClipDraft_(ctx) {
   const T = { op: 'draft', start: Date.now() - ((REQ_ && REQ_.t0) || Date.now()) }, t1 = Date.now();
   const me = requireRole_(ctx, ['admin', 'manager', 'leader', 'member']);
@@ -4156,7 +4171,7 @@ function opClipDraft_(ctx) {
   if ((e && e[1]) || pendGet_(me.id, k.at)) return { ok: true, again: true, saved: true };
   T.check = Date.now() - t1;
   const t2 = Date.now();
-  const file = clipFolder_().createFile(Utilities.newBlob(bytes, k.mime, me.id + '_' + k.at.replace(/[^0-9]/g, '') + '.' + CLIP_MIMES[k.mime]));
+  const file = saveClipFile_(bytes, k.mime, me.id + '_' + k.at.replace(/[^0-9]/g, '') + '.' + CLIP_MIMES[k.mime]);
   T.drive = Date.now() - t2;
   // シートには書かない（順番待ちをしない）。メモに書いてすぐ返事
   const t3 = Date.now();

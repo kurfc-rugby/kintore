@@ -139,6 +139,7 @@ function create(opts) {
     computeDigest: (alg, s) => Array.from(crypto.createHash('sha256').update(typeof s === 'string' ? Buffer.from(s, 'utf8') : Buffer.from(s.map((b) => b & 255))).digest()).map((b) => (b > 127 ? b - 256 : b)),
     computeHmacSha256Signature: (v, k) => Array.from(crypto.createHmac('sha256', Buffer.from(k.map((b) => b & 255))).update(Buffer.from(v.map((b) => b & 255))).digest()).map((b) => (b > 127 ? b - 256 : b)),
     getUuid: () => crypto.randomUUID(),
+    sleep: () => {},
     newBlob: (data, type, name) => { const b = mkBlob(typeof data === 'string' ? Buffer.from(data, 'utf8') : Buffer.from(data.map((x) => x & 255)), type); b.getName = () => name || ''; return b; },
     gzip: (b) => mkBlob(zlib.gzipSync(b._buf), 'application/x-gzip'),
     ungzip: (b) => mkBlob(zlib.gunzipSync(b._buf), ''),
@@ -155,7 +156,7 @@ function create(opts) {
     }
   };
   let bookN = 0;
-  const drive = { files: {}, folders: {} };
+  const drive = { files: {}, folders: {}, emptyNext: 0 }; // emptyNext：次の n 回、ドライブに置いたファイルが0バイトになる（本番で起きたことのまね）
   const SpreadsheetApp = {
     getActiveSpreadsheet: () => ss,
     create: (name) => { const b = new Spreadsheet('MOCK_BOOK_' + (++bookN)); b.name = name; books[b.id] = b; return b; },
@@ -186,7 +187,7 @@ function create(opts) {
     console: quiet, Date: FakeDate, JSON, Math, Object, Array, String, Number, parseInt, parseFloat, isNaN, Error, RegExp, BigInt, isFinite,
     DriveApp: (() => {
       let n = 0;
-      const mkFile = (blob, folder) => { const id = 'FILE_' + (++n); const f = { id, blob, folder, trashed: false, getId: () => id, getBlob: () => blob, setTrashed: (v) => { f.trashed = !!v; } }; drive.files[id] = f; return f; };
+      const mkFile = (blob, folder) => { const id = 'FILE_' + (++n); const empty = drive.emptyNext > 0 && drive.emptyNext--; const f = { id, blob, folder, trashed: false, getId: () => id, getBlob: () => blob, getSize: () => (empty ? 0 : blob._buf.length), setTrashed: (v) => { f.trashed = !!v; } }; drive.files[id] = f; return f; };
       const mkFolder = (name) => { const id = 'FOLDER_' + (++n); const f = { id, name, getId: () => id, getName: () => f.name, setName: (v) => { f.name = v; return f; }, createFile: (blob) => mkFile(blob, id) }; drive.folders[id] = f; return f; };
       return {
         createFolder: (name) => mkFolder(name),
