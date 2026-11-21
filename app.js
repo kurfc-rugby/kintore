@@ -3,7 +3,7 @@
   'use strict';
   const L = window.KLogic;
   const API = window.KINTORE_API;
-  const VERSION = '2.26.0-t2';
+  const VERSION = '2.26.0-t3';
   const WD = ['日', '月', '火', '水', '木', '金', '土'];
   const PERM = { admin: '管理者', manager: 'マネージャー', captain: '主将', leader: '副主将', member: '一般部員', guest: '見るだけ' };
   // 権限を選ぶ一覧の並び
@@ -2698,22 +2698,18 @@
   const GUIDE = [
     { t: 'KURFC 筋トレへようこそ', i: 'home', p: () => '部員みんなの筋トレの記録を見るアプリです。<b>見るだけならログインは不要</b>。<b>月曜〜日曜に週{g}回以上</b>がマストです。<br>このあと、<b>実際の画面を見ながら</b>使い方を案内します（1分）。' },
     { t: '自分の名前を選ぶ', i: 'users', p: () => '選ぶと、ホームに<b>「わたし」</b>（今週あと何回・届いた応援）が出て、通知も受け取れます。応援スタンプを送るときの名前にもなります。', x: 'self', tour: 'all' },
-    { t: '応援スタンプを送る', i: 'star', p: () => 'ホームの<b>「最近の達成」</b>の「＋応援」や、<b>動画</b>・<b>部員のページ</b>で、9種類のスタンプを送れます。もう一度押すと取り消せます。届いた応援は、ホームの<b>「わたし」</b>に出ます。' },
-    { t: '免除を申し込む', i: 'cal', p: () => 'けが・病気・試験などで筋トレできない期間は、<b>免除</b>を申し込めます。ホームの<b>「わたし」</b>→ 自分のページの<b>「記録」</b>のいちばん下、<b>「免除を申し込む」</b>から。主将・副主将が認めると、その日数に合わせて<b>その週に必要な回数が減ります</b>（1週間まるごと免除なら、その週は数えません）。', x: 'exreq' },
     { t: '通知を受け取る', i: 'bell', p: () => PUSH.endpoint ? 'この端末で通知を受け取っています。いらないものは、いつでも<b>「設定」→「通知」</b>で外せます。' : '「今週あと○回」や「応援が届いた」などを、スマホに通知します。<b>はじめはすべてオン</b>です。いらないものだけチェックを外して、下の<b>「オンにして次へ」</b>を押してください（あとで「設定」→「通知」でも変えられます）。', x: 'push' },
     { t: '見やすく・くわしく', i: 'gear', p: () => '文字の大きさと明るさは、いつでも「設定」で変えられます。わからないときは、上の ' + kbd('?') + ' の<b>「使い方ガイド」</b>を見てください。マネージャー・主将・副主将の使い方もあります。', x: 'view' }
   ];
   // 全員ログイン（setlog）：ログインした本人が「わたし」なので名前は選ばない。代わりに「今日の1本」を紹介する
   function guideList() {
-    if (!loginAll()) return GUIDE.filter((g) => g.x !== 'exreq');
+    if (!loginAll()) return GUIDE;
     const pl = !!mePlayer();
     return GUIDE.map((g) => {
-      if (g.x === 'self') return { t: pl ? '今日の1本を撮る' : '選手の動画を見る', i: 'cam', tour: g.tour, p: () => pl
-        ? '筋トレをしたら、下の<b>「撮る」</b>で<b>2秒の動画</b>を撮って送ります。日時と今日の数字は自動で入り、送るとその日は<b>「実施した」</b>になります。ホームの<b>「わたし」</b>に、今週あと何回かが出ます。'
-        : '選手は、筋トレをしたらアプリで<b>2秒の動画</b>を撮って送ります。送るとその日は<b>「実施した」</b>になります。動画は<b>「動画」</b>で見られ、応援スタンプも押せます。' };
-      if (g.i === 'home' && /ようこそ/.test(g.t)) return Object.assign({}, g, { p: () => '筋トレをしたら<b>2秒の動画</b>を送って記録し、部員みんなの記録と動画を見るアプリです。<br><b>ルールは3つ</b><br>① <b>月曜〜日曜に週{g}回以上</b>がマスト<br>② 筋トレをしたら<b>その日のうちに動画を送る</b>と「実施した」になる<br>③ けがや試験でできないときは<b>免除</b>を申し込む<br>このあと、<b>実際の画面を見ながら</b>使い方を案内します（1分）。' });
+      if (g.x === 'self') return { t: '画面で使い方を見る', i: 'cam', tour: g.tour, p: () => 'このあと、<b>実際の画面を光らせながら</b>、' + (pl ? '動画の撮り方・応援スタンプ・免除の申し込み' : '選手の動画・応援スタンプ・ランキング') + 'などの場所を順に案内します（10か所ほど・1分）。途中で<b>「閉じる」</b>を押しても、紹介の続きに戻ります。' };
+      if (g.i === 'home' && /ようこそ/.test(g.t)) return Object.assign({}, g, { p: () => '筋トレをしたら<b>2秒の動画</b>を送って記録し、部員みんなの記録と動画を見るアプリです。<br><b>ルールは3つ</b><br>① <b>月曜〜日曜に週{g}回以上</b>がマスト<br>② 筋トレをしたら<b>その日のうちに動画を送る</b>と「実施した」になる<br>③ けがや試験でできないときは<b>免除</b>を申し込む' });
       return g;
-    }).filter((g) => g.x !== 'exreq' || pl);
+    });
   }
   let guideStep = 0;
   function guideExtra(x) {
@@ -2764,22 +2760,16 @@
   const segOf = (sel) => () => { const b = $(sel); return b ? b.closest('.seg') || b : null; };
   const TOURS = {
     all: { name: 'みんな', steps: [
-      { r: 'home', sel: '.pbar', t: '週と月を切り替える', p: '<b>週間</b>・<b>月間</b>を切り替えられます。矢印で前の週・前の月も見られます。' },
-      { r: 'home', sel: '.board', t: '部全体の数字', p: '部全体の実施回数と、<b>週{g}回（マスト）</b>を達成した人の割合です。前の週と比べた増減も出ます。' },
-      { r: 'home', sel: '.selfcard', t: 'わたし', p: '自分の今週の回数と、<b>あと何回で達成</b>かが出ます。押すと自分のページ（自己ベスト・称号・体重の変化）。' },
-      { r: 'home', sel: '.home-clips', login: 1, t: '今日の動画', p: '筋トレをしたら<b>「今日の1本を撮る」</b>（または下の<b>「撮る」</b>）で2秒の動画を送ります。送るとその日は<b>「実施した」</b>になります。みんなの動画もここで見られます。' },
+      { r: 'home', sel: '.selfcard', t: 'わたし', p: '自分の今週の回数と、<b>あと何回で達成</b>かが出ます。届いた応援もここ。押すと自分のページ（自己ベスト・称号・体重の変化）。' },
+      { r: 'home', sel: '.home-clips', login: 1, t: '今日の1本を撮る', p: () => (mePlayer() ? '筋トレをしたら' : '選手は筋トレをしたら') + '<b>「今日の1本を撮る」</b>（または下の<b>「撮る」</b>）で<b>2秒の動画</b>を送ります。日時と今日の数字は自動で入り、送るとその日は<b>「実施した」</b>になります。みんなの動画もここで見られます。' },
       { r: 'home', sel: '.todaycard', t: '今日のメニュー', p: '主将・副主将が出した今日のメニューです。押すと内容と、種目ごとの<b>フォームの動画</b>が見られます。' },
-      { r: 'home', sel: '.block.goal', t: 'まだの人', p: '今週まだ週{g}回に届いていない人です。名前を押すと、その人のページが開きます。' },
-      { r: 'home', sel: '.block.voice', t: '声をかけたい人', p: '連続達成がピンチの人や、最近ペースが落ちている人です。声をかけるきっかけにしてください。' },
-      { r: 'home', sel: ['.view-home .podium', '.view-home .rlist'], t: 'ランキング', p: 'この期間の実施回数の上位です。「すべて見る」で全員の順位が見られます。' },
-      { r: 'home', sel: '.block.feed', t: '最近の達成・応援スタンプ', p: () => '週{g}回の達成や通算回数の節目が出ます。<b>「＋応援」からスタンプを押すと応援が届きます</b>' + (loginAll() ? '（あなたの名前で届きます）。' : '（自分の名前を選んでおくと、だれからか伝わります）。') },
-      { r: 'rank', prep: () => { S.rankTab = 'list'; }, sel: segOf('[data-act="rank-tab"]'), t: 'ランキングと分析', p: '<b>順位</b>のほかに、<b>分析</b>で FW対BK・ポジション別・達成率の分布が見られます。' },
-      { r: 'cal', sel: ['.matrix', '.view-cal .empty'], t: 'カレンダー', p: '日ごとに、だれが筋トレをしたかが一覧で見られます。' },
-      { r: 'menus', prep: () => { S.menuTab = 'upcoming'; }, sel: ['.menus .exbtn', '.menus > *:first-child', '.view-menus .empty'], t: 'メニューとフォーム動画', p: 'これからのメニューです。種目の横の<b>「フォーム」</b>を押すと、アプリの中で正しいフォームの動画が流れます。' },
-      { r: 'menus', prep: () => { S.menuTab = 'exercises'; S.exPart = ''; }, sel: '.exparts-bar', t: '種目の動画', p: '「種目の動画」では、登録された種目を<b>部位</b>（胸・背中・脚など）で探せます。' },
-      { r: 'menus', prep: () => { S.menuTab = 'exercises'; }, sel: () => { const b = $('.exlib [data-act="ex-open"]'); return b ? b.closest('li') || b : null; }, t: 'やり方とポイント', p: '種目を押すと、<b>フォームの動画</b>と<b>やり方・ポイント</b>が見られます。▶ ならすぐ再生します。' },
-      { r: 'home', sel: '.top-help', t: '使い方ガイド', p: () => 'わからないときはここ。<b>' + howtoLen() + 'の動画</b>と、立場ごとの使い方があります。この案内ももう一度見られます。' },
-      { r: 'settings', sel: '[data-act="fb-open"]', t: '要望・不具合を送る', p: () => '「こうしてほしい」「ここがおかしい」は、ここから管理者に送れます。' + (loginAll() ? '' : '<b>ログインはいりません</b>。') }
+      { r: 'home', sel: '.board', t: '部全体の数字', p: '部全体の実施回数と、<b>週{g}回（マスト）</b>を達成した人の割合です。すぐ上で<b>週間・月間</b>を切り替えられ、矢印で前の週・月も見られます。' },
+      { r: 'home', sel: '.block.goal', t: 'まだの人', p: '今週まだ週{g}回に届いていない人です。名前を押すとその人のページ。その下の<b>「声をかけたい人」</b>は、連続達成がピンチの人や、ペースが落ちている人です。' },
+      { r: 'home', sel: () => { const e = $('.view-home .podium') || $('.view-home .rlist'); return e ? e.closest('.block') || e : null; }, t: 'ランキング', p: 'この期間の実施回数の上位です。<b>「すべて見る」</b>で全員の順位と、FW対BK・ポジション別などの<b>分析</b>が見られます。' },
+      { r: 'home', sel: '.block.feed', t: '応援スタンプを送る', p: () => '週{g}回の達成や節目が出ます。<b>「＋応援」</b>から9種類のスタンプを送れます（もう一度押すと取り消し）。' + (loginAll() ? 'あなたの名前で届きます。<b>動画</b>や<b>部員のページ</b>からも送れます。' : '自分の名前を選んでおくと、だれからか伝わります。') },
+      { r: 'member', prep: () => { S.memberTab = 'rec'; }, arg: () => (loginAll() && mePlayer() ? me().id : ''), sel: '[data-act="exreq-new"]', t: '免除を申し込む', p: 'けが・病気・試験などで筋トレできない期間は、自分のページのここから<b>免除</b>を申し込みます。主将・副主将が認めると、日数に合わせて<b>その週に必要な回数が減ります</b>（1週間まるごとなら、その週は数えません）。' },
+      { r: 'menus', prep: () => { S.menuTab = 'exercises'; S.exPart = ''; }, sel: '.exparts-bar', t: 'フォームの動画', p: '種目の<b>フォームの動画</b>と<b>やり方・ポイント</b>は「メニュー」の<b>「種目の動画」</b>で、部位（胸・背中・脚など）から探せます。メニューの種目の横の<b>「フォーム」</b>からも見られます。' },
+      { r: 'home', sel: '.top-help', t: '使い方ガイド', p: () => 'わからないときはここ。<b>' + howtoLen() + 'の動画</b>と、立場ごとの使い方があります。この案内ももう一度見られます。「こうしてほしい」「ここがおかしい」は、<b>「設定」→「要望・不具合を送る」</b>から管理者に送れます。' }
     ] },
     manager: { name: 'マネージャー', perm: 'record', steps: [
       { r: 'clips', arg: () => 'queue', login: 1, sel: '.view-clips .seg', t: '動画の確認', p: '取り消された日に撮り直した<b>確認待ち</b>と、部員が<b>「気になる」</b>を押した動画はここ。見て「問題なし」か「取り消す」を押します。' },
@@ -2828,7 +2818,7 @@
     closeSheet(); closeVideo();
     $('#guide-root').innerHTML = ''; document.body.classList.remove('sheet-open');
     TOUR = { key: key, i: -1, dir: 1, then: opt && opt.then, from: opt && opt.home ? '#home' : location.hash || '#home', el: null,
-      saved: { menuTab: S.menuTab, rankTab: S.rankTab, exPart: S.exPart } };
+      saved: { menuTab: S.menuTab, rankTab: S.rankTab, exPart: S.exPart, memberTab: S.memberTab } };
     document.body.classList.add('touring');
     $('#tour-root').innerHTML = '<div class="tour-bg" data-act="tour-noop"></div><div class="tour-probe" aria-hidden="true"></div><div class="tour-hole" aria-hidden="true"></div><section class="tour-tip" role="dialog" aria-modal="true" aria-live="polite"></section>';
     window.addEventListener('resize', tourPlace); window.addEventListener('scroll', tourPlace, { passive: true });

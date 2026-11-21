@@ -308,8 +308,25 @@ const shot = async (p, name) => { if (SHOT) { require('fs').mkdirSync(SHOT, { re
     ok(!/ログインは不要/.test(g1) && /2秒の動画/.test(g1), '紹介の1枚目：「ログインは不要」と言わず、2秒の動画のアプリと紹介する');
     await q.click('[data-act="guide-next"]'); await q.waitForTimeout(400);
     const g2 = await q.locator('#guide-root').innerText();
-    ok(/今日の1本を撮る/.test(g2) && await q.locator('#guide-root select[data-act-change="pref-self"]').count() === 0, '紹介の2枚目は「今日の1本を撮る」（名前は選ばない）');
+    ok(/画面で使い方を見る/.test(g2) && !/今日の1本を撮る/.test(g2) && await q.locator('#guide-root select[data-act-change="pref-self"]').count() === 0, '紹介の2枚目は「画面で使い方を見る」（撮り方は画面の案内で。名前は選ばない）');
     await shot(q, '23-guide-2');
+    // 画面の案内：選手には「免除を申し込む」を光らせる。ランキングは見出しごと光らせる。最後はホーム
+    await q.click('#guide-root [data-act="guide-next"]'); await q.waitForSelector('.tour-tip h2'); await q.waitForTimeout(700);
+    const tt = [], holeOk = {};
+    for (let i = 0; i < 14 && await q.locator('.tour-tip h2').count(); i++) {
+      const h = await q.locator('.tour-tip h2').innerText(); tt.push(h);
+      if (/免除|ランキング|応援/.test(h)) {
+        holeOk[h] = await q.evaluate(() => { const hr = document.querySelector('.tour-hole').getBoundingClientRect(), el = window.__tourEl(); const r = el.getBoundingClientRect(); return { inside: hr.left <= r.left + 1 && hr.right >= r.right - 1 && hr.top <= r.top + 1, ex: !!el.matches('[data-act="exreq-new"]'), head: !!el.querySelector('h2') && /すべて見る/.test(el.innerText), onScreen: hr.left >= 0 && hr.right <= innerWidth }; });
+        if (/ランキング/.test(h)) await shot(q, '24-tour-rank');
+        if (/免除/.test(h)) await shot(q, '25-tour-exreq');
+      }
+      await q.click('[data-act="tour-next"]');
+      await q.waitForFunction((t) => { const e = document.querySelector('.tour-tip h2'); return !e || (e.innerText !== t && !document.querySelector('#tour-root.moving')); }, h, { timeout: 4000 }).catch(() => {}); await q.waitForTimeout(300);
+    }
+    const ex = holeOk['免除を申し込む'] || {}, rk = holeOk['ランキング'] || {};
+    ok(tt.length <= 10 && tt.indexOf('応援スタンプを送る') >= 0 && ex.ex && ex.inside, '選手の画面の案内（10か所以内）に、応援スタンプと「免除を申し込む」（ボタンを光らせる）がある（' + tt.join('→') + '）');
+    ok(rk.head && rk.inside && rk.onScreen, 'ランキングは見出しと「すべて見る」ごと光らせ、枠が画面からはみ出さない');
+    ok(tt.filter((t) => /今日の1本/.test(t)).length === 1 && await q.evaluate(() => location.hash) === '#home' && /通知/.test(await q.locator('#guide-root h2').innerText().catch(() => '')), '「今日の1本を撮る」の説明は1回だけ。案内はホームで終わり、紹介の続き（通知）に戻る');
     await q.click('#guide-root [data-act="guide-close"]').catch(() => {}); await q.waitForTimeout(300);
     await q.evaluate(() => { location.hash = '#help'; }); await q.waitForTimeout(800);
     const hp = await q.locator('#main').innerText();
@@ -398,8 +415,8 @@ const shot = async (p, name) => { if (SHOT) { require('fs').mkdirSync(SHOT, { re
     }
     const mk = await pushKinds('マネ 花子', 'test-mgr-01'), pk = await pushKinds('森 健太', 'mori-pin-1');
     ok(mk.kon === mk.ken && mk.ken >= 2 && pk.kon === pk.length, '通知の設定は、はじめはすべてチェック済み（いらないものを外す）（' + mk.kon + '/' + mk.length + '・' + pk.kon + '/' + pk.length + '）');
-    ok(pk.dots === 6 && mk.dots === 5 && !/ホーム画面に追加/.test(pk.gp.text), '紹介は選手6枚・マネージャー5枚で、「ホーム画面に追加」の説明は無い（' + pk.dots + '・' + mk.dots + '枚）');
-    ok(/ルールは3つ/.test(pk.welcome) && pk.titles.indexOf('応援スタンプを送る') >= 0 && pk.titles.indexOf('免除を申し込む') >= 0 && mk.titles.indexOf('免除を申し込む') < 0 && mk.titles.indexOf('応援スタンプを送る') >= 0, '紹介：1枚目にルール3つ、応援スタンプの説明、選手には免除の申し込み方（' + pk.titles.join('→') + '）');
+    ok(pk.dots === 4 && mk.dots === 4 && !/ホーム画面に追加/.test(pk.gp.text), '紹介はだれでも4枚で、「ホーム画面に追加」の説明は無い（' + pk.dots + '・' + mk.dots + '枚）');
+    ok(/ルールは3つ/.test(pk.welcome) && pk.titles.join('→') === 'KURFC 筋トレへようこそ→画面で使い方を見る', '紹介：1枚目にルール3つ、2枚目で画面の案内へ（' + pk.titles.join('→') + '）');
     ok(pk.gp.btn && pk.gp.all === pk.length && pk.gp.on === pk.gp.all && mk.gp.all === mk.length && mk.gp.on === mk.ken, '紹介の通知の説明では「次へ」が「オンにして次へ」になり、「通知はいらない」も選べる（はじめはすべてチェック済み ' + pk.gp.on + '/' + pk.gp.all + '）');
     ok(pk.gp.after && pk.gp.after.ok && pk.gp.after.kinds.indexOf('clipnew') < 0 && pk.gp.after.kinds.indexOf('goal') >= 0, '「オンにして次へ」でオンになって次へ進み（最後にテスト通知のボタン）、外したものは届かない（' + (pk.gp.after ? pk.gp.after.kinds.join(',') : '') + '）');
     ok(mk.indexOf('clipq') >= 0, 'マネージャーの通知の設定に「動画の確認」（確認待ち・気になる）がある（' + mk.join('・') + '）');
