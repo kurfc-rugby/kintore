@@ -361,12 +361,15 @@ const shot = async (p, name) => { if (SHOT) { require('fs').mkdirSync(SHOT, { re
       // 紹介：「ホーム画面に追加」は無く、通知の説明の中でその場でオンにできる（はじめはすべてチェック済み）
       await px.click('[data-act="guide"]'); await px.waitForSelector('#guide-root .guide');
       const dots = await px.locator('#guide-root .guide-dots i').count();
-      for (let i = 0; i < 6 && !/通知/.test(await px.locator('#guide-root h2').innerText()); i++) {
-        await px.click('#guide-root [data-act="guide-next"]'); await px.waitForTimeout(500);
+      const titles = [], welcome = await px.locator('#guide-root').innerText();
+      for (let i = 0; i < 8 && !/通知/.test(await px.locator('#guide-root h2').innerText()); i++) {
+        titles.push(await px.locator('#guide-root h2').innerText());
+        await px.click('#guide-root .actions [data-act="guide-next"]'); await px.waitForTimeout(500);
         if (await px.locator('.tour-tip').count()) { await px.keyboard.press('Escape'); await px.waitForSelector('#guide-root .guide'); await px.waitForTimeout(300); }
       }
       await px.waitForSelector('#guide-root .guide-push input', { timeout: 8000 }).catch(() => {});
-      const gp = await px.evaluate(() => ({ text: document.querySelector('#guide-root').innerText, all: document.querySelectorAll('#guide-root .guide-push input[name="kinds"]').length, on: document.querySelectorAll('#guide-root .guide-push input[name="kinds"]:checked').length, btn: !!document.querySelector('#guide-root .guide-push button[type="submit"]') }));
+      const gp = await px.evaluate(() => ({ text: document.querySelector('#guide-root').innerText, all: document.querySelectorAll('#guide-root .guide-push input[name="kinds"]').length, on: document.querySelectorAll('#guide-root .guide-push input[name="kinds"]:checked').length, btn: /オンにして次へ/.test((document.querySelector('#guide-root .actions [data-act="guide-push-next"]') || {}).textContent || '') && !document.querySelector('#guide-root .actions [data-act="guide-next"]') && !!document.querySelector('#guide-root .guide-push [data-act="guide-next"]') }));
+      gp.titles = [];
       if (who === '森 健太') {
         await px.evaluate(() => {
           const fake = { endpoint: 'https://fcm.googleapis.com/fcm/send/ui-guide-device', toJSON() { return { endpoint: this.endpoint, keys: {} }; }, unsubscribe: async () => true };
@@ -374,12 +377,12 @@ const shot = async (p, name) => { if (SHOT) { require('fs').mkdirSync(SHOT, { re
           PushManager.prototype.subscribe = async function () { window.__sub = fake; return fake; };
         });
         await px.locator('#guide-root .guide-push input[name="kinds"][value="clipnew"]').uncheck().catch(() => {});
-        await px.click('#guide-root .guide-push button[type="submit"]').catch(() => {});
-        await px.waitForSelector('#guide-root .okline', { timeout: 8000 }).catch(() => {});
-        gp.after = await px.evaluate(() => ({ ok: !!document.querySelector('#guide-root .okline'), kinds: JSON.parse(localStorage.getItem('kintoreTest.pushKinds') || '[]') }));
+        await px.click('#guide-root [data-act="guide-push-next"]').catch(() => {});
+        await px.waitForSelector('#guide-root .guide-prefs', { timeout: 8000 }).catch(() => {});
+        gp.after = await px.evaluate(() => ({ ok: !!document.querySelector('#guide-root .guide-prefs') && !!document.querySelector('#guide-root [data-act="push-test"]'), kinds: JSON.parse(localStorage.getItem('kintoreTest.pushKinds') || '[]') }));
       }
       await cx.close();
-      ks.kon = kon; ks.ken = ken; ks.dots = dots; ks.gp = gp;
+      ks.kon = kon; ks.ken = ken; ks.dots = dots; ks.gp = gp; ks.titles = titles; ks.welcome = welcome;
       return ks;
     };
     {
@@ -395,9 +398,10 @@ const shot = async (p, name) => { if (SHOT) { require('fs').mkdirSync(SHOT, { re
     }
     const mk = await pushKinds('マネ 花子', 'test-mgr-01'), pk = await pushKinds('森 健太', 'mori-pin-1');
     ok(mk.kon === mk.ken && mk.ken >= 2 && pk.kon === pk.length, '通知の設定は、はじめはすべてチェック済み（いらないものを外す）（' + mk.kon + '/' + mk.length + '・' + pk.kon + '/' + pk.length + '）');
-    ok(pk.dots === 4 && !/ホーム画面に追加/.test(pk.gp.text), '紹介は4枚で、「ホーム画面に追加」の説明は無い（' + pk.dots + '枚）');
-    ok(pk.gp.btn && pk.gp.all === pk.length && pk.gp.on === pk.gp.all && mk.gp.all === mk.length && mk.gp.on === mk.ken, '紹介の通知の説明の中で、その場で「通知をオンにする」を押せる（はじめはすべてチェック済み ' + pk.gp.on + '/' + pk.gp.all + '）');
-    ok(pk.gp.after && pk.gp.after.ok && pk.gp.after.kinds.indexOf('clipnew') < 0 && pk.gp.after.kinds.indexOf('goal') >= 0, '紹介の中で「通知をオンにする」を押すとオンになり、外したものは届かない（' + (pk.gp.after ? pk.gp.after.kinds.join(',') : '') + '）');
+    ok(pk.dots === 6 && mk.dots === 5 && !/ホーム画面に追加/.test(pk.gp.text), '紹介は選手6枚・マネージャー5枚で、「ホーム画面に追加」の説明は無い（' + pk.dots + '・' + mk.dots + '枚）');
+    ok(/ルールは3つ/.test(pk.welcome) && pk.titles.indexOf('応援スタンプを送る') >= 0 && pk.titles.indexOf('免除を申し込む') >= 0 && mk.titles.indexOf('免除を申し込む') < 0 && mk.titles.indexOf('応援スタンプを送る') >= 0, '紹介：1枚目にルール3つ、応援スタンプの説明、選手には免除の申し込み方（' + pk.titles.join('→') + '）');
+    ok(pk.gp.btn && pk.gp.all === pk.length && pk.gp.on === pk.gp.all && mk.gp.all === mk.length && mk.gp.on === mk.ken, '紹介の通知の説明では「次へ」が「オンにして次へ」になり、「通知はいらない」も選べる（はじめはすべてチェック済み ' + pk.gp.on + '/' + pk.gp.all + '）');
+    ok(pk.gp.after && pk.gp.after.ok && pk.gp.after.kinds.indexOf('clipnew') < 0 && pk.gp.after.kinds.indexOf('goal') >= 0, '「オンにして次へ」でオンになって次へ進み（最後にテスト通知のボタン）、外したものは届かない（' + (pk.gp.after ? pk.gp.after.kinds.join(',') : '') + '）');
     ok(mk.indexOf('clipq') >= 0, 'マネージャーの通知の設定に「動画の確認」（確認待ち・気になる）がある（' + mk.join('・') + '）');
     ok(pk.length >= 1 && pk.indexOf('clipq') < 0, '選手の通知の設定には「動画の確認」は出ない（' + pk.join('・') + '）');
     ok(pk.indexOf('clipnew') >= 0 && mk.indexOf('clipnew') >= 0, '選手にもマネージャーにも「みんなの動画」（だれかが出すたび）がある');

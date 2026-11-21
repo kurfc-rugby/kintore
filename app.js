@@ -3,7 +3,7 @@
   'use strict';
   const L = window.KLogic;
   const API = window.KINTORE_API;
-  const VERSION = '2.26.0-t1';
+  const VERSION = '2.26.0-t2';
   const WD = ['日', '月', '火', '水', '木', '金', '土'];
   const PERM = { admin: '管理者', manager: 'マネージャー', captain: '主将', leader: '副主将', member: '一般部員', guest: '見るだけ' };
   // 権限を選ぶ一覧の並び
@@ -176,6 +176,14 @@
     if (!quiet && S.route.name === 'settings') render();
     return r.push;
   }
+  /** 通知が「許可しない」になっているときの直し方 */
+  function pushDeniedHelp() {
+    const name = isTestSite() ? '筋トレ試' : '筋トレ';
+    return '<div class="form-err denied"><b>通知が「許可しない」になっています。</b>次の手順で許可してから、アプリを開き直してください。' +
+      (isIOS() ? '<ol class="steps"><li>iPhone の<b>「設定」</b>アプリを開く</li><li><b>「通知」</b>→ 一覧から<b>「' + name + '」</b>を選ぶ</li><li><b>「通知を許可」</b>をオンにする</li></ol>'
+        : '<ol class="steps"><li>ホーム画面の<b>「' + name + '」</b>のアイコンを<b>長押し</b></li><li><b>「アプリ情報」</b>（ⓘ）→<b>「通知」</b></li><li><b>「通知を許可」</b>（または「すべての通知」）をオンにする</li></ol>' +
+          '<small>見つからないときは、Chrome の右上「︙」→「設定」→「サイトの設定」→「通知」で、このアプリを「許可」に。</small>') + '</div>';
+  }
   /** この人が受け取れる通知の種類 */
   function pushKindsFor() {
     return PUSH_KINDS.filter((k) => (k[3] !== 'admin' || can('admin')) && (k[3] !== 'staff' || (loginAll() && can('anyStaff'))) && (k[3] !== 'judge' || (loginAll() && S.data.exJudge)) && (k[3] !== 'all' || loginAll()));
@@ -212,7 +220,7 @@
     h += '<p class="lead-line small">' + (on ? icon('check') + '<b>この端末で通知を受け取っています。</b>' : 'スマホに通知を出せます。受け取りたいものを選んで「通知をオンにする」を押してください。') + '</p>';
     if (!PREF.self) h += '<p class="hint strong">「今週あと○回」「応援」は、' + (loginAll() ? '選手としてログインしている人だけが受け取れます。' : '上の「自分の名前」を選ぶと受け取れます。') + '</p>';
     h += '<form data-form="push" class="form"><ul class="pushk">' + pushKindItems(cur) + '</ul>' +
-      (denied ? '<p class="form-err">通知が「許可しない」になっています。' + (isIOS() ? 'iPhone の「設定」→「通知」→「筋トレ」で許可してください。' : 'Chrome の右上「︙」→「設定」→「サイトの設定」→「通知」で、このサイトを「許可」にしてください。') + '</p>' : '<p class="form-err" hidden></p>') +
+      (denied ? pushDeniedHelp() + '<p class="form-err" hidden></p>' : '<p class="form-err" hidden></p>') +
       '<div class="toolbar">' + (on
         ? '<button class="btn primary" type="submit">設定を保存</button><button type="button" class="btn" data-act="push-test">テスト通知を送る</button><button type="button" class="btn danger" data-act="push-off">通知をオフにする</button>'
         : '<button class="btn primary" type="submit"' + (denied ? ' disabled' : '') + '>' + icon('check') + '通知をオンにする</button>') + '</div></form>' +
@@ -2690,20 +2698,22 @@
   const GUIDE = [
     { t: 'KURFC 筋トレへようこそ', i: 'home', p: () => '部員みんなの筋トレの記録を見るアプリです。<b>見るだけならログインは不要</b>。<b>月曜〜日曜に週{g}回以上</b>がマストです。<br>このあと、<b>実際の画面を見ながら</b>使い方を案内します（1分）。' },
     { t: '自分の名前を選ぶ', i: 'users', p: () => '選ぶと、ホームに<b>「わたし」</b>（今週あと何回・届いた応援）が出て、通知も受け取れます。応援スタンプを送るときの名前にもなります。', x: 'self', tour: 'all' },
-    { t: '通知を受け取る', i: 'bell', p: () => PUSH.endpoint ? 'この端末で通知を受け取っています。いらないものは、いつでも<b>「設定」→「通知」</b>で外せます。' : '「今週あと○回」や「応援が届いた」などを、スマホに通知します。<b>はじめはすべてオン</b>です。いらないものはチェックを外して、<b>「通知をオンにする」</b>を押してください（あとで「設定」→「通知」でも変えられます）。', x: 'push' },
+    { t: '応援スタンプを送る', i: 'star', p: () => 'ホームの<b>「最近の達成」</b>の「＋応援」や、<b>動画</b>・<b>部員のページ</b>で、9種類のスタンプを送れます。もう一度押すと取り消せます。届いた応援は、ホームの<b>「わたし」</b>に出ます。' },
+    { t: '免除を申し込む', i: 'cal', p: () => 'けが・病気・試験などで筋トレできない期間は、<b>免除</b>を申し込めます。ホームの<b>「わたし」</b>→ 自分のページの<b>「記録」</b>のいちばん下、<b>「免除を申し込む」</b>から。主将・副主将が認めると、その日数に合わせて<b>その週に必要な回数が減ります</b>（1週間まるごと免除なら、その週は数えません）。', x: 'exreq' },
+    { t: '通知を受け取る', i: 'bell', p: () => PUSH.endpoint ? 'この端末で通知を受け取っています。いらないものは、いつでも<b>「設定」→「通知」</b>で外せます。' : '「今週あと○回」や「応援が届いた」などを、スマホに通知します。<b>はじめはすべてオン</b>です。いらないものだけチェックを外して、下の<b>「オンにして次へ」</b>を押してください（あとで「設定」→「通知」でも変えられます）。', x: 'push' },
     { t: '見やすく・くわしく', i: 'gear', p: () => '文字の大きさと明るさは、いつでも「設定」で変えられます。わからないときは、上の ' + kbd('?') + ' の<b>「使い方ガイド」</b>を見てください。マネージャー・主将・副主将の使い方もあります。', x: 'view' }
   ];
   // 全員ログイン（setlog）：ログインした本人が「わたし」なので名前は選ばない。代わりに「今日の1本」を紹介する
   function guideList() {
-    if (!loginAll()) return GUIDE;
+    if (!loginAll()) return GUIDE.filter((g) => g.x !== 'exreq');
     const pl = !!mePlayer();
     return GUIDE.map((g) => {
       if (g.x === 'self') return { t: pl ? '今日の1本を撮る' : '選手の動画を見る', i: 'cam', tour: g.tour, p: () => pl
         ? '筋トレをしたら、下の<b>「撮る」</b>で<b>2秒の動画</b>を撮って送ります。日時と今日の数字は自動で入り、送るとその日は<b>「実施した」</b>になります。ホームの<b>「わたし」</b>に、今週あと何回かが出ます。'
         : '選手は、筋トレをしたらアプリで<b>2秒の動画</b>を撮って送ります。送るとその日は<b>「実施した」</b>になります。動画は<b>「動画」</b>で見られ、応援スタンプも押せます。' };
-      if (g.i === 'home' && /ようこそ/.test(g.t)) return Object.assign({}, g, { p: () => '筋トレをしたら<b>2秒の動画</b>を送って記録し、部員みんなの記録と動画を見るアプリです。<b>月曜〜日曜に週{g}回以上</b>がマストです。<br>このあと、<b>実際の画面を見ながら</b>使い方を案内します（1分）。' });
+      if (g.i === 'home' && /ようこそ/.test(g.t)) return Object.assign({}, g, { p: () => '筋トレをしたら<b>2秒の動画</b>を送って記録し、部員みんなの記録と動画を見るアプリです。<br><b>ルールは3つ</b><br>① <b>月曜〜日曜に週{g}回以上</b>がマスト<br>② 筋トレをしたら<b>その日のうちに動画を送る</b>と「実施した」になる<br>③ けがや試験でできないときは<b>免除</b>を申し込む<br>このあと、<b>実際の画面を見ながら</b>使い方を案内します（1分）。' });
       return g;
-    });
+    }).filter((g) => g.x !== 'exreq' || pl);
   }
   let guideStep = 0;
   function guideExtra(x) {
@@ -2718,16 +2728,18 @@
       if (PUSH.endpoint) return '<p class="okline">' + icon('check') + '通知はオンです</p>';
       const denied = Notification.permission === 'denied';
       return '<form data-form="gpush" class="form guide-push"><ul class="pushk">' + pushKindItems(pushKindsFor().map((k) => k[0])) + '</ul>' +
-        (denied ? '<p class="form-err">通知が「許可しない」になっています。' + (isIOS() ? 'iPhone の「設定」→「通知」→「筋トレ」で許可してください。' : 'Chrome の右上「︙」→「設定」→「サイトの設定」→「通知」で、このアプリを「許可」にしてください。') + '</p>' : '<p class="form-err" hidden></p>') +
-        '<div class="guide-acts"><button class="btn primary" type="submit"' + (denied ? ' disabled' : '') + '>' + icon('bell') + '通知をオンにする</button></div></form>';
+        (denied ? pushDeniedHelp() + '<p class="form-err" hidden></p>' : '<p class="form-err" hidden></p>') +
+        (denied ? '' : '<div class="guide-acts"><button type="button" class="linkbtn" data-act="guide-next">通知はいらない（あとで「設定」から）</button></div>') + '</form>';
     }
     if (x === 'view') {
       return '<div class="guide-prefs"><div class="seg small" role="group" aria-label="文字の大きさ">' + SIZES.map((z) => '<button data-act="pref-size" data-v="' + z[0] + '" aria-pressed="' + (PREF.size === z[0]) + '">' + z[1] + '</button>').join('') + '</div>' +
         '<div class="seg small" role="group" aria-label="画面の明るさ">' + [['light', 'ライト'], ['dark', 'ダーク'], ['auto', 'スマホに合わせる']].map((z) => '<button data-act="pref-theme" data-v="' + z[0] + '" aria-pressed="' + (PREF.theme === z[0]) + '">' + z[1] + '</button>').join('') + '</div></div>' +
-        '<div class="guide-acts"><button class="btn" data-act="guide-help" data-v="">くわしい使い方ガイドを開く</button></div>';
+        '<div class="guide-acts">' + (PUSH.endpoint ? '<button class="btn" data-act="push-test">' + icon('bell') + 'テスト通知を送る</button>' : '') + '<button class="btn" data-act="guide-help" data-v="">くわしい使い方ガイドを開く</button></div>';
     }
     return '';
   }
+  /** 紹介の通知の説明で、まだオフ・いまオンにできる状態か（そのときは「次へ」を「オンにして次へ」にする） */
+  const guidePushOff = () => pushSupported() && !!PWA.reg && !!(S.data && S.data.pushKey) && PUSH.ready && !PUSH.endpoint && Notification.permission !== 'denied';
   function openGuide(step) {
     const GL = guideList();
     guideStep = Math.max(0, Math.min(GL.length - 1, step || 0));
@@ -2737,7 +2749,8 @@
       '<div class="guide-i" aria-hidden="true">' + icon(g.i) + '</div><h2>' + esc(sub(g.t)) + '</h2><p>' + sub(g.p()) + '</p>' + guideExtra(g.x) +
       '<div class="guide-dots" aria-hidden="true">' + GL.map((x, i) => '<i class="' + (i === guideStep ? 'on' : '') + '"></i>').join('') + '</div>' +
       '<div class="actions">' + (guideStep ? '<button class="btn" data-act="guide-prev">戻る</button>' : '<button class="btn" data-act="guide-close">スキップ</button>') +
-      '<button class="btn primary" data-act="' + (last ? 'guide-close' : 'guide-next') + '" autofocus>' + (last ? 'はじめる' : g.tour ? '画面で案内を見る' : '次へ') + '</button></div>' +
+      (g.x === 'push' && guidePushOff() ? '<button class="btn primary" data-act="guide-push-next" autofocus>' + icon('bell') + 'オンにして次へ</button></div>'
+        : '<button class="btn primary" data-act="' + (last ? 'guide-close' : 'guide-next') + '" autofocus>' + (last ? 'はじめる' : g.tour ? '画面で案内を見る' : '次へ') + '</button></div>') +
       '<p class="guide-n">' + (guideStep + 1) + ' / ' + GL.length + (guideStep ? '・<button class="linkbtn inline" data-act="guide-close">閉じる</button>' : '') + '</p></section>';
     document.body.classList.add('sheet-open');
     const b = $('#guide-root [autofocus]'); if (b) b.focus();
@@ -4468,10 +4481,17 @@
     },
     'sw-update': (el) => { el.disabled = true; if (PWA.waiting) PWA.waiting.postMessage('skipWaiting'); else location.reload(); },
     'pwa-install': async () => { const p = PWA.prompt; if (!p) return; PWA.prompt = null; p.prompt(); try { await p.userChoice; } catch (e) { /* noop */ } render(); },
+    // 紹介の通知：チェックした通知をオンにして、次の説明へ（チェックがなければ、オンにせずに次へ）
+    'guide-push-next': async (el) => {
+      const f = $('#guide-root .guide-push'), next = guideStep + 1;
+      const kinds = f ? $$('input[name="kinds"]:checked', f).map((x) => x.value) : [];
+      if (!f || !kinds.length) { openGuide(next); return; }
+      await enablePush(f, el, kinds, (ok) => { if (!$('#guide-root').innerHTML) return; if (ok) { toast('通知をオンにしました'); openGuide(next); } else openGuide(guideStep); });
+    },
     'guide-next': () => {
       const g = guideList()[guideStep], back = guideStep + 1;
       if (!g.tour) { openGuide(back); return; }
-      // 名前を選んだら、実際の画面で案内 → 終わったら残りの紹介（ホーム画面に追加・通知・見やすく）
+      // 実際の画面で案内 → 終わったら残りの紹介（応援・免除・通知・見やすく）
       $('#guide-root').innerHTML = '';
       startTour(g.tour, { then: () => openGuide(back), home: true });
     },
@@ -4930,10 +4950,8 @@
       });
     },
     push: async (f, btn) => { await enablePush(f, btn, $$('input[name="kinds"]:checked', f).map((x) => x.value)); },
-    // 紹介の中の「通知をオンにする」
-    gpush: async (f, btn) => {
-      await enablePush(f, btn, $$('input[name="kinds"]:checked', f).map((x) => x.value), (ok) => { if (ok) toast('通知をオンにしました'); if ($('#guide-root').innerHTML) openGuide(guideStep); });
-    },
+    // 紹介の中の通知（Enter などで送られたとき）は「オンにして次へ」と同じ
+    gpush: async (f) => { const b = $('#guide-root [data-act="guide-push-next"]'); if (b) b.click(); },
     template: async (f, btn) => {
       const v = menuFormValues(f);
       const t = { id: f.id ? f.id.value : '', group: v.group, positions: v.poss, title: f.title.value, content: f.content.value, detail: f.detail.value, note: f.note.value, video: (f.video ? f.video.value : '').trim(),

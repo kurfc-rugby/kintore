@@ -847,6 +847,11 @@ ul.dots > li::before { content: ""; position: absolute; left: 3px; top: .72em; w
 .guide .guide-push { text-align: left; margin-top: 8px; }
 .guide .guide-push .pk small { font-size: 12px; }
 .guide .okline { justify-content: center; margin-top: 10px; }
+.form-err.denied { text-align: left; }
+.form-err.denied ol { margin: 6px 0 4px; }
+.form-err.denied li { margin: 2px 0; font-weight: 500; }
+.form-err.denied small { display: block; font-size: 12px; opacity: .85; }
+.guide .guide-push .linkbtn { font-size: 13px; }
 .guide-n .linkbtn { font-size: 11px; padding: 0; }
 @media (max-width: 400px) { .hb { padding-left: 14px; } }
 
