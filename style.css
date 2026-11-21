@@ -844,6 +844,9 @@ ul.dots > li::before { content: ""; position: absolute; left: 3px; top: .72em; w
 .guide p ol, .guide .steps { text-align: left; }
 .guide .steps { margin-top: 10px; font-size: 13.5px; }
 .guide-acts { display: flex; justify-content: center; margin-top: 12px; }
+.guide .guide-push { text-align: left; margin-top: 8px; }
+.guide .guide-push .pk small { font-size: 12px; }
+.guide .okline { justify-content: center; margin-top: 10px; }
 .guide-n .linkbtn { font-size: 11px; padding: 0; }
 @media (max-width: 400px) { .hb { padding-left: 14px; } }
 

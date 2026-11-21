@@ -3,7 +3,7 @@
   'use strict';
   const L = window.KLogic;
   const API = window.KINTORE_API;
-  const VERSION = '2.25.0';
+  const VERSION = '2.26.0-t1';
   const WD = ['日', '月', '火', '水', '木', '金', '土'];
   const PERM = { admin: '管理者', manager: 'マネージャー', captain: '主将', leader: '副主将', member: '一般部員', guest: '見るだけ' };
   // 権限を選ぶ一覧の並び
@@ -176,6 +176,29 @@
     if (!quiet && S.route.name === 'settings') render();
     return r.push;
   }
+  /** この人が受け取れる通知の種類 */
+  function pushKindsFor() {
+    return PUSH_KINDS.filter((k) => (k[3] !== 'admin' || can('admin')) && (k[3] !== 'staff' || (loginAll() && can('anyStaff'))) && (k[3] !== 'judge' || (loginAll() && S.data.exJudge)) && (k[3] !== 'all' || loginAll()));
+  }
+  function pushKindItems(cur) {
+    return pushKindsFor().map((k) => {
+      const dis = k[3] === 'self' && !PREF.self;
+      return '<li><label class="pk' + (dis ? ' dis' : '') + '"><input type="checkbox" name="kinds" value="' + k[0] + '"' + (cur.indexOf(k[0]) >= 0 && !dis ? ' checked' : '') + (dis ? ' disabled' : '') + '><span><b>' + k[1] + '</b><small>' + k[2] + '</small></span></label></li>';
+    }).join('');
+  }
+  /** 通知をオンにする（設定と紹介の両方から）。許可の確認は押した直後に出す（iPhone は押した操作の中でないと出せない） */
+  async function enablePush(f, btn, kinds, after) {
+    if (!kinds.length) { sheetErrorIn(f, '受け取る通知を1つ以上選んでください。（すべてやめるときは「通知をオフにする」）'); return; }
+    if (Notification.permission === 'default') {
+      let perm = 'default';
+      try { perm = await Notification.requestPermission(); } catch (e) { perm = 'denied'; }
+      if (perm !== 'granted') { sheetErrorIn(f, '通知が許可されませんでした。「許可」を押すと受け取れます。'); if (after) after(false); else render(); return; }
+    }
+    await busy(btn, async () => {
+      try { const r = await registerPush(kinds); if (after) after(true, r); else toast(r.kinds.length ? '通知をオンにしました。「テスト通知を送る」で確かめられます' : '受け取れる通知がありません（自分の名前を選んでください）'); }
+      catch (e) { sheetErrorIn(f, e.message); }
+    });
+  }
   function pushBlock() {
     let h = '<section class="block" id="push"><div class="block-h"><h2>通知</h2><span class="count">この端末</span></div>';
     if (!pushSupported()) {
@@ -184,14 +207,11 @@
     }
     if (!PWA.reg || !S.data.pushKey) return h + '<p class="lead-line small">準備中です。少し待ってから開き直してください。</p></section>';
     if (!PUSH.ready) { loadPush().then(() => { if (S.route.name === 'settings') render(); }); return h + '<p class="empty small">読み込み中…</p></section>'; }
-    const on = !!PUSH.endpoint, cur = on ? store.get('pushKinds', []) : ['goal', 'cheer', 'pinreq', 'clipq', 'exreq'];
+    const on = !!PUSH.endpoint, cur = on ? store.get('pushKinds', []) : pushKindsFor().map((k) => k[0]); // はじめはすべてオン（いらないものを外す）
     const denied = Notification.permission === 'denied';
     h += '<p class="lead-line small">' + (on ? icon('check') + '<b>この端末で通知を受け取っています。</b>' : 'スマホに通知を出せます。受け取りたいものを選んで「通知をオンにする」を押してください。') + '</p>';
     if (!PREF.self) h += '<p class="hint strong">「今週あと○回」「応援」は、' + (loginAll() ? '選手としてログインしている人だけが受け取れます。' : '上の「自分の名前」を選ぶと受け取れます。') + '</p>';
-    h += '<form data-form="push" class="form"><ul class="pushk">' + PUSH_KINDS.filter((k) => (k[3] !== 'admin' || can('admin')) && (k[3] !== 'staff' || (loginAll() && can('anyStaff'))) && (k[3] !== 'judge' || (loginAll() && S.data.exJudge)) && (k[3] !== 'all' || loginAll())).map((k) => {
-      const dis = k[3] === 'self' && !PREF.self;
-      return '<li><label class="pk' + (dis ? ' dis' : '') + '"><input type="checkbox" name="kinds" value="' + k[0] + '"' + (cur.indexOf(k[0]) >= 0 && !dis ? ' checked' : '') + (dis ? ' disabled' : '') + '><span><b>' + k[1] + '</b><small>' + k[2] + '</small></span></label></li>';
-    }).join('') + '</ul>' +
+    h += '<form data-form="push" class="form"><ul class="pushk">' + pushKindItems(cur) + '</ul>' +
       (denied ? '<p class="form-err">通知が「許可しない」になっています。' + (isIOS() ? 'iPhone の「設定」→「通知」→「筋トレ」で許可してください。' : 'Chrome の右上「︙」→「設定」→「サイトの設定」→「通知」で、このサイトを「許可」にしてください。') + '</p>' : '<p class="form-err" hidden></p>') +
       '<div class="toolbar">' + (on
         ? '<button class="btn primary" type="submit">設定を保存</button><button type="button" class="btn" data-act="push-test">テスト通知を送る</button><button type="button" class="btn danger" data-act="push-off">通知をオフにする</button>'
@@ -2670,8 +2690,7 @@
   const GUIDE = [
     { t: 'KURFC 筋トレへようこそ', i: 'home', p: () => '部員みんなの筋トレの記録を見るアプリです。<b>見るだけならログインは不要</b>。<b>月曜〜日曜に週{g}回以上</b>がマストです。<br>このあと、<b>実際の画面を見ながら</b>使い方を案内します（1分）。' },
     { t: '自分の名前を選ぶ', i: 'users', p: () => '選ぶと、ホームに<b>「わたし」</b>（今週あと何回・届いた応援）が出て、通知も受け取れます。応援スタンプを送るときの名前にもなります。', x: 'self', tour: 'all' },
-    { t: 'ホーム画面に追加', i: 'plus', p: () => isStandalone() ? 'いまホーム画面のアプリから開いています。このままで大丈夫です。' : 'アイコンを置くと、アプリのように<b>1タップ</b>で開けます。', x: 'install' },
-    { t: '通知を受け取る', i: 'bell', p: () => (isIOS() && !isStandalone()) ? 'iPhone は、<b>ホーム画面に追加したアプリ</b>から設定すると、「今週あと○回」「応援が届いた」が通知で届きます。' : '「今週あと○回」（土曜18時・日曜9時）と「応援が届いた」を、スマホに通知できます。', x: 'push' },
+    { t: '通知を受け取る', i: 'bell', p: () => PUSH.endpoint ? 'この端末で通知を受け取っています。いらないものは、いつでも<b>「設定」→「通知」</b>で外せます。' : '「今週あと○回」や「応援が届いた」などを、スマホに通知します。<b>はじめはすべてオン</b>です。いらないものはチェックを外して、<b>「通知をオンにする」</b>を押してください（あとで「設定」→「通知」でも変えられます）。', x: 'push' },
     { t: '見やすく・くわしく', i: 'gear', p: () => '文字の大きさと明るさは、いつでも「設定」で変えられます。わからないときは、上の ' + kbd('?') + ' の<b>「使い方ガイド」</b>を見てください。マネージャー・主将・副主将の使い方もあります。', x: 'view' }
   ];
   // 全員ログイン（setlog）：ログインした本人が「わたし」なので名前は選ばない。代わりに「今日の1本」を紹介する
@@ -2692,16 +2711,15 @@
       const players = S.data && S.data.members ? sortMembers(S.data.members.filter((m) => m.active && m.player)) : [];
       return players.length ? '<label class="guide-self">自分の名前<span>（あとで設定で変えられます）</span><select data-act-change="pref-self"><option value="">選ばない</option>' + players.map((m) => '<option value="' + m.id + '"' + (PREF.self === m.id ? ' selected' : '') + '>' + esc(m.name) + '</option>').join('') + '</select></label>' : '';
     }
-    if (x === 'install') {
-      if (isStandalone()) return '';
-      if (PWA.prompt) return '<div class="guide-acts"><button class="btn primary" data-act="pwa-install">' + icon('plus') + 'いますぐ追加</button></div>';
-      return '<ol class="steps small">' + (isIOS()
-        ? '<li><b>Safari</b> で開いて、共有ボタン ' + kbd(icon('share')) + '</li><li><b>「ホーム画面に追加」</b>→「追加」</li><li>これからは<b>アイコンから</b>開く</li>'
-        : '<li>Chrome の右上 ' + kbd(icon('dots')) + '</li><li><b>「ホーム画面に追加」</b>または<b>「アプリをインストール」</b></li>') + '</ol>';
-    }
     if (x === 'push') {
-      if (isIOS() && !isStandalone()) return '<div class="guide-acts"><button class="btn" data-act="guide-help" data-v="install">追加のしかたを見る</button></div>';
-      return pushSupported() ? '<div class="guide-acts"><button class="btn primary" data-act="guide-push">' + icon('bell') + '通知の設定を開く</button></div>' : '';
+      if (!pushSupported()) return '<p class="hint">この端末・ブラウザでは通知を受け取れません。</p>';
+      if (!PWA.reg || !S.data.pushKey) return '<div class="guide-acts"><button class="btn" data-act="guide-push">' + icon('bell') + '通知の設定を開く</button></div>';
+      if (!PUSH.ready) { loadPush().then(() => { if ($('#guide-root').innerHTML && guideList()[guideStep].x === 'push') openGuide(guideStep); }); return '<p class="empty small">読み込み中…</p>'; }
+      if (PUSH.endpoint) return '<p class="okline">' + icon('check') + '通知はオンです</p>';
+      const denied = Notification.permission === 'denied';
+      return '<form data-form="gpush" class="form guide-push"><ul class="pushk">' + pushKindItems(pushKindsFor().map((k) => k[0])) + '</ul>' +
+        (denied ? '<p class="form-err">通知が「許可しない」になっています。' + (isIOS() ? 'iPhone の「設定」→「通知」→「筋トレ」で許可してください。' : 'Chrome の右上「︙」→「設定」→「サイトの設定」→「通知」で、このアプリを「許可」にしてください。') + '</p>' : '<p class="form-err" hidden></p>') +
+        '<div class="guide-acts"><button class="btn primary" type="submit"' + (denied ? ' disabled' : '') + '>' + icon('bell') + '通知をオンにする</button></div></form>';
     }
     if (x === 'view') {
       return '<div class="guide-prefs"><div class="seg small" role="group" aria-label="文字の大きさ">' + SIZES.map((z) => '<button data-act="pref-size" data-v="' + z[0] + '" aria-pressed="' + (PREF.size === z[0]) + '">' + z[1] + '</button>').join('') + '</div>' +
@@ -2912,6 +2930,13 @@
     else if (done) toast('案内は「使い方ガイド」からいつでも見られます');
   }
   /** はじめてその役割でログインしたとき：画面で案内するかを聞く（1回だけ） */
+  /** ログインした直後：初めてなら紹介（30秒）、見たことがあれば役職の案内 */
+  function afterLogin() {
+    setTimeout(() => {
+      if (gated() || TOUR || $('#guide-root').innerHTML || $('#sheet-root').innerHTML) return;
+      if (!store.get('guided', 0)) openGuide(0); else maybeRoleTour();
+    }, 900);
+  }
   function maybeRoleTour() {
     const m = me(), key = m && TOUR_FOR[m.perm];
     if (!key || store.get('tour:' + key, 0) || store.get('tourAsk:' + key, 0) || TOUR || $('#guide-root').innerHTML || $('#sheet-root').innerHTML || !store.get('guided', 0)) return;
@@ -4772,7 +4797,7 @@
           S.token = r.token; store.set('token', r.token); S.loginErr = '';
           pendingOldPin = r.me.mustChange ? pin : '';
           await loadState(); render();
-          if (!r.me.mustChange) toast(r.me.name + ' さんでログインしました');
+          if (!r.me.mustChange) { toast(r.me.name + ' さんでログインしました'); afterLogin(); }
         } catch (e) { sheetErrorIn(f, e.message); }
       });
     },
@@ -4782,7 +4807,7 @@
         try {
           const r = await api('register', { memberId: f.memberId.value, pin: f.pin.value, deviceName: deviceName() });
           S.token = r.token; store.set('token', r.token); S.loginErr = '';
-          await loadState(); render(); toast('登録しました。ようこそ、' + r.me.name + ' さん');
+          await loadState(); render(); toast('登録しました。ようこそ、' + r.me.name + ' さん'); afterLogin();
         } catch (e) { sheetErrorIn(f, e.message); }
       });
     },
@@ -4812,7 +4837,7 @@
           S.token = r.token; store.set('token', r.token);
           pendingOldPin = r.me.mustChange ? pin : '';
           closeSheet(); await loadState(); render();
-          if (!r.me.mustChange) { toast(r.me.name + ' さんでログインしました'); setTimeout(maybeRoleTour, 900); }
+          if (!r.me.mustChange) { toast(r.me.name + ' さんでログインしました'); afterLogin(); }
         } catch (e) { sheetError(e.message); }
       });
     },
@@ -4821,7 +4846,7 @@
       await busy(btn, async () => {
         try {
           await api('changePin', { oldPin: f.oldPin.value, newPin: f.newPin.value });
-          pendingOldPin = ''; closeSheet(); await loadState(); render(); toast('暗証番号を変更しました'); setTimeout(maybeRoleTour, 900);
+          pendingOldPin = ''; closeSheet(); await loadState(); render(); toast('暗証番号を変更しました'); afterLogin();
         } catch (e) { sheetError(e.message); }
       });
     },
@@ -4904,19 +4929,10 @@
         } catch (e) { sheetError(e.message); }
       });
     },
-    push: async (f, btn) => {
-      const kinds = $$('input[name="kinds"]:checked', f).map((x) => x.value);
-      if (!kinds.length) { sheetErrorIn(f, '受け取る通知を1つ以上選んでください。（すべてやめるときは「通知をオフにする」）'); return; }
-      // 許可の確認は、押した直後に出す（iPhone は押した操作の中でないと出せない）
-      if (Notification.permission === 'default') {
-        let perm = 'default';
-        try { perm = await Notification.requestPermission(); } catch (e) { perm = 'denied'; }
-        if (perm !== 'granted') { sheetErrorIn(f, '通知が許可されませんでした。「許可」を押すと受け取れます。'); render(); return; }
-      }
-      await busy(btn, async () => {
-        try { const r = await registerPush(kinds); toast(r.kinds.length ? '通知をオンにしました。「テスト通知を送る」で確かめられます' : '受け取れる通知がありません（自分の名前を選んでください）'); }
-        catch (e) { sheetErrorIn(f, e.message); }
-      });
+    push: async (f, btn) => { await enablePush(f, btn, $$('input[name="kinds"]:checked', f).map((x) => x.value)); },
+    // 紹介の中の「通知をオンにする」
+    gpush: async (f, btn) => {
+      await enablePush(f, btn, $$('input[name="kinds"]:checked', f).map((x) => x.value), (ok) => { if (ok) toast('通知をオンにしました'); if ($('#guide-root').innerHTML) openGuide(guideStep); });
     },
     template: async (f, btn) => {
       const v = menuFormValues(f);
