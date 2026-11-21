@@ -6,7 +6,7 @@
  *  通知（push）… 中身は来ないので、サーバー（pushInbox）に取りに行って表示する
  *  動画（Background Sync・Android）… 画面を閉じても、端末にしまった動画をサーバーに送る
  * 版を上げるときは VERSION と、index.html の ?v= を一緒に変える。 */
-const VERSION = '2.24.0-t2';
+const VERSION = '2.24.0-t3';
 try { importScripts('config.js?v=' + VERSION); } catch (e) { /* 読めなくても画面はしまっておいたもので動く */ }
 // テスト環境（KINTORE_STORE = 'kintoreTest'）は、本番としまう場所の名前を分ける（同じ github.io の中なので）
 const CPREFIX = (self.KINTORE_STORE || 'kintore') + '-';
@@ -66,21 +66,32 @@ self.addEventListener('fetch', (e) => {
 });
 
 // ---------- 通知 ----------
+let lastShown = null; // いちばん最近に出した通知（{m, at}）。中身が空だったとき（前の通知といっしょに受け取り済み）に使う
+async function fetchInbox() {
+  const sub = await self.registration.pushManager.getSubscription();
+  const r = await fetch(self.KINTORE_API, { method: 'POST', body: JSON.stringify({ op: 'pushInbox', endpoint: sub ? sub.endpoint : '' }), redirect: 'follow' });
+  const j = await r.json();
+  return (j && j.messages) || [];
+}
 self.addEventListener('push', (e) => {
   e.waitUntil((async () => {
     let msgs = [];
     try { if (e.data) { const j = e.data.json(); if (j && j.title) msgs = [j]; } } catch (x) { /* 中身なし */ }
     if (!msgs.length && self.KINTORE_API) {
-      try {
-        const sub = await self.registration.pushManager.getSubscription();
-        const r = await fetch(self.KINTORE_API, { method: 'POST', body: JSON.stringify({ op: 'pushInbox', endpoint: sub ? sub.endpoint : '' }), redirect: 'follow' });
-        const j = await r.json();
-        msgs = (j && j.messages) || [];
-      } catch (x) { msgs = []; }
+      try { msgs = await fetchInbox(); } catch (x) { msgs = []; }
+      // 中身がまだ届いていないことがある：少し待ってもう1回
+      if (!msgs.length) { await new Promise((r) => setTimeout(r, 1500)); try { msgs = await fetchInbox(); } catch (x) { msgs = []; } }
+    }
+    if (!msgs.length && lastShown && Date.now() - lastShown.at < 3 * 60 * 1000) {
+      // 続けて届いた通知の中身は、前の通知といっしょにもう受け取って出してある：同じものを静かに出し直す（音は鳴らさない）
+      const m = lastShown.m;
+      await self.registration.showNotification(m.title, { body: m.body || '', tag: m.tag || 'kintore', renotify: false, silent: true, icon: 'icons/icon-192.png', badge: 'icons/badge-96.png', lang: 'ja', data: { url: m.url || './' } });
+      return;
     }
     if (!msgs.length) msgs = [{ title: 'KURFC 筋トレ', body: '新しいお知らせがあります。開いて確かめてください。', url: './', tag: 'kintore' }];
     for (const m of msgs.slice(-3)) {
       await self.registration.showNotification(m.title, { body: m.body || '', tag: m.tag || undefined, renotify: !!m.tag, icon: 'icons/icon-192.png', badge: 'icons/badge-96.png', lang: 'ja', data: { url: m.url || './' } });
+      if (m.tag !== 'kintore') lastShown = { m, at: Date.now() };
     }
   })());
 });

@@ -151,6 +151,9 @@ function doPost(e) {
   } catch (x) {
     return out_({ ok: false, error: 'bad_request', message: '送信内容を読み取れませんでした。' });
   }
+  // 通知の中身を取りに来た端末（Service Worker）にはすぐ返す。ほかの操作のように、先に「送る」のメモをシートに書いたり
+  // 名簿を確かめたりすると、そのあいだ待たされて、スマホが待ちきれずに「新しいお知らせがあります」とだけ出してしまう
+  if (req && req.op === 'pushInbox') { try { return out_(opPushInbox_({ req: req })); } catch (x) { return out_({ ok: true, messages: [] }); } }
   const t0 = Date.now();
   LAST_T_ = null;
   const res = handle_(req);

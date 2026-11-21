@@ -258,6 +258,11 @@ const c3 = r.clip.id;
 const sentAt3 = gas.push.sent.slice();
 gas.push.sent.length = 0;
 ok(!gas.sheet('動画').data.some((row) => row.indexOf(at3) >= 0) && Object.keys(gas.props._all).some((k) => k === 'CS:' + IS + '|' + at3), '「送る」はメモに書くだけ（シートの書き込みと順番待ちをしない）');
+{
+  const m0 = api({ op: 'pushInbox', endpoint: N2EP }).messages || [];
+  ok(m0.length === 1 && /石川 大地/.test(m0[0].title), '通知の中身を取りに来たら、すぐ返す');
+  ok(Object.keys(gas.props._all).some((k) => k === 'CS:' + IS + '|' + at3), '中身を取りに来ただけでは「送る」のメモをシートに書かない（待たせない）');
+}
 ok(api({ op: 'clipStart', token: ISHI, mime: 'video/mp4', thumb, recordedAt: at3, code }).clip.id === c3, 'シートに書く前に送り直しても、同じ動画のまま');
 {
   const m = api({ op: 'pushInbox', endpoint: NEP }).messages[0] || {};
