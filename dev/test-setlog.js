@@ -239,16 +239,38 @@ section('動画でついた「実施した」は、記録の画面から外さ�
 section('2段階：先に「実施した」、動画はあとから');
 const at3 = jst(1);
 const IS = id['石川 大地'];
+// 「みんなの動画」：だれかが出すたびに通知（オンにした人だけ・自分の動画は来ない）
+const NEP = 'https://fcm.googleapis.com/fcm/send/mori-device:APA91b-test', N2EP = 'https://fcm.googleapis.com/fcm/send/mg-new:APA91b-test', N3EP = 'https://fcm.googleapis.com/fcm/send/ishi-new:APA91b-test';
+r = api({ op: 'pushRegister', token: MORI2, sub: { endpoint: NEP }, memberId: id['森 健太'], kinds: ['clipnew', 'goal'] });
+ok(r.ok && r.push.kinds.join() === 'clipnew,goal', '選手は「みんなの動画」を受け取れる');
+r = api({ op: 'pushRegister', token: MG, sub: { endpoint: N2EP }, memberId: '', kinds: ['clipnew'] });
+ok(r.ok && r.push.kinds.join() === 'clipnew', 'マネージャー（選手でない）も「みんなの動画」を受け取れる');
+ok(api({ op: 'pushRegister', token: ISHI, sub: { endpoint: N3EP }, memberId: IS, kinds: ['clipnew'] }).ok, '出す本人もオンにしている');
+ok(api({ op: 'pushRegister', sub: { endpoint: 'https://fcm.googleapis.com/fcm/send/anon:APA91b' }, memberId: '', kinds: ['clipnew'] }).error === 'auth', 'ログインしていなければ登録できない');
+gas.push.sent.length = 0;
 r = api({ op: 'clipStart', token: ISHI, mime: 'video/mp4', thumb, recordedAt: at3, code });
 ok(r.ok && r.queued && r.recorded && r.clip.nv === 1 && r.clip.st === 'ok', 'まず小さいデータ（時刻・今日の数字・サムネイル）だけで「実施した」と返事（すぐ）');
 const c3 = r.clip.id;
+{
+  const to = gas.push.sent.map((x) => x.url).sort();
+  ok(to.length === 2 && to.join() === [N2EP, NEP].sort().join(), '「送る」と同時に、オンにした人へ通知（出した本人の端末には来ない）：' + to.length + '件');
+}
+const sentAt3 = gas.push.sent.slice();
+gas.push.sent.length = 0;
 ok(!gas.sheet('動画').data.some((row) => row.indexOf(at3) >= 0) && Object.keys(gas.props._all).some((k) => k === 'CS:' + IS + '|' + at3), '「送る」はメモに書くだけ（シートの書き込みと順番待ちをしない）');
 ok(api({ op: 'clipStart', token: ISHI, mime: 'video/mp4', thumb, recordedAt: at3, code }).clip.id === c3, 'シートに書く前に送り直しても、同じ動画のまま');
+{
+  const m = api({ op: 'pushInbox', endpoint: NEP }).messages[0] || {};
+  ok(/石川 大地 さんが動画を出しました/.test(m.title) && m.url === './#clips' && m.tag === 'clipnew-' + c3, '通知の中身：だれが出したか・押すと今日の動画（' + m.title + '）');
+  ok(!api({ op: 'pushInbox', endpoint: N3EP }).messages.length, '本人の端末の受け取り箱は空');
+  ok(!gas.push.sent.length, 'シートに書く前の送り直しでは、通知はもう来ない');
+}
 st = api({ op: 'state', token: MORI2 });
 ok(st.records.some((x) => x[0] === IS && x[1] === today && x[2] === 1) && st.clips.some((c) => c.id === c3), '次にだれかが使うと、先にシートに書く（ほかの人にも「実施した」と動画が見える）');
 ok(!Object.keys(gas.props._all).some((k) => k.indexOf('CS:') === 0 || k.indexOf('CT:') === 0), 'シートに書いたらメモは消える');
 { const sh = gas.sheet('動画のサムネイル'); ok(sh.data.some((row) => row[0] === c3 && row[1] === thumb), 'サムネイルもシートに書かれる（メモに分けて置いておいた分）'); }
 ok(api({ op: 'clipStart', token: ISHI, mime: 'video/mp4', thumb, recordedAt: at3, code }).again, '送り直しても二重にならない');
+ok(!gas.push.sent.some((x) => x.url === NEP), '送り直しでは「みんなの動画」の通知はもう来ない');
 ok(api({ op: 'clipStart', token: ISHI, mime: 'video/mp4', thumb, recordedAt: at3, code: code + 1 }).error === 'bad_code', '先に送るときも今日の数字を確かめる');
 ok(api({ op: 'clipVideo', token: G, id: c3 }).error === 'not_yet', '動画が届くまでは「まだ届いていません」');
 ok(api({ op: 'state', token: MORI2 }).clips.find((c) => c.id === c3).nv === 1, '一覧には「動画待ち」と分かる印がつく');
@@ -257,6 +279,8 @@ r = api({ op: 'clipUpload', token: ISHI, mime: 'video/mp4', data: vid, thumb, re
 ok(r.ok && r.attached && r.clip.id === c3 && r.clip.nv === 0 && Object.keys(gas.drive.files).length === nfiles + 1, 'あとから送った動画が同じ行につく（行は増えない）');
 ok(api({ op: 'clipVideo', token: G, id: c3 }).data === vid, '届いたら見られる');
 ok(api({ op: 'clipUpload', token: ISHI, mime: 'video/mp4', data: vid, thumb, recordedAt: at3, code }).again && Object.keys(gas.drive.files).length === nfiles + 1, '動画を送り直しても二重にならない');
+ok(!gas.push.sent.some((x) => x.url === NEP), 'あとから動画がついても、通知は1回だけ');
+ok(api({ op: 'pushRegister', token: ISHI, sub: { endpoint: N3EP }, memberId: IS, kinds: [] }).ok, '（本人の「みんなの動画」をオフに戻す）');
 
 { // 大きなサムネイル（9KBを超える）も、分けて置いておける
   const big = 'A'.repeat(30000), atb = jst(0.7);

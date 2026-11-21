@@ -3,7 +3,7 @@
   'use strict';
   const L = window.KLogic;
   const API = window.KINTORE_API;
-  const VERSION = '2.24.0-t1';
+  const VERSION = '2.24.0-t2';
   const WD = ['日', '月', '火', '水', '木', '金', '土'];
   const PERM = { admin: '管理者', manager: 'マネージャー', captain: '主将', leader: '副主将', member: '一般部員', guest: '見るだけ' };
   // 権限を選ぶ一覧の並び
@@ -136,7 +136,8 @@
     ['menu', '新しいメニューが出たとき', '自分が対象のメニューだけ', 'self'],
     ['pinreq', '管理者へのお知らせ', '管理者だけ。暗証番号の再発行の依頼と、要望・不具合が届いたらすぐ', 'admin'],
     ['clipq', '動画の確認', 'スタッフだけ。確認待ちの動画が届いたとき・「気になる」がついたとき', 'staff'],
-    ['exreq', '免除の申し込み', '主将・副主将・管理者だけ。選手から免除の申し込みが届いたとき', 'judge']
+    ['exreq', '免除の申し込み', '主将・副主将・管理者だけ。選手から免除の申し込みが届いたとき', 'judge'],
+    ['clipnew', 'みんなの動画', 'だれかが今日の1本を出すたびに（自分の動画は来ません）', 'all']
   ];
   const pushSupported = () => 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
   function b64uBytes(s) {
@@ -181,7 +182,7 @@
     const denied = Notification.permission === 'denied';
     h += '<p class="lead-line small">' + (on ? icon('check') + '<b>この端末で通知を受け取っています。</b>' : 'スマホに通知を出せます。受け取りたいものを選んで「通知をオンにする」を押してください。') + '</p>';
     if (!PREF.self) h += '<p class="hint strong">「今週あと○回」「応援」は、' + (loginAll() ? '選手としてログインしている人だけが受け取れます。' : '上の「自分の名前」を選ぶと受け取れます。') + '</p>';
-    h += '<form data-form="push" class="form"><ul class="pushk">' + PUSH_KINDS.filter((k) => (k[3] !== 'admin' || can('admin')) && (k[3] !== 'staff' || (loginAll() && can('anyStaff'))) && (k[3] !== 'judge' || (loginAll() && S.data.exJudge))).map((k) => {
+    h += '<form data-form="push" class="form"><ul class="pushk">' + PUSH_KINDS.filter((k) => (k[3] !== 'admin' || can('admin')) && (k[3] !== 'staff' || (loginAll() && can('anyStaff'))) && (k[3] !== 'judge' || (loginAll() && S.data.exJudge)) && (k[3] !== 'all' || loginAll())).map((k) => {
       const dis = k[3] === 'self' && !PREF.self;
       return '<li><label class="pk' + (dis ? ' dis' : '') + '"><input type="checkbox" name="kinds" value="' + k[0] + '"' + (cur.indexOf(k[0]) >= 0 && !dis ? ' checked' : '') + (dis ? ' disabled' : '') + '><span><b>' + k[1] + '</b><small>' + k[2] + '</small></span></label></li>';
     }).join('') + '</ul>' +
@@ -2357,6 +2358,7 @@
       (loginAll() ? '<tr><td><b>動画が取り消された</b><small>本人だけ。理由つき</small></td><td>取り消されたらすぐ</td></tr>' +
         '<tr><td><b>動画の確認</b><small>スタッフだけ。確認待ちの動画・「気になる」</small></td><td>届いたらすぐ</td></tr>' +
         '<tr><td><b>免除の申し込み</b><small>主将・副主将・管理者だけ</small></td><td>届いたらすぐ</td></tr>' +
+        '<tr><td><b>みんなの動画</b><small>オンにした人だけ。だれが出したか（自分の動画は来ない）</small></td><td>だれかが出すたびにすぐ</td></tr>' +
         '<tr><td><b>免除が認められた・認められなかった</b><small>申し込んだ本人</small></td><td>決まったらすぐ</td></tr>' : '') +
       '<tr><td><b>暗証番号の再発行の依頼</b><small>管理者だけ（ログインして設定）</small></td><td>依頼が来たらすぐ</td></tr></tbody></table>' +
       '<div class="toolbar">' + goBtn('#settings/push', '通知の設定を開く') + '</div>' +

@@ -362,6 +362,7 @@ const shot = async (p, name) => { if (SHOT) { require('fs').mkdirSync(SHOT, { re
     const mk = await pushKinds('マネ 花子', 'test-mgr-01'), pk = await pushKinds('森 健太', 'mori-pin-1');
     ok(mk.indexOf('clipq') >= 0, 'マネージャーの通知の設定に「動画の確認」（確認待ち・気になる）がある（' + mk.join('・') + '）');
     ok(pk.length >= 1 && pk.indexOf('clipq') < 0, '選手の通知の設定には「動画の確認」は出ない（' + pk.join('・') + '）');
+    ok(pk.indexOf('clipnew') >= 0 && mk.indexOf('clipnew') >= 0, '選手にもマネージャーにも「みんなの動画」（だれかが出すたび）がある');
     // 今日、動画でついた「実施した」がある人（動画が取り消されていない）を、サーバーに聞いて確かめる
     const vids = await g4.evaluate(async () => {
       const tk = JSON.parse(localStorage.getItem('kintoreTest.token') || '""');
