@@ -3,7 +3,7 @@
   'use strict';
   const L = window.KLogic;
   const API = window.KINTORE_API;
-  const VERSION = '2.24.0';
+  const VERSION = '2.25.0-t1';
   const WD = ['日', '月', '火', '水', '木', '金', '土'];
   const PERM = { admin: '管理者', manager: 'マネージャー', captain: '主将', leader: '副主将', member: '一般部員', guest: '見るだけ' };
   // 権限を選ぶ一覧の並び
@@ -98,8 +98,14 @@
   const PWA = { prompt: null, reg: null, waiting: null };
   const isStandalone = () => (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) || navigator.standalone === true;
   const isIOS = () => /iPhone|iPad|iPod/.test(navigator.userAgent) || (/Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints > 1);
-  window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); PWA.prompt = e; if (S.route && S.route.name === 'settings') render(); });
-  window.addEventListener('appinstalled', () => { PWA.prompt = null; toast('ホーム画面に追加しました'); });
+  window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); PWA.prompt = e; if (installGateOn() || (S.route && S.route.name === 'settings')) render(); });
+  window.addEventListener('appinstalled', () => { PWA.prompt = null; PWA.installed = true; toast('ホーム画面に追加しました'); if (installGateOn()) render(); });
+  // ---------- スマホはホーム画面に追加してから使う（ブラウザのままでは使わせない） ----------
+  // 通知・ログインの保存（iPhone はホーム画面版と Safari で別）・1タップで開くために、部員みんなにホーム画面版を使ってもらう。
+  // パソコン（スタッフの作業用）はそのまま使える
+  const isPhone = () => /Android|iPhone|iPod/.test(navigator.userAgent) || isIOS();
+  const inAppBrowser = () => /\bLine\/|FBAN|FBAV|Instagram|MicroMessenger|KAKAOTALK/i.test(navigator.userAgent);
+  const installGateOn = () => isPhone() && !isStandalone() && !store.get('gateOff', 0);
   function registerSW() {
     if (!('serviceWorker' in navigator)) return;
     // 開発用のサーバー（localhost）では、テストの邪魔にならないよう使わない（kintore.swdev を入れたときだけ使う）
@@ -3228,6 +3234,7 @@
   }
   function render() {
     const app = $('#app');
+    if (installGateOn()) { app.innerHTML = installGateView(); document.title = 'ホーム画面に追加｜KURFC 筋トレ'; return; }
     if (!S.data) {
       app.innerHTML = '<div class="boot"><img class="boot-crest" src="crest.webp?v=1" alt="" width="84" height="90"><span class="boot-hoops" aria-hidden="true"></span><p>' + (S.loadError ? esc(S.loadError) : '読み込み中…') + '</p>' +
         (S.loadError ? '<button class="btn primary" data-act="reload">もう一度読み込む</button>' : '') + '</div>';
@@ -3268,7 +3275,7 @@
   }
 
   // ======================= setlog（v3・テスト環境だけ）：全員ログイン・アプリの中で撮る2秒の動画 =======================
-  const gated = () => !!(S.data && (S.data.locked || S.data.needLogin));
+  const gated = () => installGateOn() || !!(S.data && (S.data.locked || S.data.needLogin));
   const loginAll = () => !!(S.data && (S.data.loginAll || S.data.needLogin));
   /** その日、その人の動画（取り消されていない・まだ消えていない）があるか。あれば「実施した」は動画でついたもの（外すのは動画の取り消しから） */
   const liveClip = (mid, date) => loginAll() && (S.data.clips || []).some((c) => c.m === mid && c.d === date && c.st === 'ok' && !c.gone && !c.local);
@@ -3460,6 +3467,35 @@
       (S.loginErr ? '<p class="form-err">' + esc(S.loginErr) + '</p>' : '') + '</div>';
   }
   function isTestSite() { return (window.KINTORE_STORE || '') === 'kintoreTest'; }
+  /** スマホでブラウザのまま開いたとき：ホーム画面に追加してもらう画面（ここから先へは進めない） */
+  function installGateView() {
+    const ios = isIOS(), name = isTestSite() ? '筋トレ試' : '筋トレ';
+    let body;
+    if (PWA.installed) {
+      body = '<p class="okline">' + icon('check') + '追加できました。</p><p class="lead-line">ホーム画面の<b>「' + name + '」のアイコン</b>から開いてください。このページは閉じてかまいません。</p>';
+    } else if (inAppBrowser()) {
+      body = '<p class="lead-line">LINE などのアプリの中では追加できません。' + (ios ? '右下の ' + kbd('…') + ' や ' + kbd('⤴') + ' から <b>「Safariで開く」</b>' : '右上の ' + kbd('⋮') + ' から <b>「ブラウザで開く」</b>（Chrome）') + 'を押して、もう一度このページを開いてください。</p>';
+    } else if (ios) {
+      body = '<ol class="steps">' +
+        '<li>このページを <b>Safari</b> で開いている（ほかのアプリの中なら「Safariで開く」）</li>' +
+        '<li>画面の下（iPad は上）の <b>共有ボタン</b> ' + kbd(icon('share')) + ' を押す</li>' +
+        '<li>下へ動かして <b>「ホーム画面に追加」</b>（なければ一番下の「アクションを編集」から）</li>' +
+        '<li>右上の <b>「追加」</b> → ホーム画面の <b>「' + name + '」</b> のアイコンから開く</li></ol>' +
+        '<p class="hint">ホーム画面のアプリは Safari と別なので、ログインはアイコンから開いたほうでしてください。</p>';
+    } else {
+      body = (PWA.prompt ? '<div class="toolbar"><button class="btn primary wide" data-act="pwa-install">' + icon('plus') + 'ホーム画面に追加</button></div><p class="hint">押したら「インストール」（または「追加」）→ ホーム画面の「' + name + '」のアイコンから開いてください。</p>' : '') +
+        '<ol class="steps">' +
+        '<li>このページを <b>Chrome</b> で開いている</li>' +
+        '<li>右上の ' + kbd(icon('dots')) + ' を押す</li>' +
+        '<li><b>「ホーム画面に追加」</b>または<b>「アプリをインストール」</b> → 「インストール」</li>' +
+        '<li>ホーム画面の <b>「' + name + '」</b> のアイコンから開く</li></ol>' +
+        '<p class="hint">もう追加してある人は、ホーム画面のアイコンから開いてください。</p>';
+    }
+    return '<div class="gate install-gate"><img class="boot-crest" src="crest.webp?v=1" alt="" width="72" height="77"><h1>ホーム画面に追加して使います</h1>' +
+      (isTestSite() ? '<p class="test-tag">テスト環境</p>' : '') +
+      '<p class="lead-line">このアプリは、スマホの<b>ホーム画面に追加したアイコン</b>から使います。通知が届き、ログインもそのまま残ります。</p>' +
+      body + '</div>';
+  }
 
   // ---- 撮る（アプリの中のカメラだけ。音なし2秒。日時と今日の数字を動画に入れる） ----
   const CAM = { stream: null, facing: 'environment', raf: 0, rec: null, blob: null, url: '', thumb: '', at: '', mime: '', busy: false };

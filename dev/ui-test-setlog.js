@@ -474,6 +474,32 @@ const shot = async (p, name) => { if (SHOT) { require('fs').mkdirSync(SHOT, { re
     await c2.close();
   }
 
+  console.log('■ スマホはホーム画面に追加してから使う');
+  {
+    const AND = 'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Mobile Safari/537.36';
+    const IOS = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1';
+    const LINE = IOS.replace('Safari/604.1', 'Safari Line/14.0.0');
+    const gate = async (ua, standalone) => {
+      const cx = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, userAgent: ua, reducedMotion: 'reduce' });
+      await cx.route(/fonts\.(googleapis|gstatic)\.com/, (r) => r.abort());
+      if (standalone) await cx.addInitScript(() => { const mm = window.matchMedia.bind(window); window.matchMedia = (q) => (/display-mode: *standalone/.test(q) ? { matches: true, media: q, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {} } : mm(q)); });
+      const px = await cx.newPage(); px.on('pageerror', (e) => errors.push(e.message));
+      await px.goto(BASE); await px.waitForSelector(standalone ? '.login-gate' : '.install-gate', { timeout: 15000 }).catch(() => {});
+      await px.waitForTimeout(1500);
+      const o = await px.evaluate(() => ({ gate: !!document.querySelector('.install-gate'), login: !!document.querySelector('.login-gate'), guide: !!document.querySelector('#guide-root').innerHTML, text: (document.querySelector('.install-gate') || {}).innerText || '' }));
+      await cx.close();
+      return o;
+    };
+    let g = await gate(AND, false);
+    ok(g.gate && !g.login && !g.guide && /Chrome/.test(g.text) && /アプリをインストール/.test(g.text), 'Android の Chrome で開くと「ホーム画面に追加して使います」だけ（ログインにも紹介にも進めない）');
+    g = await gate(IOS, false);
+    ok(g.gate && !g.login && /共有ボタン/.test(g.text) && /Safari と別/.test(g.text), 'iPhone の Safari では共有ボタンからの手順（ログインはアイコンから開いたほうで）');
+    g = await gate(LINE, false);
+    ok(g.gate && /Safariで開く/.test(g.text) && !/共有ボタン/.test(g.text), 'LINE の中で開いたら「Safariで開く」を案内');
+    g = await gate(AND, true);
+    ok(!g.gate && g.login, 'ホーム画面のアイコンから開くと、いつもどおりログイン画面');
+  }
+
   ok(errors.length === 0, '画面のエラーなし' + (errors.length ? '：' + errors.join(' / ') : ''));
   console.log('\n合格 ' + pass + ' / 不合格 ' + fail);
   if (fail) console.log('不合格：\n- ' + failed.join('\n- '));
