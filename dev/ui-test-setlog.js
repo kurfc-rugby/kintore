@@ -312,6 +312,15 @@ const shot = async (p, name) => { if (SHOT) { require('fs').mkdirSync(SHOT, { re
     await shot(q, '23-guide-2');
     // 画面の案内：選手には「免除を申し込む」を光らせる。ランキングは見出しごと光らせる。最後はホーム
     await q.click('#guide-root [data-act="guide-next"]'); await q.waitForSelector('.tour-tip h2'); await q.waitForTimeout(700);
+    {
+      const y0 = await q.evaluate(() => scrollY);
+      await q.mouse.move(195, 300); await q.mouse.wheel(0, 600); await q.waitForTimeout(400);
+      const lock = await q.evaluate((y0) => { const n = document.querySelector('.nav').getBoundingClientRect(), hd = document.querySelector('.top').getBoundingClientRect(), h = document.querySelector('.tour-hole').getBoundingClientRect();
+        const top = (x, y) => document.elementFromPoint(x, y); return { y: scrollY === y0, nav: !!top(n.left + 20, n.top + n.height / 2).closest('.tour-bg'), head: !!top(hd.right - 20, hd.top + hd.height / 2).closest('.tour-bg'), hole: !!top(h.left + h.width / 2, h.top + h.height / 2).closest('.tour-bg, .tour-tip'), ov: getComputedStyle(document.documentElement).overflowY }; }, y0);
+      for (let k = 0; k < 4; k++) await q.keyboard.press('Tab');
+      const tabIn = await q.evaluate(() => !!document.activeElement.closest('.tour-tip'));
+      ok(lock.y && lock.nav && lock.head && lock.hole && lock.ov === 'hidden' && tabIn, '案内の間は「閉じる」「戻る」「次へ」だけ：スクロール・下のタブ・上のボタン・光っている所は押せない（' + JSON.stringify(lock) + '・Tab ' + tabIn + '）');
+    }
     const tt = [], holeOk = {}, nums = [];
     for (let i = 0; i < 14 && await q.locator('.tour-tip h2').count(); i++) {
       const h = await q.locator('.tour-tip h2').innerText(); tt.push(h); nums.push(await q.locator('.tour-k span').innerText());
@@ -328,6 +337,16 @@ const shot = async (p, name) => { if (SHOT) { require('fs').mkdirSync(SHOT, { re
     ok(nums.every((n, k) => n === (k + 1) + ' / ' + nums.length), '案内の番号は飛ばない（' + nums.join('・') + '）');
     ok(rk.head && rk.inside && rk.onScreen, 'ランキングは見出しと「すべて見る」ごと光らせ、枠が画面からはみ出さない');
     ok(tt.filter((t) => /今日の1本/.test(t)).length === 1 && await q.evaluate(() => location.hash) === '#home' && /通知/.test(await q.locator('#guide-root h2').innerText().catch(() => '')), '「今日の1本を撮る」の説明は1回だけ。案内はホームで終わり、紹介の続き（通知）に戻る');
+    { // スマホの「戻る」は「閉じる」と同じ（紹介の続きに戻る）
+      await q.waitForTimeout(800); await q.evaluate(() => { document.querySelector('#guide-root').innerHTML = ''; document.body.classList.remove('sheet-open'); location.hash = '#settings'; }); await q.waitForTimeout(600);
+      await q.click('[data-act="guide"]'); await q.waitForSelector('#guide-root .guide');
+      await q.click('#guide-root [data-act="guide-next"]'); await q.waitForTimeout(300); await q.click('#guide-root [data-act="guide-next"]'); await q.waitForSelector('.tour-tip h2');
+      for (let i = 0; i < 12 && !/免除/.test(await q.locator('.tour-tip h2').innerText().catch(() => '')); i++) { const h = await q.locator('.tour-tip h2').innerText(); await q.click('[data-act="tour-next"]'); await q.waitForFunction((t) => { const e = document.querySelector('.tour-tip h2'); return !e || (e.innerText !== t && !document.querySelector('#tour-root.moving')); }, h, { timeout: 4000 }).catch(() => {}); }
+      const onMember = /#member/.test(await q.evaluate(() => location.hash));
+      await q.goBack(); await q.waitForTimeout(1000);
+      ok(onMember && await q.locator('.tour-tip').count() === 0 && /通知/.test(await q.locator('#guide-root h2').innerText().catch(() => '')), '案内の途中でスマホの「戻る」を押すと、案内を閉じて紹介の続きに戻る');
+      await q.evaluate(() => { document.querySelector('#guide-root').innerHTML = ''; location.hash = '#home'; }); await q.waitForTimeout(400);
+    }
     await q.click('#guide-root [data-act="guide-close"]').catch(() => {}); await q.waitForTimeout(300);
     await q.evaluate(() => { location.hash = '#help'; }); await q.waitForTimeout(800);
     const hp = await q.locator('#main').innerText();

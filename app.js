@@ -3,7 +3,7 @@
   'use strict';
   const L = window.KLogic;
   const API = window.KINTORE_API;
-  const VERSION = '2.26.0-t4';
+  const VERSION = '2.26.0-t5';
   const WD = ['日', '月', '火', '水', '木', '金', '土'];
   const PERM = { admin: '管理者', manager: 'マネージャー', captain: '主将', leader: '副主将', member: '一般部員', guest: '見るだけ' };
   // 権限を選ぶ一覧の並び
@@ -2814,13 +2814,16 @@
     const list = typeof st.sel === 'function' ? [st.sel()] : [].concat(st.sel).map((q) => $(q));
     return list.find((el) => el && el.getClientRects().length) || null;
   }
+  function tourBlock(ev) { if (TOUR && ev.cancelable) ev.preventDefault(); }
   function startTour(key, opt) {
     if (!TOURS[key]) return;
     closeSheet(); closeVideo();
     $('#guide-root').innerHTML = ''; document.body.classList.remove('sheet-open');
     TOUR = { key: key, i: -1, dir: 1, then: opt && opt.then, from: opt && opt.home ? '#home' : location.hash || '#home', el: null,
       saved: { menuTab: S.menuTab, rankTab: S.rankTab, exPart: S.exPart, memberTab: S.memberTab } };
-    document.body.classList.add('touring');
+    document.body.classList.add('touring'); document.documentElement.classList.add('touring');
+    // 案内の間は「閉じる」「戻る」「次へ」だけ：画面のスクロール・ほかの所のタップはできない
+    document.addEventListener('touchmove', tourBlock, { passive: false }); document.addEventListener('wheel', tourBlock, { passive: false });
     $('#tour-root').innerHTML = '<div class="tour-bg" data-act="tour-noop"></div><div class="tour-probe" aria-hidden="true"></div><div class="tour-hole" aria-hidden="true"></div><section class="tour-tip" role="dialog" aria-modal="true" aria-live="polite"></section>';
     window.addEventListener('resize', tourPlace); window.addEventListener('scroll', tourPlace, { passive: true });
     tourGo(0, 1);
@@ -2837,6 +2840,7 @@
     if (st.prep) st.prep();
     if (st.arg && !st.arg()) { tourGo(i + dir, dir); return; }
     const hash = '#' + st.r + (st.arg ? '/' + st.arg() : '');
+    TOUR.hash = hash === '#home' ? '' : hash;
     if (location.hash !== hash && !(hash === '#home' && (location.hash === '' || location.hash === '#'))) location.hash = hash;
     else render();
     // 画面が描かれるのを待って探す（ないときは飛ばす）
@@ -2930,7 +2934,8 @@
     const t = TOUR; TOUR = null;
     Object.assign(S, t.saved); // 案内で切り替えたタブは元に戻す
     $('#tour-root').innerHTML = ''; $('#tour-root').classList.remove('moving');
-    document.body.classList.remove('touring');
+    document.body.classList.remove('touring'); document.documentElement.classList.remove('touring');
+    document.removeEventListener('touchmove', tourBlock, { passive: false }); document.removeEventListener('wheel', tourBlock, { passive: false });
     window.removeEventListener('resize', tourPlace); window.removeEventListener('scroll', tourPlace);
     store.set('tour:' + t.key, 1);
     if (location.hash !== t.from) location.hash = t.from; else render();
@@ -4315,6 +4320,8 @@
   // 詳細の画面（一覧から進む先）。深さで「進む・戻る」の動きを決める
   const DEPTH = { member: 1, logs: 1, archive: 1, help: 1, feedback: 1 };
   function onHash() {
+    // 案内の途中にスマホの「戻る」などで画面が変わったら、「閉じる」と同じにする
+    if (TOUR && TOUR.hash != null && (location.hash.replace(/^#?$/, '#home') !== (TOUR.hash || '#home'))) { const t = TOUR; t.from = location.hash || '#home'; endTour(false); return; }
     const next = parseHash(), prev = S.route;
     if (S.route.name === 'record' && next.name !== 'record' && !recLeaveOk()) { history.replaceState(null, '', '#record'); return; }
     if (next.name === 'record' && next.arg && L.isDate(next.arg)) { S.rec.date = next.arg; S.rec.edits = {}; }
@@ -5151,6 +5158,13 @@
   document.addEventListener('keydown', (ev) => {
     if (ev.key === 'Escape' && $('.vplayer')) { closeVideo(); return; }
     if (TOUR) {
+      const inTip = !!(document.activeElement && document.activeElement.closest && document.activeElement.closest('.tour-tip'));
+      if (ev.key === 'Tab') { // 吹き出しのボタンの中だけを回る
+        const bs = $$('.tour-tip button'); ev.preventDefault();
+        if (bs.length) { const k = bs.indexOf(document.activeElement); bs[(k < 0 ? 0 : k + (ev.shiftKey ? bs.length - 1 : 1)) % bs.length].focus({ preventScroll: true }); }
+        return;
+      }
+      if (['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End'].indexOf(ev.key) >= 0 || (ev.key === ' ' && !inTip) || (ev.key === 'Enter' && !inTip)) { ev.preventDefault(); return; }
       if (ev.key === 'Escape') { endTour(false); return; }
       if (ev.key === 'ArrowRight') { tourGo(TOUR.i + 1, 1); return; }
       if (ev.key === 'ArrowLeft' && TOUR.i > 0) { tourGo(TOUR.i - 1, -1); return; }

@@ -1390,7 +1390,8 @@ html[data-size="l"] .help-seg button[aria-pressed="true"], html[data-size="xl"] 
 .radios.small span { min-height: 38px; padding: 0 12px; font-size: 13px; }
 
 /* ---------- v2.19 実際の画面を指して案内（ツアー） ---------- */
-.tour-bg { position: fixed; inset: 0; z-index: 85; background: transparent; }
+.tour-bg { position: fixed; inset: 0; z-index: 85; background: transparent; touch-action: none; }
+html.touring, html.touring body { overflow: hidden; overscroll-behavior: none; }
 .tour-hole { position: fixed; z-index: 86; border-radius: 12px; box-shadow: 0 0 0 3px var(--paper), 0 0 0 6px var(--enji-bg), 0 0 0 200vmax rgba(0, 0, 0, .62); pointer-events: none; transition: left .3s ease, top .3s ease, width .3s ease, height .3s ease; }
 .tour-tip { position: fixed; z-index: 87; background: var(--paper); color: var(--ink); border-radius: 12px; padding: 12px 14px 10px; border-top: 5px solid var(--enji-bg); box-shadow: 0 10px 30px rgba(0, 0, 0, .35); transition: left .3s ease, top .3s ease, opacity .2s; }
 #tour-root.moving .tour-tip { opacity: 0; }
