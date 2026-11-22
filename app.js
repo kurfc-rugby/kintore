@@ -3,7 +3,7 @@
   'use strict';
   const L = window.KLogic;
   const API = window.KINTORE_API;
-  const VERSION = '2.26.0';
+  const VERSION = '2.26.1-t1';
   const WD = ['日', '月', '火', '水', '木', '金', '土'];
   const PERM = { admin: '管理者', manager: 'マネージャー', captain: '主将', leader: '副主将', member: '一般部員', guest: '見るだけ' };
   // 権限を選ぶ一覧の並び
@@ -2737,7 +2737,15 @@
     { t: '見やすく・くわしく', i: 'gear', p: () => '文字の大きさと明るさは、いつでも「設定」で変えられます。わからないときは、上の ' + kbd('?') + ' の<b>「使い方ガイド」</b>を見てください。マネージャー・主将・副主将の使い方もあります。', x: 'view' }
   ];
   // 全員ログイン（setlog）：ログインした本人が「わたし」なので名前は選ばない。代わりに「今日の1本」を紹介する
+  /** 紹介の版。上げると、前に見た人にも次に開いたとき1回だけもう一度出る */
+  const GUIDE_REV = 2;
+  const guideDue = () => (+store.get('guided', 0) || 0) < GUIDE_REV;
   function guideList() {
+    const l = guideList0(), again = +store.get('guided', 0) > 0 && guideDue();
+    // 前に紹介を見た人には、新しくなったことを1枚目で伝える
+    return again ? l.map((g, k) => (k ? g : Object.assign({}, g, { t: '使い方の案内が新しくなりました', p: () => '使い方の案内を新しくしたので、もう一度だけ見てください（1分）。<br>' + g.p() }))) : l;
+  }
+  function guideList0() {
     if (!loginAll()) return GUIDE;
     const pl = !!mePlayer();
     return GUIDE.map((g) => {
@@ -2786,7 +2794,7 @@
     document.body.classList.add('sheet-open');
     const b = $('#guide-root [autofocus]'); if (b) b.focus();
   }
-  function closeGuide() { $('#guide-root').innerHTML = ''; store.set('guided', 1); if (!$('#sheet-root').innerHTML) document.body.classList.remove('sheet-open'); if (S.data && !S.data.locked) render(); }
+  function closeGuide() { $('#guide-root').innerHTML = ''; store.set('guided', GUIDE_REV); if (!$('#sheet-root').innerHTML) document.body.classList.remove('sheet-open'); if (S.data && !S.data.locked) render(); }
 
   // ---------- 実際の画面を指して案内する（ツアー） ----------
   // 1ステップ = { r: 画面, prep: 画面を開く前の準備, sel: 光らせる所（CSSセレクタ・配列・関数）, t: 見出し, p: 説明 }
@@ -3014,7 +3022,7 @@
   function afterLogin() {
     setTimeout(() => {
       if (gated() || TOUR || $('#guide-root').innerHTML || $('#sheet-root').innerHTML) return;
-      if (!store.get('guided', 0)) openGuide(0); else maybeRoleTour();
+      if (guideDue()) openGuide(0); else maybeRoleTour();
     }, 900);
   }
   function maybeRoleTour() {
@@ -5299,7 +5307,7 @@
     }
     S.stale = false;
     render();
-    if (S.data && !gated() && !store.get('guided', 0)) openGuide(0);
+    if (S.data && !gated() && guideDue()) openGuide(0);
     else if (S.data && !gated()) setTimeout(maybeRoleTour, 1200);
     if (S.data && S.data.loginAll) { syncQueueList().then(() => retryClips()); window.addEventListener('online', () => retryClips()); }
   })();

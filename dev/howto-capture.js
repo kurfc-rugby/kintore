@@ -10,7 +10,7 @@ fs.mkdirSync(out, { recursive: true });
   const ctx = await browser.newContext({ viewport: { width: 375, height: 812 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true, reducedMotion: 'reduce', locale: 'ja-JP', timezoneId: 'Asia/Tokyo' });
   const page = await ctx.newPage();
   const errors = []; page.on('pageerror', (e) => errors.push(e.message));
-  await page.addInitScript(() => { localStorage.setItem('kintore.guided', '1'); ['manager', 'leader', 'admin', 'all'].forEach((k) => { localStorage.setItem('kintore.tourAsk:' + k, '1'); localStorage.setItem('kintore.tour:' + k, '1'); }); });
+  await page.addInitScript(() => { localStorage.setItem('kintore.guided', '2'); ['manager', 'leader', 'admin', 'all'].forEach((k) => { localStorage.setItem('kintore.tourAsk:' + k, '1'); localStorage.setItem('kintore.tour:' + k, '1'); }); });
   const scenes = []; let n = 0;
   const wait = (ms) => page.waitForTimeout(ms);
   // 期間を「今」に戻す（次へが押せなくなるまで）

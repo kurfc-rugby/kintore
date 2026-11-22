@@ -11,7 +11,7 @@ const ROUTES = ['', '#rank', '#cal', '#menus', '#members', '#settings', '#help',
   const errors = [];
   async function session(role, loginFn) {
     const c = await b.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, reducedMotion: 'reduce', permissions: ['camera'] });
-    await c.addInitScript(() => { localStorage.setItem('kintoreTest.guided', '1'); ['manager', 'leader', 'admin', 'member', 'guest'].forEach((k) => localStorage.setItem('kintoreTest.tourAsk:' + k, '1')); });
+    await c.addInitScript(() => { localStorage.setItem('kintoreTest.guided', '2'); ['manager', 'leader', 'admin', 'member', 'guest'].forEach((k) => localStorage.setItem('kintoreTest.tourAsk:' + k, '1')); });
     const p = await c.newPage(); p.setDefaultTimeout(8000);
     p.on('pageerror', (e) => errors.push(role + ': ' + e.message));
     p.on('dialog', (d) => d.dismiss());

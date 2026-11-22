@@ -25,7 +25,7 @@ const CONF = [
     const c = await browser.newContext({ viewport: { width: cf.w, height: cf.h }, deviceScaleFactor: 2, isMobile: cf.mobile !== false, hasTouch: true, reducedMotion: 'reduce', permissions: ['camera', 'background-sync'] });
     await c.route(/fonts\.(googleapis|gstatic)\.com/, (r) => r.abort());
     await c.addInitScript((cf) => {
-      localStorage.setItem('kintoreTest.guided', '1');
+      localStorage.setItem('kintoreTest.guided', '2');
       ['manager', 'leader', 'admin', 'member'].forEach((k) => localStorage.setItem('kintoreTest.tourAsk:' + k, '1'));
       if (cf.theme) localStorage.setItem('kintoreTest.theme', JSON.stringify(cf.theme));
       if (cf.size) localStorage.setItem('kintoreTest.size', JSON.stringify(cf.size));
@@ -98,7 +98,7 @@ const CONF = [
   for (const cf of [CONF[0], CONF[2]]) {
     const c = await browser.newContext({ viewport: { width: cf.w, height: cf.h }, deviceScaleFactor: 2, isMobile: true, hasTouch: true, reducedMotion: 'reduce' });
     await c.route(/fonts\.(googleapis|gstatic)\.com/, (r) => r.abort());
-    await c.addInitScript(() => { localStorage.setItem('kintoreTest.guided', '1'); ['manager', 'leader', 'admin', 'member'].forEach((k) => localStorage.setItem('kintoreTest.tourAsk:' + k, '1')); });
+    await c.addInitScript(() => { localStorage.setItem('kintoreTest.guided', '2'); ['manager', 'leader', 'admin', 'member'].forEach((k) => localStorage.setItem('kintoreTest.tourAsk:' + k, '1')); });
     const p = await c.newPage();
     p.on('pageerror', (e) => errors.push('staff ' + cf.n + ': ' + e.message));
     p.on('dialog', (d) => d.accept());

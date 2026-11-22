@@ -399,7 +399,7 @@ const ok = (c, label) => { if (c) { pass++; console.log('  ✓ ' + label); } els
   {
     const c2 = await browser.newContext({ viewport: { width: 375, height: 760 }, isMobile: true, hasTouch: true, reducedMotion: 'reduce' });
     await c2.route(/fonts\.(googleapis|gstatic)\.com/, (r) => r.abort());
-    await c2.addInitScript(() => { localStorage.setItem('kintore.swdev', '1'); localStorage.setItem('kintore.guided', '1'); ['manager', 'leader', 'admin'].forEach((k) => localStorage.setItem('kintore.tourAsk:' + k, '1')); });
+    await c2.addInitScript(() => { localStorage.setItem('kintore.swdev', '1'); localStorage.setItem('kintore.guided', '2'); ['manager', 'leader', 'admin'].forEach((k) => localStorage.setItem('kintore.tourAsk:' + k, '1')); });
     const p2 = await c2.newPage();
     p2.on('pageerror', (e) => errors.push('pwa: ' + e.message));
     await p2.goto(BASE); await p2.waitForSelector('.board');
@@ -477,7 +477,7 @@ const ok = (c, label) => { if (c) { pass++; console.log('  ✓ ' + label); } els
     const qerr = [];
     q.on('pageerror', (e) => qerr.push(e.message));
     q.on('dialog', (d) => d.accept());
-    await q.addInitScript(() => { try { localStorage.setItem('kintore.guided', '1'); ['manager', 'leader', 'admin'].forEach((k) => localStorage.setItem('kintore.tourAsk:' + k, '1')); } catch (e) { /* なし */ } });
+    await q.addInitScript(() => { try { localStorage.setItem('kintore.guided', '2'); ['manager', 'leader', 'admin'].forEach((k) => localStorage.setItem('kintore.tourAsk:' + k, '1')); } catch (e) { /* なし */ } });
     const qgo = async (h) => { await q.evaluate((x) => { location.hash = x; }, h); await q.waitForTimeout(500); };
     const qlogin = async (label, pin) => {
       await qgo('#settings'); await q.click('[data-act="login"]');
@@ -588,7 +588,7 @@ const ok = (c, label) => { if (c) { pass++; console.log('  ✓ ' + label); } els
     const p3 = await c3.newPage();
     p3.on('pageerror', (e) => errors.push('motion: ' + e.message));
     p3.on('dialog', (d) => d.accept());
-    await p3.addInitScript(() => { try { localStorage.setItem('kintore.guided', '1'); ['manager', 'leader', 'admin'].forEach((k) => localStorage.setItem('kintore.tourAsk:' + k, '1')); } catch (e) { /* なし */ } });
+    await p3.addInitScript(() => { try { localStorage.setItem('kintore.guided', '2'); ['manager', 'leader', 'admin'].forEach((k) => localStorage.setItem('kintore.tourAsk:' + k, '1')); } catch (e) { /* なし */ } });
     await p3.goto(BASE);
     const intro0 = await p3.locator('.intro').count();
     await p3.waitForSelector('.board'); await p3.waitForTimeout(1500);
@@ -714,7 +714,7 @@ const ok = (c, label) => { if (c) { pass++; console.log('  ✓ ' + label); } els
   {
     const c4 = await browser.newContext({ viewport: { width: 375, height: 760 }, isMobile: true, hasTouch: true, reducedMotion: 'reduce' });
     await c4.route(/fonts\.(googleapis|gstatic)\.com/, (r) => r.abort());
-    await c4.addInitScript(() => { localStorage.setItem('kintore.guided', '1'); ['manager', 'leader', 'admin'].forEach((k) => localStorage.setItem('kintore.tourAsk:' + k, '1')); });
+    await c4.addInitScript(() => { localStorage.setItem('kintore.guided', '2'); ['manager', 'leader', 'admin'].forEach((k) => localStorage.setItem('kintore.tourAsk:' + k, '1')); });
     const p4 = await c4.newPage();
     p4.on('pageerror', (e) => errors.push('v221: ' + e.message));
     p4.on('dialog', (d) => d.accept());

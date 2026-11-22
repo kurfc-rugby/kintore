@@ -12,7 +12,7 @@ fs.mkdirSync(OUT, { recursive: true });
     const c = await b.newContext({ viewport: { width: w, height: h }, deviceScaleFactor: 2, isMobile: true, hasTouch: true, reducedMotion: 'reduce' });
     await c.route(/fonts\.(googleapis|gstatic)\.com/, (r) => r.abort());
     await c.addInitScript((t) => {
-      localStorage.setItem('kintoreTest.guided', '1');
+      localStorage.setItem('kintoreTest.guided', '2');
       ['manager', 'leader', 'admin', 'member'].forEach((k) => localStorage.setItem('kintoreTest.tourAsk:' + k, '1'));
       if (t) localStorage.setItem('kintoreTest.theme', JSON.stringify(t));
     }, theme || '');

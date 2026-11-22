@@ -17,7 +17,7 @@ const out = process.argv[2] || '';
     const ctx = await browser.newContext(Object.assign({ reducedMotion: 'no-preference' }, opt));
     const page = await ctx.newPage();
     const errors = []; page.on('pageerror', (e) => errors.push(e.message));
-    await page.addInitScript((z) => { localStorage.setItem('kintore.guided', '1'); ['manager', 'leader', 'admin'].forEach((k) => localStorage.setItem('kintore.tourAsk:' + k, '1')); if (z) localStorage.setItem('kintore.size', JSON.stringify(z)); }, size);
+    await page.addInitScript((z) => { localStorage.setItem('kintore.guided', '2'); ['manager', 'leader', 'admin'].forEach((k) => localStorage.setItem('kintore.tourAsk:' + k, '1')); if (z) localStorage.setItem('kintore.size', JSON.stringify(z)); }, size);
     await page.goto(BASE); await page.waitForTimeout(1500);
     // 管理者でログイン（全部の案内を見られる）
     await page.evaluate(() => { location.hash = '#settings'; }); await page.waitForTimeout(500);

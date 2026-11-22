@@ -38,7 +38,7 @@ const jst = (minAgo) => {
   const ctx = await browser.newContext({ viewport: { width: 375, height: 812 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true, reducedMotion: 'reduce', locale: 'ja-JP', timezoneId: 'Asia/Tokyo', permissions: ['camera'] });
   const page = await ctx.newPage();
   const errors = []; page.on('pageerror', (e) => errors.push(e.message));
-  await page.addInitScript(() => { ['kintore', 'kintoreTest'].forEach((p) => { localStorage.setItem(p + '.guided', '1'); ['manager', 'leader', 'admin', 'all'].forEach((k) => { localStorage.setItem(p + '.tourAsk:' + k, '1'); }); }); });
+  await page.addInitScript(() => { ['kintore', 'kintoreTest'].forEach((p) => { localStorage.setItem(p + '.guided', '2'); ['manager', 'leader', 'admin', 'all'].forEach((k) => { localStorage.setItem(p + '.tourAsk:' + k, '1'); }); }); });
   const scenes = []; let n = 0;
   const wait = (ms) => page.waitForTimeout(ms);
   const go = async (h) => { await page.evaluate((x) => { location.hash = x; }, h); await wait(800); await page.evaluate(() => window.scrollTo(0, 0)); await wait(250); };
