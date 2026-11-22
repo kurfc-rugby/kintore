@@ -336,12 +336,22 @@ const shot = async (p, name) => { if (SHOT) { require('fs').mkdirSync(SHOT, { re
           await q.evaluate(() => document.getElementById('late').remove()); await q.waitForTimeout(500);
         }
       }
+      if (/応援/.test(h)) { // 次の「免除」は自分のページ：動画の一覧の読み込みが遅くても、そろうまで吹き出しを出さない
+        await q.evaluate(() => window.__clipCacheClear());
+        await q.route('**/exec', async (r) => { let op = ''; try { op = JSON.parse(r.request().postData() || '{}').op; } catch (e) { /* noop */ } if (op === 'clips') await new Promise((ok) => setTimeout(ok, 1800)); try { await r.fallback(); } catch (e) { /* noop */ } });
+        await q.click('[data-act="tour-next"]'); await q.waitForTimeout(900);
+        holeOk.wait = await q.evaluate(() => ({ loading: !!document.querySelector('#app .loading'), wait: document.querySelector('#tour-root').classList.contains('wait'), tip: getComputedStyle(document.querySelector('.tour-tip')).opacity }));
+        await q.unroute('**/exec');
+        await q.waitForFunction(() => !document.querySelector('#tour-root.wait') && !document.querySelector('#tour-root.moving'), null, { timeout: 8000 }).catch(() => {}); await q.waitForTimeout(400);
+        continue;
+      }
       await q.click('[data-act="tour-next"]');
       await q.waitForFunction((t) => { const e = document.querySelector('.tour-tip h2'); return !e || (e.innerText !== t && !document.querySelector('#tour-root.moving')); }, h, { timeout: 4000 }).catch(() => {}); await q.waitForTimeout(300);
     }
     const ex = holeOk['免除を申し込む'] || {}, rk = holeOk['ランキング'] || {};
     ok(tt.length <= 10 && tt.indexOf('応援スタンプを送る') >= 0 && ex.ex && ex.inside, '選手の画面の案内（10か所以内）に、応援スタンプと「免除を申し込む」（ボタンを光らせる）がある（' + tt.join('→') + '）');
     ok(nums.every((n, k) => n === (k + 1) + ' / ' + nums.length), '案内の番号は飛ばない（' + nums.join('・') + '）');
+    ok(holeOk.wait && holeOk.wait.loading && holeOk.wait.wait && holeOk.wait.tip === '0', '別の画面に移るときは、中身の読み込みがそろうまで吹き出しを出さず全体を暗くして待つ（' + JSON.stringify(holeOk.wait) + '）');
     ok(holeOk.late && holeOk.late.ok && holeOk.late.head === 0, '案内の途中で中身が後から読み込まれて場所がずれても、光らせる所と吹き出しが画面に収まり、上の見出しも固定のまま（' + JSON.stringify(holeOk.late) + '）');
     ok(rk.head && rk.inside && rk.onScreen, 'ランキングは見出しと「すべて見る」ごと光らせ、枠が画面からはみ出さない');
     ok(tt.filter((t) => /今日の1本/.test(t)).length === 1 && await q.evaluate(() => location.hash) === '#home' && /通知/.test(await q.locator('#guide-root h2').innerText().catch(() => '')), '「今日の1本を撮る」の説明は1回だけ。案内はホームで終わり、紹介の続き（通知）に戻る');

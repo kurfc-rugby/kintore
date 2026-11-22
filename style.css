@@ -1395,6 +1395,8 @@ html.touring { overflow: hidden; overscroll-behavior: none; } /* body には付�
 .tour-hole { position: fixed; z-index: 86; border-radius: 12px; box-shadow: 0 0 0 3px var(--paper), 0 0 0 6px var(--enji-bg), 0 0 0 200vmax rgba(0, 0, 0, .62); pointer-events: none; transition: left .3s ease, top .3s ease, width .3s ease, height .3s ease; }
 .tour-tip { position: fixed; z-index: 87; background: var(--paper); color: var(--ink); border-radius: 12px; padding: 12px 14px 10px; border-top: 5px solid var(--enji-bg); box-shadow: 0 10px 30px rgba(0, 0, 0, .35); transition: left .3s ease, top .3s ease, opacity .2s; }
 #tour-root.moving .tour-tip { opacity: 0; }
+#tour-root.wait .tour-tip { opacity: 0; }
+#tour-root.wait .tour-hole { left: 50% !important; top: 50% !important; width: 0 !important; height: 0 !important; box-shadow: 0 0 0 200vmax rgba(0, 0, 0, .62); transition: none; }
 .tour-k { display: flex; justify-content: space-between; font-size: 11.5px; font-weight: 700; color: var(--sub); margin-bottom: 2px; }
 .tour-k span { font-variant-numeric: tabular-nums; }
 .tour-tip h2 { font-size: 17px; font-weight: 800; margin-bottom: 4px; }

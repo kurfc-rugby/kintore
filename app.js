@@ -3,7 +3,7 @@
   'use strict';
   const L = window.KLogic;
   const API = window.KINTORE_API;
-  const VERSION = '2.26.0-t6';
+  const VERSION = '2.26.0-t7';
   const WD = ['日', '月', '火', '水', '木', '金', '土'];
   const PERM = { admin: '管理者', manager: 'マネージャー', captain: '主将', leader: '副主将', member: '一般部員', guest: '見るだけ' };
   // 権限を選ぶ一覧の並び
@@ -2842,11 +2842,25 @@
     if (st.arg && !st.arg()) { tourGo(i + dir, dir); return; }
     const hash = '#' + st.r + (st.arg ? '/' + st.arg() : '');
     TOUR.hash = hash === '#home' ? '' : hash;
-    if (location.hash !== hash && !(hash === '#home' && (location.hash === '' || location.hash === '#'))) location.hash = hash;
+    const moved = location.hash !== hash && !(hash === '#home' && (location.hash === '' || location.hash === '#'));
+    if (moved) { $('#tour-root').classList.add('wait'); location.hash = hash; } // 別の画面へ：中身がそろうまで、全体を暗くして待つ（途中の画面を見せない）
     else render();
     // 画面が描かれるのを待って探す（ないときは飛ばす）
     let el = null;
     for (let k = 0; k < 25 && !el; k++) { await new Promise((r) => setTimeout(r, 80)); if (TOUR !== my) return; el = S.route.name === st.r ? tourFind(st) : null; }
+    if (el && moved) {
+      // 後から読み込まれる中身（動画の一覧など）がそろい、場所が動かなくなるまで待つ（長くても4秒）
+      const t0 = Date.now(); let last = null, still = 0;
+      while (Date.now() - t0 < 4000) {
+        await new Promise((r) => setTimeout(r, 100)); if (TOUR !== my) return;
+        if (!el.isConnected) el = tourFind(st);
+        if (!el) break;
+        const y = el.getBoundingClientRect().top + window.scrollY;
+        still = (!$('#app .loading') && last !== null && Math.abs(y - last) < 1) ? still + 1 : 0; last = y;
+        if (still >= 2) break;
+      }
+    }
+    $('#tour-root').classList.remove('wait');
     if (!el) { (TOUR.skip = TOUR.skip || new Set()).add(i); if (i + dir < 0) { tourGo(i + 1, 1); return; } tourGo(i + dir, dir); return; }
     TOUR.el = el;
     // 同じ画面の、まだ見ていない所で、いま無いものは先に数から外す（番号と合計が途中で変わらないように）
@@ -2945,13 +2959,13 @@
     }
     tip.style.left = tx / k + 'px'; tip.style.top = ty / k + 'px';
   }
-  if (/^(localhost|127\.0\.0\.1)$/.test(location.hostname)) window.__tourEl = () => TOUR && TOUR.el; // 開発時のテスト用
+  if (/^(localhost|127\.0\.0\.1)$/.test(location.hostname)) { window.__tourEl = () => TOUR && TOUR.el; window.__clipCacheClear = () => { S.clipCache = {}; }; } // 開発時のテスト用
   function endTour(done) {
     if (!TOUR) return;
     const t = TOUR; TOUR = null;
     if (t.ro) t.ro.disconnect();
     Object.assign(S, t.saved); // 案内で切り替えたタブは元に戻す
-    $('#tour-root').innerHTML = ''; $('#tour-root').classList.remove('moving');
+    $('#tour-root').innerHTML = ''; $('#tour-root').classList.remove('moving', 'wait');
     document.body.classList.remove('touring'); document.documentElement.classList.remove('touring');
     document.removeEventListener('touchmove', tourBlock, { passive: false }); document.removeEventListener('wheel', tourBlock, { passive: false });
     window.removeEventListener('resize', tourPlace); window.removeEventListener('scroll', tourPlace);
@@ -4174,7 +4188,7 @@
       if (list === undefined) loadClips('queue', { from: L.addDays(today, -35), to: today, queue: true });
       h += '<section class="block"><div class="block-h"><h2>確認が要る動画</h2><span class="count">' + (Array.isArray(list) ? list.length + '本' : '') + '</span></div>' +
         '<p class="lead-line small">取り消された日に撮り直した「確認待ち」と、部員が「気になる」を押した動画です。見て「問題なし」か「取り消す」を押してください。</p>' +
-        (!Array.isArray(list) ? '<p class="empty">読み込んでいます…</p>' : list.length ? '<div class="clip-grid">' + list.map((c) => clipCard(c, { date: true })).join('') + '</div>' : '<p class="empty">確認が要る動画はありません。</p>') + '</section>';
+        (!Array.isArray(list) ? '<p class="empty loading">読み込んでいます…</p>' : list.length ? '<div class="clip-grid">' + list.map((c) => clipCard(c, { date: true })).join('') + '</div>' : '<p class="empty">確認が要る動画はありません。</p>') + '</section>';
       return h;
     }
     const list = S.clipCache['d:' + day];
@@ -4186,7 +4200,7 @@
     h += '<div class="pbar clip-pbar"><div class="pnav"><button class="ibtn" data-act="clip-day" data-v="-1" aria-label="前の日">' + icon('back') + '</button>' +
       '<div class="plabel"><b>' + (day === today ? '今日' : day === L.addDays(today, -1) ? '昨日' : (Math.round((L.parse(today) - L.parse(day)) / 864e5)) + '日前') + '</b><span>' + mdw(day) + '・' + n + '本</span></div>' +
       '<button class="ibtn" data-act="clip-day" data-v="1" aria-label="次の日"' + (day >= today ? ' disabled' : '') + '>' + icon('next') + '</button></div></div>';
-    h += '<section class="block">' + (!Array.isArray(list) ? '<p class="empty">読み込んでいます…</p>'
+    h += '<section class="block">' + (!Array.isArray(list) ? '<p class="empty loading">読み込んでいます…</p>'
       : list.length ? '<div class="clip-grid">' + list.map((c) => clipCard(c)).join('') + '</div>'
         : '<p class="empty">' + (day === today ? 'まだだれも出していません。' + (mePlayer() ? '「撮る」から今日の1本を出そう。' : '') : 'この日の動画はありません。') + '</p>') + '</section>';
     return h;
@@ -4217,7 +4231,7 @@
     if (mo.to < keep) return head + '<p class="empty small">この月の動画は、もう消えています（3か月で消えます）。</p></section>';
     const list = S.clipCache[key];
     if (list === undefined) setTimeout(() => loadClips(key, { memberId: id, from: mo.from < keep ? keep : mo.from, to: mo.to > today ? today : mo.to }), 0);
-    return head + (!Array.isArray(list) ? '<p class="empty small">読み込んでいます…</p>' : list.length ? '<div class="clip-grid">' + list.map((c) => clipCard(c, { date: true, noName: true })).join('') + '</div>' : '<p class="empty small">この月の動画はありません。</p>') + '</section>';
+    return head + (!Array.isArray(list) ? '<p class="empty small loading">読み込んでいます…</p>' : list.length ? '<div class="clip-grid">' + list.map((c) => clipCard(c, { date: true, noName: true })).join('') + '</div>' : '<p class="empty small">この月の動画はありません。</p>') + '</section>';
   }
   /** その人の、日付ごとの動画（見られるもの：消えていない・下書きでない）。部員のページのカレンダーと履歴から開く。1日に何本かあれば、実施した＞確認待ち＞取り消し、同じなら新しい方 */
   function clipDayMap(mid, mo) {
