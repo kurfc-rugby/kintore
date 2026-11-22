@@ -3,7 +3,7 @@
   'use strict';
   const L = window.KLogic;
   const API = window.KINTORE_API;
-  const VERSION = '2.26.0-t7';
+  const VERSION = '2.26.0-t8';
   const WD = ['日', '月', '火', '水', '木', '金', '土'];
   const PERM = { admin: '管理者', manager: 'マネージャー', captain: '主将', leader: '副主将', member: '一般部員', guest: '見るだけ' };
   // 権限を選ぶ一覧の並び
@@ -130,7 +130,7 @@
     if ($('#update-bar')) return;
     const el = document.createElement('div');
     el.id = 'update-bar'; el.className = 'update-bar'; el.setAttribute('role', 'status');
-    el.innerHTML = '<span>新しい版があります</span><button class="btn small" data-act="sw-update">更新する</button>';
+    el.innerHTML = '<span>アプリの新しいバージョンがあります</span><button class="btn small" data-act="sw-update">更新する</button>';
     document.body.appendChild(el);
   }
   // ---------- 通知 ----------
@@ -229,7 +229,7 @@
   }
 
   function installBlock() {
-    if (isStandalone()) return '<section class="block"><div class="block-h"><h2>ホーム画面のアプリ</h2></div><p class="lead-line small">' + icon('check') + 'ホーム画面から開いています。新しい版が出ると、画面の下に「更新する」が出ます。</p></section>';
+    if (isStandalone()) return '<section class="block"><div class="block-h"><h2>ホーム画面のアプリ</h2></div><p class="lead-line small">' + icon('check') + 'ホーム画面から開いています。新しいバージョンが出ると、画面の下に「更新する」が出ます。</p></section>';
     let h = '<section class="block"><div class="block-h"><h2>ホーム画面に追加</h2></div><p class="lead-line small">ホーム画面にアイコンを置くと、アプリのように1タップで開けます（App Store は使いません）。</p>';
     if (PWA.prompt) h += '<div class="toolbar"><button class="btn primary" data-act="pwa-install">' + icon('plus') + 'ホーム画面に追加</button></div>';
     else if (isIOS()) h += '<ol class="howto"><li><b>Safari</b> でこのページを開く（LINEの中で開いているときは、右下のメニューから「Safariで開く」）</li><li>下の<b>共有ボタン</b>（□に↑）を押す</li><li><b>「ホーム画面に追加」</b>→ 右上の「追加」</li></ol>' +
@@ -2362,7 +2362,7 @@
       '画面の下（iPad は上）の <b>共有ボタン</b> ' + kbd(icon('share')) + ' を押す',
       '下へ動かして <b>「ホーム画面に追加」</b> を押す（なければ一番下の「アクションを編集」から追加できます）',
       '右上の <b>「追加」</b> を押す → ホーム画面に「筋トレ」のアイコンができます',
-      '<b>これからはアイコンから開く</b>（ホーム画面版は Safari と別なので、' + (loginAll() ? '' : '自分の名前・') + 'ログイン・文字の大きさはもう一度設定します）'
+      '<b>これからはアイコンから開く</b>（ホーム画面のアプリは Safari と別なので、' + (loginAll() ? '' : '自分の名前・') + 'ログイン・文字の大きさはもう一度設定します）'
     ]);
     const andSteps = steps([
       '<b>Chrome</b> でこのページを開く。LINE の中で開いているときは、右上の ' + kbd('⋮') + ' から「ブラウザで開く」',
@@ -2375,7 +2375,7 @@
     else if (PWA.prompt) h += '<div class="toolbar"><button class="btn primary" data-act="pwa-install">' + icon('plus') + 'いますぐホーム画面に追加</button></div>';
     h += '<div class="devtabs">' + (ios ? '<h4>iPhone・iPad（あなたの端末）</h4>' + iosSteps + '<h4>Android</h4>' + andSteps : '<h4>Android' + (/Android/.test(navigator.userAgent) ? '（あなたの端末）' : '') + '</h4>' + andSteps + '<h4>iPhone・iPad</h4>' + iosSteps) + '</div>';
     return h + tip('ホーム画面から開くと、アドレスバーなしの全画面で、起動も速くなります。電波が弱くても、前に読み込んだ情報は見られます。') +
-      '<p class="small-note">新しい版が出ると、画面の下に「新しい版があります［更新する］」が出ます。押すだけで最新になります（入れ直しは不要）。</p>';
+      '<p class="small-note">新しいバージョンが出ると、画面の下に「アプリの新しいバージョンがあります［更新する］」が出ます。押すだけで最新になります（入れ直しは不要）。</p>';
   }
   function helpPush() {
     const iosNeedsHome = isIOS() && !isStandalone();
@@ -2508,7 +2508,7 @@
           '<dt>暗証番号を忘れた</dt><dd>選手は管理者に「登録を消して」と伝えると、もう一度登録できます</dd>' : '') +
         '<dt>週' + g + '回の「週」はいつから？</dt><dd>月曜〜日曜です。月曜にその週の回数が0に戻ります</dd>' +
         '<dt>自主トレの人の実施率が「－」</dt><dd>実施率は主将・副主将のメニューに参加している人だけ。自主トレの人は回数で見ます</dd>' +
-        '<dt>情報が古いまま</dt><dd>画面を<b>一番上で下に引っぱる</b>と最新になります。ホーム画面版で「新しい版があります」が出たら「更新する」</dd>' +
+        '<dt>情報が古いまま</dt><dd>画面を<b>一番上で下に引っぱる</b>と最新になります。ホーム画面のアプリで「アプリの新しいバージョンがあります」が出たら「更新する」</dd>' +
         '<dt>機種変更した</dt><dd>新しいスマホで開き直し、' + (loginAll() ? 'ログイン' : '自分の名前') + '・通知・ホーム画面への追加をもう一度</dd></dl>'],
       // スタッフ
       loginAll() ? ['login', 'all', 'ログイン・暗証番号', 'はじめての登録・忘れたとき',
@@ -3593,7 +3593,7 @@
   async function openCamera() {
     if (!mePlayer()) { toast('動画を出せるのは選手だけです', 'err'); return; }
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia || !pickMime()) {
-      toast('このブラウザでは撮影できません。iPhone は Safari、Android は Chrome の新しい版で開いてください', 'err'); return;
+      toast('このブラウザでは撮影できません。iPhone は Safari、Android は Chrome を最新にして開いてください', 'err'); return;
     }
     camMeterStop();
     applyClipQ();
@@ -3976,7 +3976,7 @@
     const PRE = { schema: '準備', roster: '名簿の確認', maint: '毎日の片づけ', flush: 'ほかの人の「送る」をシートに書く', expire: '届かない動画の確認', session: 'ログインの確認', sesFind: '（うちログインの行を探す）' };
     const IN = { wait: '順番待ち', read: '一覧を読む', ins: '動画の行を足す', day: '「実施した」を書く', log: '操作の記録' };
     const srvRows = (t) => {
-      if (!t) return '<li class="muted">サーバーの内訳なし（サーバーが古い版）</li>';
+      if (!t) return '<li class="muted">サーバーの内訳なし（サーバーが古いバージョン）</li>';
       const pre = t.pre ? Object.keys(t.pre).map((k) => '<li>　' + esc(PRE[k] || k) + ' ' + sec(t.pre[k]) + '</li>').join('') : '';
       const inl = ['wait', 'read', 'ins', 'day', 'log'].filter((k) => t[k] != null).map((k) => '<li>　' + esc(IN[k]) + ' ' + sec(t[k]) + '</li>').join('');
       return '<li>受け付け（ログイン確認など）' + sec(t.start) + '</li>' + pre + '<li>中身の確認 ' + sec(t.check) + '</li>' +
