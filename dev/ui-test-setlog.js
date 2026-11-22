@@ -312,11 +312,11 @@ const shot = async (p, name) => { if (SHOT) { require('fs').mkdirSync(SHOT, { re
     await shot(q, '23-guide-2');
     // 画面の案内：選手には「免除を申し込む」を光らせる。ランキングは見出しごと光らせる。最後はホーム
     await q.click('#guide-root [data-act="guide-next"]'); await q.waitForSelector('.tour-tip h2'); await q.waitForTimeout(700);
-    const tt = [], holeOk = {};
+    const tt = [], holeOk = {}, nums = [];
     for (let i = 0; i < 14 && await q.locator('.tour-tip h2').count(); i++) {
-      const h = await q.locator('.tour-tip h2').innerText(); tt.push(h);
+      const h = await q.locator('.tour-tip h2').innerText(); tt.push(h); nums.push(await q.locator('.tour-k span').innerText());
       if (/免除|ランキング|応援/.test(h)) {
-        holeOk[h] = await q.evaluate(() => { const hr = document.querySelector('.tour-hole').getBoundingClientRect(), el = window.__tourEl(); const r = el.getBoundingClientRect(); return { inside: hr.left <= r.left + 1 && hr.right >= r.right - 1 && hr.top <= r.top + 1, ex: !!el.matches('[data-act="exreq-new"]'), head: !!el.querySelector('h2') && /すべて見る/.test(el.innerText), onScreen: hr.left >= 0 && hr.right <= innerWidth }; });
+        holeOk[h] = await q.evaluate(() => { const hr = document.querySelector('.tour-hole').getBoundingClientRect(), el = window.__tourEl(); const r = el.getBoundingClientRect(); return { inside: hr.left <= r.left + 1 && hr.right >= r.right - 1 && hr.top <= r.top + 1, ex: !!el.querySelector('[data-act="exreq-new"]'), head: !!el.querySelector('h2') && /すべて見る/.test(el.innerText), onScreen: hr.left >= 0 && hr.right <= innerWidth }; });
         if (/ランキング/.test(h)) await shot(q, '24-tour-rank');
         if (/免除/.test(h)) await shot(q, '25-tour-exreq');
       }
@@ -325,6 +325,7 @@ const shot = async (p, name) => { if (SHOT) { require('fs').mkdirSync(SHOT, { re
     }
     const ex = holeOk['免除を申し込む'] || {}, rk = holeOk['ランキング'] || {};
     ok(tt.length <= 10 && tt.indexOf('応援スタンプを送る') >= 0 && ex.ex && ex.inside, '選手の画面の案内（10か所以内）に、応援スタンプと「免除を申し込む」（ボタンを光らせる）がある（' + tt.join('→') + '）');
+    ok(nums.every((n, k) => n === (k + 1) + ' / ' + nums.length), '案内の番号は飛ばない（' + nums.join('・') + '）');
     ok(rk.head && rk.inside && rk.onScreen, 'ランキングは見出しと「すべて見る」ごと光らせ、枠が画面からはみ出さない');
     ok(tt.filter((t) => /今日の1本/.test(t)).length === 1 && await q.evaluate(() => location.hash) === '#home' && /通知/.test(await q.locator('#guide-root h2').innerText().catch(() => '')), '「今日の1本を撮る」の説明は1回だけ。案内はホームで終わり、紹介の続き（通知）に戻る');
     await q.click('#guide-root [data-act="guide-close"]').catch(() => {}); await q.waitForTimeout(300);

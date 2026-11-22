@@ -3,7 +3,7 @@
   'use strict';
   const L = window.KLogic;
   const API = window.KINTORE_API;
-  const VERSION = '2.26.0-t3';
+  const VERSION = '2.26.0-t4';
   const WD = ['日', '月', '火', '水', '木', '金', '土'];
   const PERM = { admin: '管理者', manager: 'マネージャー', captain: '主将', leader: '副主将', member: '一般部員', guest: '見るだけ' };
   // 権限を選ぶ一覧の並び
@@ -2767,7 +2767,8 @@
       { r: 'home', sel: '.block.goal', t: 'まだの人', p: '今週まだ週{g}回に届いていない人です。名前を押すとその人のページ。その下の<b>「声をかけたい人」</b>は、連続達成がピンチの人や、ペースが落ちている人です。' },
       { r: 'home', sel: () => { const e = $('.view-home .podium') || $('.view-home .rlist'); return e ? e.closest('.block') || e : null; }, t: 'ランキング', p: 'この期間の実施回数の上位です。<b>「すべて見る」</b>で全員の順位と、FW対BK・ポジション別などの<b>分析</b>が見られます。' },
       { r: 'home', sel: '.block.feed', t: '応援スタンプを送る', p: () => '週{g}回の達成や節目が出ます。<b>「＋応援」</b>から9種類のスタンプを送れます（もう一度押すと取り消し）。' + (loginAll() ? 'あなたの名前で届きます。<b>動画</b>や<b>部員のページ</b>からも送れます。' : '自分の名前を選んでおくと、だれからか伝わります。') },
-      { r: 'member', prep: () => { S.memberTab = 'rec'; }, arg: () => (loginAll() && mePlayer() ? me().id : ''), sel: '[data-act="exreq-new"]', t: '免除を申し込む', p: 'けが・病気・試験などで筋トレできない期間は、自分のページのここから<b>免除</b>を申し込みます。主将・副主将が認めると、日数に合わせて<b>その週に必要な回数が減ります</b>（1週間まるごとなら、その週は数えません）。' },
+      { r: 'member', prep: () => { S.memberTab = 'rec'; }, arg: () => (loginAll() && mePlayer() ? me().id : ''), sel: () => { const b = $('#app [data-act="exreq-new"]') || $('#app [data-act="exempt-new"]'); return b ? b.closest('.block') || b : null; }, t: '免除を申し込む',
+        p: () => 'けが・病気・試験などで筋トレできない期間は、自分のページのここから<b>免除</b>を' + (can('record') ? '入れます。あなたは記録できる立場なので、<b>「免除を追加」</b>ですぐに入ります（選手は「免除を申し込む」から出し、主将・副主将が認めます）。' : '申し込みます。主将・副主将が認めると、') + '日数に合わせて<b>その週に必要な回数が減ります</b>（1週間まるごとなら、その週は数えません）。' },
       { r: 'menus', prep: () => { S.menuTab = 'exercises'; S.exPart = ''; }, sel: '.exparts-bar', t: 'フォームの動画', p: '種目の<b>フォームの動画</b>と<b>やり方・ポイント</b>は「メニュー」の<b>「種目の動画」</b>で、部位（胸・背中・脚など）から探せます。メニューの種目の横の<b>「フォーム」</b>からも見られます。' },
       { r: 'home', sel: '.top-help', t: '使い方ガイド', p: () => 'わからないときはここ。<b>' + howtoLen() + 'の動画</b>と、立場ごとの使い方があります。この案内ももう一度見られます。「こうしてほしい」「ここがおかしい」は、<b>「設定」→「要望・不具合を送る」</b>から管理者に送れます。' }
     ] },
@@ -2808,7 +2809,7 @@
   };
   const TOUR_FOR = { manager: 'manager', leader: 'leader', captain: 'leader', admin: 'admin' };
   let TOUR = null;
-  function tourSteps(key) { return ((TOURS[key] && TOURS[key].steps) || []).filter((st) => !st.login || loginAll()); }
+  function tourSteps(key) { return ((TOURS[key] && TOURS[key].steps) || []).filter((st) => (!st.login || loginAll()) && (!st.arg || st.arg())); }
   function tourFind(st) {
     const list = typeof st.sel === 'function' ? [st.sel()] : [].concat(st.sel).map((q) => $(q));
     return list.find((el) => el && el.getClientRects().length) || null;
@@ -2830,6 +2831,7 @@
     if (i < 0) i = 0;
     if (i >= steps.length) { endTour(true); return; }
     const st = steps[i], my = TOUR;
+    if (TOUR.skip && TOUR.skip.has(i)) { tourGo(i + dir < 0 ? i + 1 : i + dir, i + dir < 0 ? 1 : dir); return; }
     TOUR.i = i; TOUR.dir = dir;
     $('#tour-root').classList.add('moving');
     if (st.prep) st.prep();
@@ -2840,15 +2842,18 @@
     // 画面が描かれるのを待って探す（ないときは飛ばす）
     let el = null;
     for (let k = 0; k < 25 && !el; k++) { await new Promise((r) => setTimeout(r, 80)); if (TOUR !== my) return; el = S.route.name === st.r ? tourFind(st) : null; }
-    if (!el) { if (i + dir < 0) { tourGo(i + 1, 1); return; } tourGo(i + dir, dir); return; }
+    if (!el) { (TOUR.skip = TOUR.skip || new Set()).add(i); if (i + dir < 0) { tourGo(i + 1, 1); return; } tourGo(i + dir, dir); return; }
     TOUR.el = el;
+    // 同じ画面の、まだ見ていない所で、いま無いものは先に数から外す（番号と合計が途中で変わらないように）
+    steps.forEach((x, k) => { if (k > i && x.r === st.r && !x.prep && !x.arg && !st.arg && !tourFind(x)) (TOUR.skip = TOUR.skip || new Set()).add(k); });
     const fixed = (() => { for (let n = el; n && n !== document.body; n = n.parentElement) { const p = getComputedStyle(n).position; if (p === 'fixed' || p === 'sticky') return true; } return false; })();
-    const total = steps.length, sub = (t) => (typeof t === 'function' ? t() : String(t || '')).replace(/\{g\}/g, goal()); // 文が版で変わるものは関数
-    $('.tour-tip').innerHTML = '<p class="tour-k">' + esc(TOURS[TOUR.key].name) + 'の使い方<span>' + (i + 1) + ' / ' + total + '</span></p>' +
+    // 番号は、その画面に無くて飛ばした所を数えない（「7 / 10」の次が「9 / 10」にならないように）
+    const skip = TOUR.skip || new Set(), total = steps.length - skip.size, no = steps.slice(0, i).filter((x, k) => !skip.has(k)).length + 1, sub = (t) => (typeof t === 'function' ? t() : String(t || '')).replace(/\{g\}/g, goal()); // 文が版で変わるものは関数
+    $('.tour-tip').innerHTML = '<p class="tour-k">' + esc(TOURS[TOUR.key].name) + 'の使い方<span>' + no + ' / ' + total + '</span></p>' +
       '<h2>' + esc(sub(st.t)) + '</h2><p>' + sub(st.p) + '</p>' +
       '<div class="tour-acts"><button class="linkbtn" data-act="tour-close">閉じる</button><span></span>' +
       (i > 0 ? '<button class="btn small" data-act="tour-prev">戻る</button>' : '') +
-      '<button class="btn small primary" data-act="tour-next" autofocus>' + (i === total - 1 ? '終わる' : '次へ') + '</button></div>';
+      '<button class="btn small primary" data-act="tour-next" autofocus>' + (i === steps.length - 1 ? '終わる' : '次へ') + '</button></div>';
     let wait = 30;
     if (!fixed) {
       // 光らせる所と吹き出しが一緒に収まるようにスクロール（収まらない大きさなら、上をそろえる）
