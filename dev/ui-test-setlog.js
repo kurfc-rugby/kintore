@@ -412,7 +412,7 @@ const shot = async (p, name) => { if (SHOT) { require('fs').mkdirSync(SHOT, { re
       await px.evaluate(() => { location.hash = '#settings'; });
       await px.waitForSelector('#push input[name="kinds"]', { timeout: 15000 }).catch(() => {});
       const ks = await px.locator('#push input[name="kinds"]').evaluateAll((els) => els.map((e) => e.value));
-      const kon = await px.locator('#push input[name="kinds"]:checked').count(), ken = await px.locator('#push input[name="kinds"]:not([disabled])').count();
+      const kon = await px.locator('#push input[name="kinds"]:checked').count(), ken = await px.locator('#push label.pk:not(.dis) input[name="kinds"]').count();
       // 紹介：「ホーム画面に追加」は無く、通知の説明の中でその場でオンにできる（はじめはすべてチェック済み）
       await px.click('[data-act="guide"]'); await px.waitForSelector('#guide-root .guide');
       const dots = await px.locator('#guide-root .guide-dots i').count();

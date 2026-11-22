@@ -430,10 +430,17 @@ const ok = (c, label) => { if (c) { pass++; console.log('  ✓ ' + label); } els
       PushManager.prototype.getSubscription = async function () { return window.__sub || null; };
       PushManager.prototype.subscribe = async function () { window.__sub = fake; return fake; };
     });
-    await p2.evaluate(() => { location.hash = '#settings'; }); await p2.waitForSelector('#push form');
+    await p2.evaluate(() => { location.hash = '#settings'; }); await p2.waitForSelector('#push input[data-act-change="push-main"]');
     ok(await p2.locator('#push input[name="kinds"]:checked').count() >= 4 && await p2.locator('#push input[name="kinds"]:checked').count() === await p2.locator('#push input[name="kinds"]').count(), '通知の設定は、はじめはすべてチェック済み（今週あと○回・応援・節目・メニュー）');
-    await p2.click('#push button[type="submit"]'); await p2.waitForSelector('[data-act="push-test"]', { timeout: 5000 });
-    ok((await p2.locator('#push').innerText()).includes('受け取っています'), '通知をオンにできる（サーバーに登録）');
+    ok(await p2.locator('#push input[data-act-change="push-main"]:checked').count() === 0 && await p2.locator('#push input[name="kinds"]:not([disabled])').count() === 0 && /オフ/.test(await p2.locator('#push .pstate').innerText()), '通知の設定はふつうのアプリと同じ形：上に全体のスイッチと状態（オフのあいだ種類のスイッチは押せない）');
+    await p2.click('#push label.swmain'); await p2.waitForSelector('[data-act="push-test"]', { timeout: 5000 });
+    ok((await p2.locator('#push .pstate').innerText()).includes('受け取っています') && await p2.locator('#push input[name="kinds"]:not([disabled])').count() >= 4, '全体のスイッチを押すと通知がオンになる（サーバーに登録）');
+    { // 種類のスイッチは押したらすぐ保存（「保存」ボタンはない）
+      await p2.click('#push input[name="kinds"][value="milestone"]'); await p2.waitForTimeout(900);
+      const k1 = await p2.evaluate(() => JSON.parse(localStorage.getItem('kintore.pushKinds') || '[]'));
+      ok(k1.indexOf('milestone') < 0 && k1.indexOf('goal') >= 0 && await p2.locator('#push button[type="submit"]').count() === 0, '種類のスイッチは押すとすぐ保存される（保存ボタンなし）（' + k1.join(',') + '）');
+      await p2.click('#push input[name="kinds"][value="milestone"]'); await p2.waitForTimeout(900);
+    }
     await p2.click('[data-act="push-test"]'); await p2.waitForTimeout(800);
     ok((await p2.locator('.toast').allInnerTexts()).some((t) => t.includes('テスト通知を送りました')), 'テスト通知を送れる');
     // Service Worker に「お知らせあり（中身なし）」を届けて、中身を取りに行って表示するか
@@ -450,8 +457,8 @@ const ok = (c, label) => { if (c) { pass++; console.log('  ✓ ' + label); } els
     await p2.waitForTimeout(1500);
     const notes2 = await p2.evaluate(async () => (await (await navigator.serviceWorker.ready).getNotifications()).map((n) => n.title));
     ok(notes2.indexOf('今週あと1回') >= 0, '届いた内容（題名・本文）で通知を出す');
-    await p2.click('[data-act="push-off"]'); await p2.waitForTimeout(800);
-    ok((await p2.locator('#push').innerText()).includes('通知をオンにする'), '通知をオフにできる');
+    await p2.click('#push label.swmain'); await p2.waitForTimeout(900);
+    ok(/オフ/.test(await p2.locator('#push .pstate').innerText()) && await p2.locator('[data-act="push-test"]').count() === 0, '全体のスイッチで通知をオフにできる');
     await c2.close();
   }
   console.log('■ v2.9 の新しい画面（MVP・FW対BK・分布・まとめて記録・要望・体重の目標・おすすめ・スタンプ）');

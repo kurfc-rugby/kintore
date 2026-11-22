@@ -3,7 +3,7 @@
   'use strict';
   const L = window.KLogic;
   const API = window.KINTORE_API;
-  const VERSION = '2.26.0-t9';
+  const VERSION = '2.26.0-t10';
   const WD = ['日', '月', '火', '水', '木', '金', '土'];
   const PERM = { admin: '管理者', manager: 'マネージャー', captain: '主将', leader: '副主将', member: '一般部員', guest: '見るだけ' };
   // 権限を選ぶ一覧の並び
@@ -188,11 +188,22 @@
   function pushKindsFor() {
     return PUSH_KINDS.filter((k) => (k[3] !== 'admin' || can('admin')) && (k[3] !== 'staff' || (loginAll() && can('anyStaff'))) && (k[3] !== 'judge' || (loginAll() && S.data.exJudge)) && (k[3] !== 'all' || loginAll()));
   }
-  function pushKindItems(cur) {
+  function pushKindItems(cur, sw) {
     return pushKindsFor().map((k) => {
       const dis = k[3] === 'self' && !PREF.self;
+      if (sw) { // 設定：種類ごとのスイッチ（押すとすぐ保存。全体がオフのときは押せない）
+        const off = dis || sw === 'off';
+        return '<li><label class="pk swk' + (dis ? ' dis' : '') + '"><span><b>' + k[1] + '</b><small>' + k[2] + '</small></span>' +
+          '<input type="checkbox" class="sw" role="switch" name="kinds" value="' + k[0] + '" data-act-change="push-kind"' + (cur.indexOf(k[0]) >= 0 && !dis ? ' checked' : '') + (off ? ' disabled' : '') + '></label></li>';
+      }
       return '<li><label class="pk' + (dis ? ' dis' : '') + '"><input type="checkbox" name="kinds" value="' + k[0] + '"' + (cur.indexOf(k[0]) >= 0 && !dis ? ' checked' : '') + (dis ? ' disabled' : '') + '><span><b>' + k[1] + '</b><small>' + k[2] + '</small></span></label></li>';
     }).join('');
+  }
+  /** 通知をオフにする（この端末の登録を消す） */
+  async function pushOff(msg) {
+    const sub = await PWA.reg.pushManager.getSubscription();
+    if (sub) { await api('pushUnregister', { sub: { endpoint: sub.endpoint } }).catch(() => {}); await sub.unsubscribe(); }
+    PUSH.endpoint = ''; store.del('pushKinds'); render(); toast(msg || '通知をオフにしました');
   }
   /** 通知をオンにする（設定と紹介の両方から）。許可の確認は押した直後に出す（iPhone は押した操作の中でないと出せない） */
   async function enablePush(f, btn, kinds, after) {
@@ -215,15 +226,16 @@
     }
     if (!PWA.reg || !S.data.pushKey) return h + '<p class="lead-line small">準備中です。少し待ってから開き直してください。</p></section>';
     if (!PUSH.ready) { loadPush().then(() => { if (S.route.name === 'settings') render(); }); return h + '<p class="empty small">読み込み中…</p></section>'; }
-    const on = !!PUSH.endpoint, cur = on ? store.get('pushKinds', []) : pushKindsFor().map((k) => k[0]); // はじめはすべてオン（いらないものを外す）
+    // ふつうのアプリと同じ形：上に全体のスイッチと今の状態、その下に種類ごとのスイッチ（押すとすぐ保存）
+    const on = !!PUSH.endpoint, cur = on ? store.get('pushKinds', []) : pushKindsFor().map((k) => k[0]); // オフのときは、オンにすると届くもの（はじめはすべて）
     const denied = Notification.permission === 'denied';
-    h += '<p class="lead-line small">' + (on ? icon('check') + '<b>この端末で通知を受け取っています。</b>' : 'スマホに通知を出せます。受け取りたいものを選んで「通知をオンにする」を押してください。') + '</p>';
+    const state = denied ? 'スマホの設定で「許可しない」になっています' : on ? 'この端末で受け取っています' : 'オフ。オンにすると、下のものが届きます';
+    h += '<div class="pmain"><label class="pk swk swmain"><span><b>通知を受け取る</b><small class="pstate' + (on ? ' on' : denied ? ' ng' : '') + '">' + state + '</small></span>' +
+      '<input type="checkbox" class="sw" role="switch" data-act-change="push-main"' + (on ? ' checked' : '') + (denied ? ' disabled' : '') + ' aria-label="通知を受け取る"></label></div>' +
+      (denied ? pushDeniedHelp() : '') + '<p class="form-err" hidden></p>';
     if (!PREF.self) h += '<p class="hint strong">「今週あと○回」「応援」は、' + (loginAll() ? '選手としてログインしている人だけが受け取れます。' : '上の「自分の名前」を選ぶと受け取れます。') + '</p>';
-    h += '<form data-form="push" class="form"><ul class="pushk">' + pushKindItems(cur) + '</ul>' +
-      (denied ? pushDeniedHelp() + '<p class="form-err" hidden></p>' : '<p class="form-err" hidden></p>') +
-      '<div class="toolbar">' + (on
-        ? '<button class="btn primary" type="submit">設定を保存</button><button type="button" class="btn" data-act="push-test">テスト通知を送る</button><button type="button" class="btn danger" data-act="push-off">通知をオフにする</button>'
-        : '<button class="btn primary" type="submit"' + (denied ? ' disabled' : '') + '>' + icon('check') + '通知をオンにする</button>') + '</div></form>' +
+    h += '<ul class="pushk swl' + (on ? '' : ' off') + '" aria-label="受け取る通知">' + pushKindItems(cur, on ? 'on' : 'off') + '</ul>' +
+      (on ? '<div class="toolbar"><button type="button" class="btn small" data-act="push-test">' + icon('bell') + 'テスト通知を送る</button></div>' : '') +
       '<p class="note">通知はこの端末だけの設定です。だれが何回やったかは本人にしか届きません（まだの人をみんなに知らせることはしません）。</p>';
     return h + '</section>';
   }
@@ -4505,13 +4517,7 @@
       });
     },
     'push-off': async (el) => {
-      await busy(el, async () => {
-        try {
-          const sub = await PWA.reg.pushManager.getSubscription();
-          if (sub) { await api('pushUnregister', { sub: { endpoint: sub.endpoint } }).catch(() => {}); await sub.unsubscribe(); }
-          PUSH.endpoint = ''; store.del('pushKinds'); render(); toast('通知をオフにしました');
-        } catch (e) { toast('オフにできませんでした', 'err'); }
-      });
+      await busy(el, async () => { try { await pushOff(); } catch (e) { toast('オフにできませんでした', 'err'); } });
     },
     'sw-update': (el) => { el.disabled = true; if (PWA.waiting) PWA.waiting.postMessage('skipWaiting'); else location.reload(); },
     'pwa-install': async () => { const p = PWA.prompt; if (!p) return; PWA.prompt = null; p.prompt(); try { await p.userChoice; } catch (e) { /* noop */ } render(); },
@@ -5149,6 +5155,27 @@
       const v = t.value;
       if (!L.isDate(v) || v > S.data.today || !recLeaveOk()) { t.value = S.rec.date; return; }
       S.rec.date = v; S.rec.edits = {}; render();
+      return;
+    }
+    // 設定の通知：全体のスイッチ（オンにするときは許可の確認を、押した操作の中で出す）
+    if (t.dataset && t.dataset.actChange === 'push-main') {
+      const sec = t.closest('#push'), all = $$('#push input[name="kinds"]');
+      all.forEach((x) => { x.disabled = true; });
+      if (t.checked) {
+        const kinds = pushKindsFor().filter((k) => !(k[3] === 'self' && !PREF.self)).map((k) => k[0]);
+        enablePush(sec, t, kinds.length ? kinds : pushKindsFor().map((k) => k[0]), () => render());
+      } else {
+        t.disabled = true;
+        pushOff().catch(() => { toast('オフにできませんでした', 'err'); render(); });
+      }
+      return;
+    }
+    // 設定の通知：種類ごとのスイッチ。押したらすぐ保存。全部オフにしたら通知そのものをオフに
+    if (t.dataset && t.dataset.actChange === 'push-kind') {
+      const kinds = $$('#push input[name="kinds"]:checked').map((x) => x.value);
+      $$('#push input.sw').forEach((x) => { x.disabled = true; });
+      (kinds.length ? registerPush(kinds).then(() => toast('保存しました')) : pushOff('すべて外したので、通知をオフにしました'))
+        .catch((e) => { toast((e && e.message) || '保存できませんでした', 'err'); render(); });
       return;
     }
     if (t.dataset && t.dataset.actChange === 'pref-self') {

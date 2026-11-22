@@ -790,6 +790,25 @@ html[data-theme="dark"] .board-streaks { opacity: .8; }
 .pk small { display: block; font-size: 12px; font-weight: 500; color: var(--sub); }
 .pk.dis { opacity: .5; cursor: default; }
 #push .lead-line .ic { color: var(--done); }
+/* 設定の通知：スイッチ（ふつうのアプリと同じ形） */
+.pk.swk { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 12px 2px; margin: 0; cursor: pointer; }
+.pk.swk > span { flex: 1; min-width: 0; }
+.pk.swk.swmain b { font-size: 16px; }
+.pmain { border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); margin: 4px 0 0; }
+.pushk.swl { border-top: 0; margin-top: 0; }
+.pmain + .form-denied, #push .form-err.denied { margin-top: 10px; }
+.pstate { font-weight: 700 !important; }
+.pstate.on { color: var(--done) !important; }
+.pstate.ng { color: var(--not) !important; }
+input.sw { appearance: none; -webkit-appearance: none; flex: none; position: relative; width: 50px; height: 30px; margin: 0; border-radius: 15px; background: var(--line); border: 0; cursor: pointer; transition: background .2s; }
+input.sw::before { content: ''; position: absolute; top: 3px; left: 3px; width: 24px; height: 24px; border-radius: 50%; background: #fff; box-shadow: 0 1px 3px rgba(0, 0, 0, .3); transition: transform .2s; }
+input.sw:checked { background: var(--enji-bg); }
+input.sw:checked::before { transform: translateX(20px); }
+input.sw:disabled { cursor: default; opacity: .45; }
+input.sw:focus-visible { outline: 3px solid var(--enji-bg); outline-offset: 2px; }
+.pushk.swl.off .pk.dis { opacity: 1; }
+.pushk.swl.off { opacity: .6; }
+@media (prefers-reduced-motion: reduce) { input.sw, input.sw::before { transition: none; } }
 
 /* ---------- 使い方ガイド ---------- */
 .top-help { display: flex; align-items: center; padding: 6px; color: #fff; opacity: .9; border-radius: 8px; }
