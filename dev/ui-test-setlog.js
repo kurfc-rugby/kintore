@@ -118,7 +118,7 @@ const shot = async (p, name) => { if (SHOT) { require('fs').mkdirSync(SHOT, { re
   ok(await b.p.locator('.sheet .stamps').count() === 1, '応援スタンプを押せる');
   await shot(b.p, '08-player');
   await b.p.click('[data-act="clip-flag"]'); await b.p.waitForTimeout(150);
-  ok(/気になるを取り消す/.test(await b.p.locator('.sheet').innerText()), '「気になる」は押したらすぐ反映');
+  ok(/「気になる」を取り消す/.test(await b.p.locator('.sheet').innerText()), '「気になる」は押したらすぐ反映');
   await b.p.waitForTimeout(1200);
 
   console.log('■ サーバーが古い（先に送れない）ときは1回で送る');

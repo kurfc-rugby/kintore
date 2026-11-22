@@ -3,7 +3,7 @@
   'use strict';
   const L = window.KLogic;
   const API = window.KINTORE_API;
-  const VERSION = '2.26.0-t8';
+  const VERSION = '2.26.0-t9';
   const WD = ['日', '月', '火', '水', '木', '金', '土'];
   const PERM = { admin: '管理者', manager: 'マネージャー', captain: '主将', leader: '副主将', member: '一般部員', guest: '見るだけ' };
   // 権限を選ぶ一覧の並び
@@ -230,7 +230,7 @@
 
   function installBlock() {
     if (isStandalone()) return '<section class="block"><div class="block-h"><h2>ホーム画面のアプリ</h2></div><p class="lead-line small">' + icon('check') + 'ホーム画面から開いています。新しいバージョンが出ると、画面の下に「更新する」が出ます。</p></section>';
-    let h = '<section class="block"><div class="block-h"><h2>ホーム画面に追加</h2></div><p class="lead-line small">ホーム画面にアイコンを置くと、アプリのように1タップで開けます（App Store は使いません）。</p>';
+    let h = '<section class="block"><div class="block-h"><h2>ホーム画面に追加</h2></div><p class="lead-line small">ホーム画面にアイコンを置くと、アプリのように1タップで開けます（ストアからのインストールは要りません）。</p>';
     if (PWA.prompt) h += '<div class="toolbar"><button class="btn primary" data-act="pwa-install">' + icon('plus') + 'ホーム画面に追加</button></div>';
     else if (isIOS()) h += '<ol class="howto"><li><b>Safari</b> でこのページを開く（LINEの中で開いているときは、右下のメニューから「Safariで開く」）</li><li>下の<b>共有ボタン</b>（□に↑）を押す</li><li><b>「ホーム画面に追加」</b>→ 右上の「追加」</li></ol>' +
       '<p class="note">ホーム画面から開くと、ログイン' + (loginAll() ? '' : 'や自分の名前') + '・文字の大きさの設定はもう一度必要です（Safari とは別に保存されます）。</p>';
@@ -918,7 +918,7 @@
       return '<button class="stamp' + (on ? ' on' : '') + (n ? '' : ' zero') + (ex ? ' extra' : '') + '" data-act="stamp" data-k="' + k[0] + '" aria-pressed="' + on + '" aria-label="' + k[2] + (n ? ' ' + n : '') + '"' + (own ? ' disabled' : '') + '><span aria-hidden="true">' + k[1] + '</span>' + (n ? '<b class="num">' + n + '</b>' : '') + '</button>';
     }).join('');
     return '<div class="stamps' + (opt && opt.small ? ' small' : '') + (open ? ' open' : '') + '" data-t="' + esc(target) + '" data-e="' + esc(event) + '">' + btns +
-      (extra && !own ? '<button class="stamp more' + (extra === STAMPS.length && !open ? ' first' : '') + '" data-act="stamp-more" aria-label="' + (open ? 'スタンプを閉じる' : '応援スタンプを押す') + '" aria-expanded="' + !!open + '"><span aria-hidden="true">' + (open ? '−' : '＋') + '</span>' + (extra === STAMPS.length && !open ? '<small>応援</small>' : '') + '</button>' : '') + '</div>';
+      (extra && !own ? '<button class="stamp more' + (extra === STAMPS.length && !open ? ' first' : '') + '" data-act="stamp-more" aria-label="' + (open ? 'スタンプを閉じる' : '応援スタンプを送る') + '" aria-expanded="' + !!open + '"><span aria-hidden="true">' + (open ? '−' : '＋') + '</span>' + (extra === STAMPS.length && !open ? '<small>応援</small>' : '') + '</button>' : '') + '</div>';
   }
   function stampSum(list) {
     const c = {};
@@ -1040,7 +1040,7 @@
     const FIRST = 6;
     const li = (r) => '<li><a href="#member/' + r.id + '"><span class="slip-n">' + esc(r.name) + '<small>先週' + r.weeks[1].count + '回・先々週' + r.weeks[0].count + '回・' +
       (r.last ? '最後の実施 ' + mdw(r.last) : 'まだ記録なし') + '</small></span>' + icon('next') + '</a></li>';
-    return '<div class="slip"><h3 class="sub3">落ちてきている人<small>' + list.length + '人・スタッフだけに表示</small></h3>' +
+    return '<div class="slip"><h3 class="sub3">ペースが落ちている人<small>' + list.length + '人・スタッフだけに表示</small></h3>' +
       '<ul class="slip-list">' + list.slice(0, FIRST).map(li).join('') + '</ul>' +
       (list.length > FIRST ? '<details class="goal-more"><summary>ほか ' + (list.length - FIRST) + '人を見る</summary><ul class="slip-list">' + list.slice(FIRST).map(li).join('') + '</ul></details>' : '') +
       '</div>';
@@ -1892,7 +1892,7 @@
       '<p class="hint ex-hint" id="ex-hint"></p>' +
       '<label>回数・セット数・重量<span class="opt">任意</span><textarea name="detail" rows="3" maxlength="3000" placeholder="例：スクワット 5回×5セット（MAXの80%）">' + esc(v.detail) + '</textarea></label>' +
       // フォームの動画は「種目の動画」へ。前に入れたメニューごとの動画は、消せるように残す
-      (v.video ? '<label>メニュー全体の動画<span class="opt">今は種目ごとの動画を使います・消してもかまいません</span><input type="url" name="video" maxlength="500" value="' + esc(v.video) + '" inputmode="url" autocomplete="off"></label>' : '') +
+      (v.video ? '<label>メニュー全体の動画<span class="opt">任意・ふだんは種目ごとの動画で足ります</span><input type="url" name="video" maxlength="500" value="' + esc(v.video) + '" inputmode="url" autocomplete="off"></label>' : '') +
       '<label>備考<span class="opt">任意</span><textarea name="note" rows="2" maxlength="1000">' + esc(v.note) + '</textarea></label>';
   }
   function openMenuForm(id, prefill) {
@@ -2382,7 +2382,7 @@
     return (iosNeedsHome ? '<p class="warnline">' + icon('lock') + '<span>iPhone では、<b>ホーム画面に追加したアプリから</b>でないと通知を受け取れません（iOS 16.4 以上）。先に「ホーム画面に追加」をしてください。</span></p>' : '') +
       steps([
         loginAll() ? '先に <b>ログイン</b>する（「今週あと○回」「応援」は、ログインした本人に届きます）' : '先に <b>自分の名前</b> を選ぶ（「今週あと○回」「応援」は、選んだ名前の人に届きます）',
-        '「設定」→ 下のほうの <b>「通知」</b> で、受け取りたいものにチェック',
+        '「設定」→ 下のほうの <b>「通知」</b>。はじめはすべてチェックが入っているので、いらないものだけ外す',
         '<b>「通知をオンにする」</b> → スマホの確認で <b>「許可」</b>',
         '<b>「テスト通知を送る」</b> で、数秒で届けばOK'
       ]) +
@@ -2398,7 +2398,7 @@
       '<div class="toolbar">' + goBtn('#settings/push', '通知の設定を開く') + '</div>' +
       '<details class="faq"><summary>通知が来ないとき</summary><ul class="dots">' +
       '<li>「テスト通知を送る」で届くか確かめる。届かなければ「通知をオフにする」→ もう一度「オンにする」</li>' +
-      '<li>「許可しない」を押してしまった：<b>Android</b> は Chrome の ' + kbd('⋮') + '→「設定」→「サイトの設定」→「通知」で許可。<b>iPhone</b> は「設定」アプリ →「通知」→「筋トレ」で許可</li>' +
+      '<li>「許可しない」を押してしまった：<b>Android</b> はホーム画面の「筋トレ」のアイコンを長押し →「アプリ情報」→「通知」で許可。<b>iPhone</b> は「設定」アプリ →「通知」→「筋トレ」で許可</li>' +
       '<li>省電力モード・おやすみモード（集中モード）だと遅れたり出なかったりします</li>' +
       '<li>iPhone でホーム画面のアイコンを消すと、通知の設定も消えます（追加し直して、もう一度オン）</li>' +
       '<li>機種変更したら、新しいスマホでもう一度オンにしてください</li></ul></details>';
@@ -2444,11 +2444,11 @@
       ['install', 'all', 'ホーム画面に追加する', 'アプリのように1タップで開ける', helpInstall()],
       loginAll() ? null : ['self', 'all', '自分の名前を選ぶ', '「わたし」・応援・通知に使う', helpSelf()],
       ['push', 'all', '通知を受け取る', '今週あと○回・応援が届いた', helpPush()],
-      ['home', 'all', 'ホームの見かた', '赤い板・まだの人・声をかけたい人・最近の達成',
+      ['home', 'all', 'ホームの見かた', '部全体の数字・まだの人・声をかけたい人・最近の達成',
         '<dl class="defs">' +
-        '<dt>赤い板</dt><dd>部全体の実施回数と、<b>週' + g + '回の達成率</b>。途中の週・月は、前の週・月の<b>同じ時点まで</b>と比べます。上の「週間／月間」と ' + kbd('‹') + kbd('›') + ' で期間を変えられます</dd>' +
+        '<dt>部全体の数字（赤い欄）</dt><dd>部全体の実施回数と、<b>週' + g + '回の達成率</b>。途中の週・月は、前の週・月の<b>同じ時点まで</b>と比べます。上の「週間／月間」と ' + kbd('‹') + kbd('›') + ' で期間を変えられます</dd>' +
         '<dt>週' + g + '回（マスト）まだの人</dt><dd>今週まだ届いていない人と、あと何回か。週は<b>月曜〜日曜</b>で、日曜までに' + g + '回以上で達成。<b>けがなどで免除の日</b>がある人は、そのぶん必要な回数が減ります（7日とも免除ならその週は対象外）</dd>' +
-        '<dt>声をかけたい人</dt><dd>「連続記録がピンチ」は、先週まで週' + g + '回を2週以上続けていて、今週まだ届いていない人のうち、残りの日数に余裕がなくなってきた人（余裕が2日以下。週の初めは出ません）。スタッフには「落ちてきている人」（先々週・先週と2週続けて届かなかった人。免除の週がある人と、部で記録を始める前の週は入りません）も出ます</dd>' +
+        '<dt>声をかけたい人</dt><dd>「連続記録がピンチ」は、先週まで週' + g + '回を2週以上続けていて、今週まだ届いていない人のうち、残りの日数に余裕がなくなってきた人（余裕が2日以下。週の初めは出ません）。スタッフには「ペースが落ちている人」（先々週・先週と2週続けて届かなかった人。免除の週がある人と、部で記録を始める前の週は入りません）も出ます</dd>' +
         '<dt>ランキング</dt><dd>上位3人の表彰台（ジャージの背番号が順位）。4位から下は「すべて見る」で</dd>' +
         '<dt>最近の達成</dt><dd>この10日間に週' + g + '回を達成した人・通算○回になった人。「＋応援」から<b>応援スタンプ</b>を送ると、その人に応援が届きます' + (loginAll() ? '' : '（ログイン不要。設定で自分の名前を選ぶと、だれからかも伝わります）') + '</dd>' +
         '<dt>くわしい分析</dt><dd>FW対BK・ポジション別・達成率の分布は、ランキングの<b>「分析」</b>にあります</dd></dl>'],
@@ -2509,7 +2509,7 @@
         '<dt>週' + g + '回の「週」はいつから？</dt><dd>月曜〜日曜です。月曜にその週の回数が0に戻ります</dd>' +
         '<dt>自主トレの人の実施率が「－」</dt><dd>実施率は主将・副主将のメニューに参加している人だけ。自主トレの人は回数で見ます</dd>' +
         '<dt>情報が古いまま</dt><dd>画面を<b>一番上で下に引っぱる</b>と最新になります。ホーム画面のアプリで「アプリの新しいバージョンがあります」が出たら「更新する」</dd>' +
-        '<dt>機種変更した</dt><dd>新しいスマホで開き直し、' + (loginAll() ? 'ログイン' : '自分の名前') + '・通知・ホーム画面への追加をもう一度</dd></dl>'],
+        '<dt>機種変更した</dt><dd>新しいスマホでホーム画面に追加し直して、' + (loginAll() ? 'ログイン' : '自分の名前') + '・通知をもう一度</dd></dl>'],
       // スタッフ
       loginAll() ? ['login', 'all', 'ログイン・暗証番号', 'はじめての登録・忘れたとき',
         steps(['アプリを開くと<b>ログインの画面</b>。名前の一覧から<b>自分</b>を選ぶ', 'はじめての人は、自分だけの<b>暗証番号</b>（半角6文字以上）を決めて<b>「登録してはじめる」</b>。2回目からはその暗証番号でログイン', 'スタッフ（管理者・マネージャー・主将・副主将）と見るだけの人は、管理者からもらった暗証番号でログインし、最初に自分の暗証番号に変える']) +
@@ -2522,7 +2522,7 @@
         '<ul class="dots"><li>忘れたとき：ログイン画面の<b>「暗証番号を忘れたとき」</b>→ 名前を選んで依頼 → 管理者が新しい番号を出してくれます</li>' +
         '<li>5回まちがえると15分ログインできません</li><li>なくしたスマホは「設定」→「ログインしている端末」からログアウトできます</li></ul>'],
       loginAll() ? ['clipcheck', 'manager', '動画を確認する', '確認待ち・気になる・取り消す',
-        steps(['「動画」の <b>「確認」</b>（数字は確認が要る本数。ホームにも出ます）', '<b>確認待ち</b>（取り消された日に撮り直した動画）は、見て<b>「確認して「実施した」に」</b>', '部員が<b>「気になる」</b>を押した動画は、見て<b>「問題なし」</b>か<b>「取り消す」</b>（理由は本人に届きます）']) +
+        steps(['「動画」の <b>「確認」</b>（数字は確認が要る本数。ホームにも出ます）', '<b>確認待ち</b>（取り消された日に撮り直した動画）は、見て<b>「確認して『実施した』に」</b>', '部員が<b>「気になる」</b>を押した動画は、見て<b>「問題なし」</b>か<b>「取り消す」</b>（理由は本人に届きます）']) +
         '<ul class="dots"><li>取り消すと、その日の「実施した」が外れます</li><li>動画が24時間届かなかった日は、自動で取り消されます</li></ul>'] : null,
       ['record', 'manager', '実施記録をつける', '押すだけ・まとめて・確認して保存',
         steps(['下の <b>「記録」</b> を開く（日付は今日。' + kbd('‹') + ' で前の日にもつけられます）', 'やった人の <b>「実施した」</b> を押す（もう一度押すと戻る）', '<b>「保存する」</b>→ 内容を確かめて <b>「この内容で保存」</b>']) +
@@ -2768,7 +2768,7 @@
       { r: 'home', sel: () => { const e = $('.view-home .podium') || $('.view-home .rlist'); return e ? e.closest('.block') || e : null; }, t: 'ランキング', p: 'この期間の実施回数の上位です。<b>「すべて見る」</b>で全員の順位と、FW対BK・ポジション別などの<b>分析</b>が見られます。' },
       { r: 'home', sel: '.block.feed', t: '応援スタンプを送る', p: () => '週{g}回の達成や節目が出ます。<b>「＋応援」</b>から9種類のスタンプを送れます（もう一度押すと取り消し）。' + (loginAll() ? 'あなたの名前で届きます。<b>動画</b>や<b>部員のページ</b>からも送れます。' : '自分の名前を選んでおくと、だれからか伝わります。') },
       { r: 'member', prep: () => { S.memberTab = 'rec'; }, arg: () => (loginAll() && mePlayer() ? me().id : ''), sel: () => { const b = $('#app [data-act="exreq-new"]') || $('#app [data-act="exempt-new"]'); return b ? b.closest('.block') || b : null; }, t: '免除を申し込む',
-        p: () => 'けが・病気・試験などで筋トレできない期間は、自分のページのここから<b>免除</b>を' + (can('record') ? '入れます。あなたは記録できる立場なので、<b>「免除を追加」</b>ですぐに入ります（選手は「免除を申し込む」から出し、主将・副主将が認めます）。' : '申し込みます。主将・副主将が認めると、') + '日数に合わせて<b>その週に必要な回数が減ります</b>（1週間まるごとなら、その週は数えません）。' },
+        p: () => 'けが・病気・試験などで筋トレできない期間は、自分のページのここから<b>免除</b>を' + (can('record') ? '入れます。スタッフは<b>「免除を追加」</b>で、そのまま登録できます（選手は「免除を申し込む」から申し込み、主将・副主将が認めます）。' : '申し込みます。主将・副主将が認めると、') + '日数に合わせて<b>その週に必要な回数が減ります</b>（1週間まるごとなら、その週は数えません）。' },
       { r: 'menus', prep: () => { S.menuTab = 'exercises'; S.exPart = ''; }, sel: '.exparts-bar', t: 'フォームの動画', p: '種目の<b>フォームの動画</b>と<b>やり方・ポイント</b>は「メニュー」の<b>「種目の動画」</b>で、部位（胸・背中・脚など）から探せます。メニューの種目の横の<b>「フォーム」</b>からも見られます。' },
       { r: 'home', sel: '.top-help', t: '使い方ガイド', p: () => 'わからないときはここ。<b>' + howtoLen() + 'の動画</b>と、立場ごとの使い方があります。この案内ももう一度見られます。「こうしてほしい」「ここがおかしい」は、<b>「設定」→「要望・不具合を送る」</b>から管理者に送れます。' }
     ] },
@@ -2782,7 +2782,7 @@
       { r: 'record', sel: '.rec-more', t: 'その他', p: '<b>1週間まとめて記録・修正</b>（表）と、<b>取り消した記録</b>はここです。' },
       { r: 'record', sel: segOf('[data-act="rec-sort"]'), t: '並び順', p: '名前順・ポジション順などに並べ替えられます。FW・BKの絞り込みも上にあります。' },
       { r: 'home', sel: '.share-row', t: 'LINEで知らせる', p: '「まだの人」の一覧を、<b>LINE用の文章</b>にしてコピー・送信できます。' },
-      { r: 'member', arg: firstPlayer, sel: '[data-act="exempt-new"][data-id]', t: '免除', p: 'けが・試験などで今週休む人は、その人のページで<b>「免除を追加」</b>。週{g}回の対象から外れます。' }
+      { r: 'member', arg: firstPlayer, sel: '[data-act="exempt-new"][data-id]', t: '免除', p: 'けが・試験などで今週休む人は、その人のページで<b>「免除を追加」</b>。その日数ぶん、週{g}回に必要な回数が減ります。' }
     ] },
     leader: { name: '主将・副主将', perm: 'menu', steps: [
       { r: 'menus', prep: () => { S.menuTab = 'upcoming'; }, sel: '[data-act="menu-new"]', t: 'メニューを作る', p: '日付・対象（全体・FW・BK・ポジション）・内容を入れて保存すると、対象の人に<b>通知</b>が届きます。' },
@@ -2989,7 +2989,7 @@
     const what = { manager: '記録のつけ方', leader: 'メニューの作り方と種目の動画', admin: '部員・役職・部のルールの設定' }[key];
     $('#guide-root').innerHTML = '<div class="guide-bg"></div><section class="guide" role="dialog" aria-modal="true" aria-label="' + esc(TOURS[key].name) + 'の使い方">' +
       '<div class="guide-i" aria-hidden="true">' + icon(key === 'manager' ? 'check' : key === 'leader' ? 'menu' : 'gear') + '</div><h2>' + esc(TOURS[key].name) + 'の使い方</h2>' +
-      '<p>' + esc(m.name) + ' さん、ログインありがとうございます。<b>' + what + '</b>を、実際の画面で案内します（1分）。</p>' +
+      '<p>' + esc(m.name) + ' さん、ようこそ。<b>' + what + '</b>を、実際の画面で案内します（1分）。</p>' +
       '<div class="actions"><button class="btn" data-act="tour-later">あとで</button><button class="btn primary" data-act="tour-start" data-v="' + key + '" autofocus>画面で案内を見る</button></div>' +
       '<p class="guide-n">あとからでも「使い方ガイド」で見られます</p></section>';
     document.body.classList.add('sheet-open');
@@ -3547,7 +3547,7 @@
       body = '<p class="lead-line">LINE などのアプリの中では追加できません。' + (ios ? '右下の ' + kbd('…') + ' や ' + kbd('⤴') + ' から <b>「Safariで開く」</b>' : '右上の ' + kbd('⋮') + ' から <b>「ブラウザで開く」</b>（Chrome）') + 'を押して、もう一度このページを開いてください。</p>';
     } else if (ios) {
       body = '<ol class="steps">' +
-        '<li>このページを <b>Safari</b> で開いている（ほかのアプリの中なら「Safariで開く」）</li>' +
+        '<li>このページを <b>Safari</b> で開く（ほかのアプリの中なら「Safariで開く」）</li>' +
         '<li>画面の下（iPad は上）の <b>共有ボタン</b> ' + kbd(icon('share')) + ' を押す</li>' +
         '<li>下へ動かして <b>「ホーム画面に追加」</b>（なければ一番下の「アクションを編集」から）</li>' +
         '<li>右上の <b>「追加」</b> → ホーム画面の <b>「' + name + '」</b> のアイコンから開く</li></ol>' +
@@ -3555,7 +3555,7 @@
     } else {
       body = (PWA.prompt ? '<div class="toolbar"><button class="btn primary wide" data-act="pwa-install">' + icon('plus') + 'ホーム画面に追加</button></div><p class="hint">押したら「インストール」（または「追加」）→ ホーム画面の「' + name + '」のアイコンから開いてください。</p>' : '') +
         '<ol class="steps">' +
-        '<li>このページを <b>Chrome</b> で開いている</li>' +
+        '<li>このページを <b>Chrome</b> で開く</li>' +
         '<li>右上の ' + kbd(icon('dots')) + ' を押す</li>' +
         '<li><b>「ホーム画面に追加」</b>または<b>「アプリをインストール」</b> → 「インストール」</li>' +
         '<li>ホーム画面の <b>「' + name + '」</b> のアイコンから開く</li></ol>' +
@@ -3870,7 +3870,7 @@
       '<div class="cam-meter-top"><b id="cam-meter-lab">動画を送っています</b><span id="cam-meter-left"></span></div>' +
       '<div class="cam-meter-bar"><span id="cam-meter-fill"></span></div>' +
       '<p class="cam-hint" id="cam-meter-note">' + (pend ? '取り消された日なので、スタッフが確認すると「実施した」になります。' : '画面は先に「実施した」にしてあります。') +
-      (bg ? '' : '<br>送り終わるまで、この画面のままお待ちください') + '</p>' +
+      (bg ? '' : '<br>送り終わるまで、この画面のまま待ってください') + '</p>' +
       (bg ? '<button class="btn cam-meter-btn" data-act="cam-bg">待たずに戻る（あとは裏で送ります）</button>' : '') + '</div>';
     clearInterval(CAM.meterTimer);
     CAM.meterTimer = setInterval(camMeterTick, 200);
@@ -3886,7 +3886,7 @@
     const set = (id, v) => { const el = $('#' + id); if (el) el.textContent = v; };
     if (t.dropped || t.queued) {
       M.end = true; clearInterval(CAM.meterTimer);
-      set('cam-meter-lab', t.dropped ? '送れない動画でした' : '電波が弱くて、まだ送れていません');
+      set('cam-meter-lab', t.dropped ? 'この動画は送れませんでした' : '電波が弱くて、まだ送れていません');
       set('cam-meter-left', '');
       set('cam-meter-note', t.dropped ? 'この日の「実施した」は元に戻しました。' : 'つながったら自動で送ります。');
       const btn = box.querySelector('.cam-meter-btn');
@@ -4030,7 +4030,7 @@
       qSet(qList().filter((x) => x.at !== d.at));
       if (d.clip === 'started') { tlMark(d.at, 'started'); clipSentUI({ at: d.at, thumb: d.thumb }, d.r || {}, 'start'); render(); return; }
       if (d.clip === 'sent') { tlMark(d.at, 'done'); if (d.tm) saveTimes(d.tm); clipSentUI({ at: d.at, thumb: d.thumb }, d.r || {}, 'video'); }
-      else if (d.clip === 'dropped') { tlMark(d.at, 'dropped'); toast(d.message || '送れない動画でした', 'err'); unmarkLocal(d.at); }
+      else if (d.clip === 'dropped') { tlMark(d.at, 'dropped'); toast(d.message || 'この動画は送れませんでした', 'err'); unmarkLocal(d.at); }
       else if (d.clip === 'wait') { tlMark(d.at, 'queued'); qSet(qList().concat(qList().some((x) => x.at === d.at) ? [] : [{ at: d.at }])); }
       S.clipSending = false;
       render();
@@ -4257,7 +4257,7 @@
     const m = me(), staff = can('anyStaff'), own = m && m.id === c.m;
     const name = memberName(c.m);
     const acts = [];
-    if (m && m.perm !== 'guest' && !own && c.st !== 'canceled' && !c.local) acts.push('<button class="btn' + (c.mine ? ' on' : '') + '" data-act="clip-flag" data-id="' + esc(c.id) + '" aria-pressed="' + !!c.mine + '">' + (c.mine ? '気になるを取り消す' : '気になる') + '</button>');
+    if (m && m.perm !== 'guest' && !own && c.st !== 'canceled' && !c.local) acts.push('<button class="btn' + (c.mine ? ' on' : '') + '" data-act="clip-flag" data-id="' + esc(c.id) + '" aria-pressed="' + !!c.mine + '">' + (c.mine ? '「気になる」を取り消す' : '気になる') + '</button>');
     if (staff && c.st !== 'canceled') {
       if (c.st === 'pending' || c.nf) acts.push('<button class="btn primary" data-act="clip-approve" data-id="' + esc(c.id) + '">' + (c.st === 'pending' ? '確認して「実施した」に' : '問題なし') + '</button>');
       acts.push('<button class="btn danger" data-act="clip-cancel-open" data-id="' + esc(c.id) + '">取り消す</button>');
@@ -4269,7 +4269,7 @@
       (c.st !== 'canceled' && !c.local ? stampBar(c.m, 'c:' + c.id) : '') +
       (acts.length ? '<div class="toolbar clip-acts">' + acts.join('') + '</div>' : '') +
       '<div class="clip-cancel" id="clip-cancel" hidden><form data-form="clipcancel" class="form"><input type="hidden" name="id" value="' + esc(c.id) + '">' +
-      '<label>取り消す理由<span class="opt">本人に届きます（なくてもよい）</span><input name="reason" maxlength="80" placeholder="例：ジムで撮った動画ではない"></label>' +
+      '<label>取り消す理由<span class="opt">任意・本人に届きます</span><input name="reason" maxlength="80" placeholder="例：ジムで撮った動画ではない"></label>' +
       '<p class="form-err" role="alert" hidden></p><div class="actions"><button type="button" class="btn" data-act="clip-cancel-close">やめる</button><button class="btn danger" type="submit">取り消す</button></div></form></div>' +
       '<p class="hint clip-who"><a href="#member/' + encodeURIComponent(c.m) + '">' + avatarOf(c.m, 'av-sm') + esc(name) + ' さんのページへ</a></p>');
     try {
@@ -4770,7 +4770,7 @@
       const c = findClip(el.dataset.id); if (!c || S.flagBusy) return;
       const want = !c.mine;
       clipUpdated({ id: c.id, mine: want });
-      el.classList.toggle('on', want); el.setAttribute('aria-pressed', String(want)); el.textContent = want ? '気になるを取り消す' : '気になる';
+      el.classList.toggle('on', want); el.setAttribute('aria-pressed', String(want)); el.textContent = want ? '「気になる」を取り消す' : '気になる';
       toast(want ? '「気になる」を押しました。スタッフが確認します' : '「気になる」を取り消しました');
       S.flagBusy = true;
       try { const r = await api('clipFlag', { id: c.id, on: want }); clipUpdated(r.clip); }

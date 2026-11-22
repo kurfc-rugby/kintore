@@ -1749,7 +1749,7 @@ function opSaveMember_(ctx) {
       if (!res.added.length) {
         const sk = res.skipped[0] || {};
         throw err_('duplicate', sk.reason === 'inactive'
-          ? '同じ名前の人が名簿にいます（在籍なし）。部員の一覧の「削除した部員」から戻してください。'
+          ? '同じ名前の人が名簿にいます（在籍なし）。部員の一覧の「在籍していない部員」から戻してください。'
           : '同じ名前の部員が名簿にすでにいます。');
       }
       REQ_.roster = null; REQ_.members = null;
@@ -3510,7 +3510,7 @@ function opSaveExercise_(ctx) {
     const rows = table_('exercises').rows.filter(function (x) { return !x.deletedAt && x.id !== String(src.id || ''); });
     const used = {};
     rows.forEach(function (x) { used[exKey_(x.name)] = x.name; (x.aliases ? x.aliases.split('、') : []).forEach(function (a) { used[exKey_(a)] = x.name; }); });
-    [name].concat(aliases).forEach(function (n) { if (used[exKey_(n)]) throw err_('dup_exercise', '「' + n + '」は「' + used[exKey_(n)] + '」で登録ずみです。'); });
+    [name].concat(aliases).forEach(function (n) { if (used[exKey_(n)]) throw err_('dup_exercise', '「' + n + '」は「' + used[exKey_(n)] + '」で登録済みです。'); });
     let x;
     if (src.id) {
       x = table_('exercises').rows.filter(function (r) { return r.id === String(src.id) && !r.deletedAt; })[0];
@@ -3538,7 +3538,7 @@ function opDeleteExercise_(ctx) {
     return { ok: true, exercises: exercisesWire_() };
   });
 }
-/** まとめて登録（SAVAS「筋トレ辞典」の動画などから選んだもの）。登録ずみの名前・別の書き方と重なるものは飛ばす */
+/** まとめて登録（SAVAS「筋トレ辞典」の動画などから選んだもの）。登録済みの名前・別の書き方と重なるものは飛ばす */
 function opImportExercises_(ctx) {
   const me = requireRole_(ctx, ['admin', 'leader']);
   const list = Array.isArray(ctx.req.items) ? ctx.req.items : [];
@@ -3562,7 +3562,7 @@ function opImportExercises_(ctx) {
       try { points = text_(src.points, 400, 'ポイント', false); } catch (e) { points = ''; }
       rows.push({ id: newId_('x'), name: name, aliases: aliases.join('、'), video: video, parts: parts.join(','), points: points, gear: gearOf_(src.gear).join(','), createdBy: me.id, createdAt: now, updatedBy: '', updatedAt: '', deletedBy: '', deletedAt: '' });
     });
-    if (rows.length) { insert_('exercises', rows); log_(me, '種目の動画をまとめて登録', rows.length + '件' + (skipped ? '（' + skipped + '件は登録ずみなどで飛ばした）' : '')); }
+    if (rows.length) { insert_('exercises', rows); log_(me, '種目の動画をまとめて登録', rows.length + '件' + (skipped ? '（' + skipped + '件は登録済みなどで飛ばした）' : '')); }
     return { ok: true, added: rows.length, skipped: skipped, exercises: exercisesWire_() };
   });
 }
@@ -4482,7 +4482,7 @@ function iconPhotoSet_(memberId, data) {
   } else rows.forEach(function (r) { remove_('icons', r); });
 }
 function opSetIcon_(ctx) {
-  if (!setlogOn_()) throw err_('unknown_op', 'この操作はありません。');
+  if (!setlogOn_()) throw err_('unknown_op', 'この操作はできません。');
   const me = requireRole_(ctx, ['admin', 'manager', 'leader', 'member']);
   const v = iconValue_(ctx.req);
   return withLock_(function () {
@@ -4495,7 +4495,7 @@ function opSetIcon_(ctx) {
   });
 }
 function opIcons_(ctx) {
-  if (!setlogOn_()) throw err_('unknown_op', 'この操作はありません。');
+  if (!setlogOn_()) throw err_('unknown_op', 'この操作はできません。');
   requireView_(ctx);
   const want = {};
   (Array.isArray(ctx.req.ids) ? ctx.req.ids : []).slice(0, 300).forEach(function (id) { want[String(id)] = 1; });
@@ -4506,7 +4506,7 @@ function opIcons_(ctx) {
   return { ok: true, icons: icons, vers: vers };
 }
 function opResetIcon_(ctx) {
-  if (!setlogOn_()) throw err_('unknown_op', 'この操作はありません。');
+  if (!setlogOn_()) throw err_('unknown_op', 'この操作はできません。');
   const me = requireRole_(ctx, ['admin', 'manager']);
   const m = memberOrThrow_(String(ctx.req.memberId || ''));
   return withLock_(function () {
