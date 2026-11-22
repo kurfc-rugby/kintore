@@ -3,7 +3,7 @@
   'use strict';
   const L = window.KLogic;
   const API = window.KINTORE_API;
-  const VERSION = '2.26.0-t10';
+  const VERSION = '2.26.0-t11';
   const WD = ['日', '月', '火', '水', '木', '金', '土'];
   const PERM = { admin: '管理者', manager: 'マネージャー', captain: '主将', leader: '副主将', member: '一般部員', guest: '見るだけ' };
   // 権限を選ぶ一覧の並び
@@ -198,6 +198,29 @@
       }
       return '<li><label class="pk' + (dis ? ' dis' : '') + '"><input type="checkbox" name="kinds" value="' + k[0] + '"' + (cur.indexOf(k[0]) >= 0 && !dis ? ' checked' : '') + (dis ? ' disabled' : '') + '><span><b>' + k[1] + '</b><small>' + k[2] + '</small></span></label></li>';
     }).join('');
+  }
+  /** 設定の通知：種類のスイッチは押した見た目をすぐ変え、続けて押せるようにする。
+   *  最後に押してから少し待って、そのときの状態をまとめて1回だけ保存する（保存中に押されたら、終わってからもう1回） */
+  const PKS = { tm: 0, busy: false, again: false, kinds: null };
+  function pushKindSave() {
+    PKS.kinds = $$('#push input[name="kinds"]:checked').map((x) => x.value); // 押したときの状態を覚える（画面を離れても、この内容で保存）
+    clearTimeout(PKS.tm);
+    PKS.tm = setTimeout(pushKindFlush, 700);
+  }
+  async function pushKindFlush() {
+    if (PKS.busy) { PKS.again = true; return; }
+    const kinds = (PKS.kinds || []).slice();
+    const before = store.get('pushKinds', []);
+    if (kinds.length && kinds.slice().sort().join() === before.slice().sort().join()) return; // 押して戻しただけ
+    PKS.busy = true;
+    try {
+      if (!kinds.length) await pushOff('すべて外したので、通知をオフにしました');
+      else { await registerPush(kinds, true); if (!PKS.again) toast('保存しました'); }
+    } catch (e) {
+      toast((e && e.message) || '保存できませんでした。もう一度押してください', 'err');
+      PKS.again = false; if (S.route.name === 'settings') render(); // 保存できた内容に戻す
+    } finally { PKS.busy = false; }
+    if (PKS.again) { PKS.again = false; pushKindFlush(); }
   }
   /** 通知をオフにする（この端末の登録を消す） */
   async function pushOff(msg) {
@@ -5171,13 +5194,7 @@
       return;
     }
     // 設定の通知：種類ごとのスイッチ。押したらすぐ保存。全部オフにしたら通知そのものをオフに
-    if (t.dataset && t.dataset.actChange === 'push-kind') {
-      const kinds = $$('#push input[name="kinds"]:checked').map((x) => x.value);
-      $$('#push input.sw').forEach((x) => { x.disabled = true; });
-      (kinds.length ? registerPush(kinds).then(() => toast('保存しました')) : pushOff('すべて外したので、通知をオフにしました'))
-        .catch((e) => { toast((e && e.message) || '保存できませんでした', 'err'); render(); });
-      return;
-    }
+    if (t.dataset && t.dataset.actChange === 'push-kind') { pushKindSave(); return; }
     if (t.dataset && t.dataset.actChange === 'pref-self') {
       PREF.self = t.value; if (PREF.self) store.set('self', PREF.self); else store.del('self');
       if (PUSH.endpoint) registerPush(store.get('pushKinds', []), true).catch(() => {});

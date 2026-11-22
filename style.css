@@ -791,7 +791,7 @@ html[data-theme="dark"] .board-streaks { opacity: .8; }
 .pk.dis { opacity: .5; cursor: default; }
 #push .lead-line .ic { color: var(--done); }
 /* 設定の通知：スイッチ（ふつうのアプリと同じ形） */
-.pk.swk { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 12px 2px; margin: 0; cursor: pointer; }
+.pk.swk { -webkit-tap-highlight-color: transparent; display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 12px 2px; margin: 0; cursor: pointer; }
 .pk.swk > span { flex: 1; min-width: 0; }
 .pk.swk.swmain b { font-size: 16px; }
 .pmain { border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); margin: 4px 0 0; }

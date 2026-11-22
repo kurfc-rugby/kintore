@@ -436,10 +436,18 @@ const ok = (c, label) => { if (c) { pass++; console.log('  ✓ ' + label); } els
     await p2.click('#push label.swmain'); await p2.waitForSelector('[data-act="push-test"]', { timeout: 5000 });
     ok((await p2.locator('#push .pstate').innerText()).includes('受け取っています') && await p2.locator('#push input[name="kinds"]:not([disabled])').count() >= 4, '全体のスイッチを押すと通知がオンになる（サーバーに登録）');
     { // 種類のスイッチは押したらすぐ保存（「保存」ボタンはない）
-      await p2.click('#push input[name="kinds"][value="milestone"]'); await p2.waitForTimeout(900);
+      // 続けて押せる：押した直後もほかのスイッチは押せる。まとめて1回で保存
+      await p2.click('#push input[name="kinds"][value="milestone"]');
+      const free = await p2.locator('#push input[name="kinds"]:disabled').count();
+      await p2.click('#push input[name="kinds"][value="menu"]'); await p2.click('#push input[name="kinds"][value="cheer"]');
+      await p2.waitForTimeout(1600);
       const k1 = await p2.evaluate(() => JSON.parse(localStorage.getItem('kintore.pushKinds') || '[]'));
-      ok(k1.indexOf('milestone') < 0 && k1.indexOf('goal') >= 0 && await p2.locator('#push button[type="submit"]').count() === 0, '種類のスイッチは押すとすぐ保存される（保存ボタンなし）（' + k1.join(',') + '）');
-      await p2.click('#push input[name="kinds"][value="milestone"]'); await p2.waitForTimeout(900);
+      ok(free === 0 && ['milestone', 'menu', 'cheer'].every((k) => k1.indexOf(k) < 0) && k1.indexOf('goal') >= 0 && await p2.locator('#push button[type="submit"]').count() === 0, '種類のスイッチは続けて押せて、押した内容がすぐ保存される（保存ボタンなし）（' + k1.join(',') + '）');
+      await p2.click('#push input[name="kinds"][value="milestone"]'); await p2.click('#push input[name="kinds"][value="menu"]'); await p2.click('#push input[name="kinds"][value="cheer"]');
+      await p2.evaluate(() => { location.hash = '#home'; }); await p2.waitForTimeout(1600); // すぐ画面を離れても保存される
+      const k2 = await p2.evaluate(() => JSON.parse(localStorage.getItem('kintore.pushKinds') || '[]'));
+      ok(['milestone', 'menu', 'cheer', 'goal'].every((k) => k2.indexOf(k) >= 0), '押してすぐ別の画面へ移っても、押した内容で保存される（' + k2.join(',') + '）');
+      await p2.evaluate(() => { location.hash = '#settings'; }); await p2.waitForSelector('#push input[data-act-change="push-main"]');
     }
     await p2.click('[data-act="push-test"]'); await p2.waitForTimeout(800);
     ok((await p2.locator('.toast').allInnerTexts()).some((t) => t.includes('テスト通知を送りました')), 'テスト通知を送れる');
