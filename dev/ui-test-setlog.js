@@ -328,6 +328,13 @@ const shot = async (p, name) => { if (SHOT) { require('fs').mkdirSync(SHOT, { re
         holeOk[h] = await q.evaluate(() => { const hr = document.querySelector('.tour-hole').getBoundingClientRect(), el = window.__tourEl(); const r = el.getBoundingClientRect(); return { inside: hr.left <= r.left + 1 && hr.right >= r.right - 1 && hr.top <= r.top + 1, ex: !!el.querySelector('[data-act="exreq-new"]'), head: !!el.querySelector('h2') && /すべて見る/.test(el.innerText), onScreen: hr.left >= 0 && hr.right <= innerWidth }; });
         if (/ランキング/.test(h)) await shot(q, '24-tour-rank');
         if (/免除/.test(h)) await shot(q, '25-tour-exreq');
+        if (/免除/.test(h)) { // 後から中身が読み込まれて場所がずれても（動画の一覧など）、光らせる所に合わせ直す。上の見出しは固定のまま
+          await q.evaluate(() => { const d = document.createElement('div'); d.id = 'late'; d.style.height = '2400px'; const v = document.querySelector('#app > *'); v.insertBefore(d, v.firstChild); });
+          await q.waitForTimeout(700);
+          holeOk.late = await q.evaluate(() => { const hr = document.querySelector('.tour-hole').getBoundingClientRect(), r = window.__tourEl().getBoundingClientRect(), tip = document.querySelector('.tour-tip').getBoundingClientRect(), top = document.querySelector('.top').getBoundingClientRect();
+            return { ok: Math.abs(hr.top - (r.top - 6)) < 3 && r.top >= top.bottom - 1 && r.bottom <= innerHeight && tip.top >= 0 && tip.bottom <= innerHeight, head: Math.round(top.top) }; });
+          await q.evaluate(() => document.getElementById('late').remove()); await q.waitForTimeout(500);
+        }
       }
       await q.click('[data-act="tour-next"]');
       await q.waitForFunction((t) => { const e = document.querySelector('.tour-tip h2'); return !e || (e.innerText !== t && !document.querySelector('#tour-root.moving')); }, h, { timeout: 4000 }).catch(() => {}); await q.waitForTimeout(300);
@@ -335,6 +342,7 @@ const shot = async (p, name) => { if (SHOT) { require('fs').mkdirSync(SHOT, { re
     const ex = holeOk['免除を申し込む'] || {}, rk = holeOk['ランキング'] || {};
     ok(tt.length <= 10 && tt.indexOf('応援スタンプを送る') >= 0 && ex.ex && ex.inside, '選手の画面の案内（10か所以内）に、応援スタンプと「免除を申し込む」（ボタンを光らせる）がある（' + tt.join('→') + '）');
     ok(nums.every((n, k) => n === (k + 1) + ' / ' + nums.length), '案内の番号は飛ばない（' + nums.join('・') + '）');
+    ok(holeOk.late && holeOk.late.ok && holeOk.late.head === 0, '案内の途中で中身が後から読み込まれて場所がずれても、光らせる所と吹き出しが画面に収まり、上の見出しも固定のまま（' + JSON.stringify(holeOk.late) + '）');
     ok(rk.head && rk.inside && rk.onScreen, 'ランキングは見出しと「すべて見る」ごと光らせ、枠が画面からはみ出さない');
     ok(tt.filter((t) => /今日の1本/.test(t)).length === 1 && await q.evaluate(() => location.hash) === '#home' && /通知/.test(await q.locator('#guide-root h2').innerText().catch(() => '')), '「今日の1本を撮る」の説明は1回だけ。案内はホームで終わり、紹介の続き（通知）に戻る');
     { // スマホの「戻る」は「閉じる」と同じ（紹介の続きに戻る）

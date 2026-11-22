@@ -3,7 +3,7 @@
   'use strict';
   const L = window.KLogic;
   const API = window.KINTORE_API;
-  const VERSION = '2.26.0-t5';
+  const VERSION = '2.26.0-t6';
   const WD = ['日', '月', '火', '水', '木', '金', '土'];
   const PERM = { admin: '管理者', manager: 'マネージャー', captain: '主将', leader: '副主将', member: '一般部員', guest: '見るだけ' };
   // 権限を選ぶ一覧の並び
@@ -2824,6 +2824,7 @@
     document.body.classList.add('touring'); document.documentElement.classList.add('touring');
     // 案内の間は「閉じる」「戻る」「次へ」だけ：画面のスクロール・ほかの所のタップはできない
     document.addEventListener('touchmove', tourBlock, { passive: false }); document.addEventListener('wheel', tourBlock, { passive: false });
+    if (window.ResizeObserver) { let tm = 0; TOUR.ro = new ResizeObserver(() => { clearTimeout(tm); tm = setTimeout(tourRefit, 120); }); TOUR.ro.observe($('#app')); }
     $('#tour-root').innerHTML = '<div class="tour-bg" data-act="tour-noop"></div><div class="tour-probe" aria-hidden="true"></div><div class="tour-hole" aria-hidden="true"></div><section class="tour-tip" role="dialog" aria-modal="true" aria-live="polite"></section>';
     window.addEventListener('resize', tourPlace); window.addEventListener('scroll', tourPlace, { passive: true });
     tourGo(0, 1);
@@ -2859,15 +2860,31 @@
       (i > 0 ? '<button class="btn small" data-act="tour-prev">戻る</button>' : '') +
       '<button class="btn small primary" data-act="tour-next" autofocus>' + (i === steps.length - 1 ? '終わる' : '次へ') + '</button></div>';
     let wait = 30;
-    if (!fixed) {
-      // 光らせる所と吹き出しが一緒に収まるようにスクロール（収まらない大きさなら、上をそろえる）
-      const b = tourBounds(), r = el.getBoundingClientRect(), th = $('.tour-tip').getBoundingClientRect().height;
-      const room = b.floor - b.head - 20, need = r.height + 12 + 14 + th;
-      const want = need <= room ? b.head + 10 + (room - need) / 2 + 6 : b.head + 16;
-      const dy = r.top - want;
-      if (Math.abs(dy) > 2) { window.scrollBy({ top: dy, behavior: reduceMotion() ? 'auto' : 'smooth' }); wait = reduceMotion() ? 60 : 420; }
-    }
+    TOUR.fixed = fixed;
+    if (!fixed && tourScroll(el, !reduceMotion())) wait = reduceMotion() ? 60 : 420;
     setTimeout(() => { if (TOUR === my) { tourPlace(); $('#tour-root').classList.remove('moving'); const b = $('.tour-tip [autofocus]'); if (b) b.focus({ preventScroll: true }); } }, wait);
+  }
+  /** 光らせる所と吹き出しが一緒に収まるようにスクロール（収まらない大きさなら、上をそろえる）。動かしたら true */
+  function tourScroll(el, smooth) {
+    const b = tourBounds(), r = el.getBoundingClientRect(), th = $('.tour-tip').getBoundingClientRect().height;
+    const room = b.floor - b.head - 20, need = r.height + 12 + 14 + th;
+    const want = need <= room ? b.head + 10 + (room - need) / 2 + 6 : b.head + 16;
+    const dy = r.top - want;
+    if (Math.abs(dy) <= 2) return false;
+    window.scrollBy({ top: dy, behavior: smooth ? 'smooth' : 'auto' });
+    return true;
+  }
+  /** 案内の途中で画面の中身が後から読み込まれて場所がずれたら（動画の一覧など）、光らせる所が見える位置に合わせ直す */
+  function tourRefit() {
+    if (!TOUR || !TOUR.el || $('#tour-root').classList.contains('moving')) return;
+    if (!TOUR.el.isConnected) { const st = tourSteps(TOUR.key)[TOUR.i]; TOUR.el = st && tourFind(st); if (!TOUR.el) return; }
+    if (!TOUR.fixed) {
+      const b = tourBounds(), r = TOUR.el.getBoundingClientRect(), th = $('.tour-tip').getBoundingClientRect().height;
+      const fits = r.height + 26 + th <= b.floor - b.head - 20;
+      // 見えなくなった・吹き出しと一緒に収まらなくなったときだけ動かす（少しのずれは枠だけ合わせる）
+      if (r.top < b.head || (fits ? r.bottom + 26 + th > b.floor : r.top > b.head + 40)) tourScroll(TOUR.el, false);
+    }
+    tourPlace();
   }
   /** 画面の使える範囲：上の見出し（固定）の下端・下のタブ（固定）の上端と、body の zoom の倍率 */
   function tourBounds() {
@@ -2932,6 +2949,7 @@
   function endTour(done) {
     if (!TOUR) return;
     const t = TOUR; TOUR = null;
+    if (t.ro) t.ro.disconnect();
     Object.assign(S, t.saved); // 案内で切り替えたタブは元に戻す
     $('#tour-root').innerHTML = ''; $('#tour-root').classList.remove('moving');
     document.body.classList.remove('touring'); document.documentElement.classList.remove('touring');
