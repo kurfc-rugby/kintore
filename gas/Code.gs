@@ -10,7 +10,7 @@
  * 最初にやること：スプレッドシートのメニュー「筋トレ管理」→「管理者を登録」
  * 詳しくは 04_ドキュメント/筋トレ管理アプリ_使い方と引き継ぎ.md
  */
-const APP_VERSION = '2.24.0';
+const APP_VERSION = '2.27.0';
 const SCHEMA_VERSION = '12';
 const TZ = 'Asia/Tokyo';
 const SESSION_DAYS = 90;
@@ -1698,7 +1698,8 @@ function applyAppFields_(m, d, me, now) {
   if (d.perm !== undefined) s.perm = d.perm;
   if (d.start !== undefined) s.start = d.start;
   s.nameMemo = m.name; s.updatedAt = now;
-  if (permChanged && !STAFF[s.perm]) { s.pinHash = ''; s.pinSalt = ''; s.mustChange = '0'; s.failCount = '0'; s.lockUntil = ''; }
+  // 全員ログインのときは、役職が変わっても自分で決めた暗証番号はそのまま（以前は一般部員に戻すと消していた）
+  if (permChanged && !STAFF[s.perm] && !setlogOn_()) { s.pinHash = ''; s.pinSalt = ''; s.mustChange = '0'; s.failCount = '0'; s.lockUntil = ''; }
   update_('people', s);
   m.mode = s.mode; m.perm = s.perm; m.start = s.start;
   if (permChanged) killSessions_(m.id, '');
@@ -2849,7 +2850,8 @@ function opBulkPerms_(ctx) {
       const before = m.perm;
       applyAppFields_(m, { perm: want[id] }, me, now);
       changed.push(m.name + '（' + ENC.perm[before] + '→' + ENC.perm[m.perm] + '）');
-      if (STAFF[m.perm] && !(m.set && m.set.pinHash)) pins.push({ id: m.id, name: m.name, perm: m.perm, pin: issuePin_(m) });
+      // 全員ログインのときは、マネージャー・主将・副主将は自分で登録する。暗証番号を出すのは管理者にしたときだけ
+      if (STAFF[m.perm] && !(m.set && m.set.pinHash) && (!setlogOn_() || m.perm === 'admin')) pins.push({ id: m.id, name: m.name, perm: m.perm, pin: issuePin_(m) });
     });
     if (changed.length) log_(me, '役職をまとめて変更', changed.join('、') + (pins.length ? '・暗証番号を発行 ' + pins.length + '人' : ''));
     REQ_.members = null;
@@ -3606,7 +3608,7 @@ function extendSession_(s) {
 // ---- ログインの画面に出す名前の一覧（ログインしていない人に返すのはこれだけ） ----
 function loginList_(today) {
   const people = members_().filter(function (m) { return m.active && !m.gone && (!m.player || inRoster_(m, today) || STAFF[m.perm]); })
-    .map(function (m) { return { id: m.id, name: m.name, grade: m.grade || '', group: m.group || '', staff: !!STAFF[m.perm], reg: !!(m.set && m.set.pinHash) }; });
+    .map(function (m) { return { id: m.id, name: m.name, grade: m.grade || '', group: m.group || '', staff: !!STAFF[m.perm], admin: m.perm === 'admin', reg: !!(m.set && m.set.pinHash) }; });
   const guests = table_('guests').rows.filter(function (g) { return !g.deletedAt; }).map(function (g) { return { id: g.id, name: g.name }; });
   return { ok: true, version: APP_VERSION, today: today, me: null, needLogin: true, people: people, guests: guests };
 }
@@ -3623,7 +3625,8 @@ function opRegister_(ctx) {
   return withLock_(function () {
     const m = memberById_(id);
     if (!m || !m.active || m.gone) throw err_('not_found', 'その名前は見つかりません。');
-    if (STAFF[m.perm]) throw err_('staff', 'スタッフ（管理者・マネージャー・主将・副主将）は、管理者からもらった暗証番号でログインしてください。');
+    // マネージャー・主将・副主将も、選手と同じく自分で決める。管理者だけは、ほかの管理者が出した暗証番号で（いちばん強い権限なので）
+    if (m.perm === 'admin') throw err_('staff', '管理者は、ほかの管理者からもらった暗証番号でログインしてください。');
     if (m.set && m.set.pinHash) throw err_('already', 'この名前はもう登録されています。自分で登録していなければ、管理者に「登録を消して」と伝えてください。');
     const s = peopleRow_(m);
     s.pinSalt = randomHex_().slice(0, 32);
@@ -3636,7 +3639,7 @@ function opRegister_(ctx) {
     me.perm = m.perm;
     log_(me, '部員の登録', m.name + '（' + deviceLabel_(ctx.req.deviceName) + '）');
     cache.put('regCount', String(n + 1), 3600);
-    notifyAdmins_('部員の登録', m.name + ' さんが登録しました。本人でなければ、設定の「部員の登録」から消してください。', './#settings');
+    notifyAdmins_(STAFF[m.perm] ? 'スタッフの登録' : '部員の登録', m.name + ' さん' + (STAFF[m.perm] ? '（' + ENC.perm[m.perm] + '）' : '') + 'が登録しました。本人でなければ、設定の「部員の登録」から消してください。', './#settings');
     return { ok: true, token: token, me: me };
   });
 }
@@ -3647,7 +3650,7 @@ function opUnregister_(ctx) {
   return withLock_(function () {
     const m = memberById_(id);
     if (!m) throw err_('not_found', 'その部員は見つかりません。');
-    if (STAFF[m.perm]) throw err_('staff', 'スタッフの暗証番号は「暗証番号を発行」で出し直してください。');
+    if (m.perm === 'admin') throw err_('staff', '管理者の暗証番号は「暗証番号を発行」で出し直してください。');
     const s = peopleRow_(m);
     s.pinHash = ''; s.pinSalt = ''; s.mustChange = '0'; s.failCount = '0'; s.lockUntil = ''; s.updatedAt = now_();
     update_('people', s);
@@ -3776,7 +3779,7 @@ function clipState_(ctx, today) {
   const out = { loginAll: true, clipCode: clipCode_(today), clips: list.map(function (c) { return clipWire_(c, me); }) };
   if (me && me.perm === 'admin') {
     out.regs = {};
-    members_().forEach(function (m) { if (m.set && m.set.pinHash && !STAFF[m.perm]) out.regs[m.id] = 1; });
+    members_().forEach(function (m) { if (m.set && m.set.pinHash && m.perm !== 'admin') out.regs[m.id] = 1; }); // 自分で登録する人（管理者以外）
     out.guests = table_('guests').rows.filter(function (g) { return !g.deletedAt; }).map(function (g) { return { id: g.id, name: g.name, note: g.note }; });
   }
   if (staff) out.clipQueue = list.filter(function (c) { return c.status === 'pending' || (c.status === 'ok' && !c.checkedBy && clipFlags_(c).length); }).length;

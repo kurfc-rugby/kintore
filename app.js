@@ -3,7 +3,7 @@
   'use strict';
   const L = window.KLogic;
   const API = window.KINTORE_API;
-  const VERSION = '2.26.1';
+  const VERSION = '2.27.0-t1';
   const WD = ['日', '月', '火', '水', '木', '金', '土'];
   const PERM = { admin: '管理者', manager: 'マネージャー', captain: '主将', leader: '副主将', member: '一般部員', guest: '見るだけ' };
   // 権限を選ぶ一覧の並び
@@ -2547,9 +2547,9 @@
         '<dt>機種変更した</dt><dd>新しいスマホでホーム画面に追加し直して、' + (loginAll() ? 'ログイン' : '自分の名前') + '・通知をもう一度</dd></dl>'],
       // スタッフ
       loginAll() ? ['login', 'all', 'ログイン・暗証番号', 'はじめての登録・忘れたとき',
-        steps(['アプリを開くと<b>ログインの画面</b>。名前の一覧から<b>自分</b>を選ぶ', 'はじめての人は、自分だけの<b>暗証番号</b>（半角6文字以上）を決めて<b>「登録してはじめる」</b>。2回目からはその暗証番号でログイン', 'スタッフ（管理者・マネージャー・主将・副主将）と見るだけの人は、管理者からもらった暗証番号でログインし、最初に自分の暗証番号に変える']) +
+        steps(['アプリを開くと<b>ログインの画面</b>。名前の一覧から<b>自分</b>を選ぶ', 'はじめての人は、自分だけの<b>暗証番号</b>（半角6文字以上）を決めて<b>「登録してはじめる」</b>。2回目からはその暗証番号でログイン', 'マネージャー・主将・副主将も同じ。<b>管理者</b>と<b>見るだけの人</b>だけは、管理者からもらった暗証番号でログインし、最初に自分の暗証番号に変える']) +
         '<ul class="dots"><li>アプリを開くたびに、ログインの期限が<b>半年</b>のびます</li>' +
-        '<li>忘れたとき：選手は管理者に<b>「登録を消して」</b>と伝える → もう一度登録できます。スタッフはログイン画面の<b>「出し直しを頼む」</b></li>' +
+        '<li>忘れたとき：管理者に<b>「登録を消して」</b>と伝える → もう一度登録できます（マネージャー・主将・副主将も同じ）。管理者はログイン画面の<b>「出し直しを頼む」</b></li>' +
         '<li>5回まちがえると15分ログインできません</li><li>ほかの人の名前で登録しないでください（管理者が消します）</li>' +
         '<li>iPhone は、ホーム画面に追加したアプリと Safari でログインが別です</li></ul>'] :
       ['login', 'staff', 'ログインする', '暗証番号・忘れたとき',
@@ -2599,7 +2599,7 @@
         '<li><b>進級</b>：新年度に1回。1年→2年…、4年・M2は卒業／進学／そのままを選ぶ（留年は「そのまま」）</li><li>名簿は会計アプリと共通です</li></ul>'],
       loginAll() ? ['regs', 'admin', '部員の登録・主将と副主将・見るだけの人', 'だれが登録したか・登録を消す・免除を認める人・監督やOB',
         '<ul class="dots"><li>「設定」→ <b>「部員の登録」</b>：だれが登録したか（人数とまだの人）。本人ではない登録や、暗証番号を忘れた人は<b>「登録を消す」</b>→ 本人がもう一度登録できます（部員の編集画面にもあります）</li>' +
-        '<li>部員の編集で<b>筋トレアプリの権限</b>を「主将」「副主将」にした人は、メニューを作れて、選手の免除の申し込みを認められます（管理者からもらった暗証番号でログイン）。名簿の<b>役割</b>が「主将」「副主将」の選手も、自動でそうなります</li>' +
+        '<li>部員の編集で<b>筋トレアプリの権限</b>を「主将」「副主将」にした人は、メニューを作れて、選手の免除の申し込みを認められます（ログインは選手と同じく、本人が暗証番号を決めて登録）。名簿の<b>役割</b>が「主将」「副主将」の選手も、自動でそうなります</li>' +
         '<li>「設定」→ <b>「見るだけの人」</b>：監督・コーチ・OB などを追加すると、最初の暗証番号が出ます。本人に直接伝えてください</li>' +
         '<li>アイコンがふさわしくないときは、その人のページで<b>「アイコンを元に戻す」</b></li></ul>'] : null,
       ['roles', 'admin', '役職の交代・暗証番号', '新年度の主将・副主将・マネージャー',
@@ -3153,10 +3153,10 @@
       '<p class="form-err" hidden></p>' +
       '<div class="actions"><button type="button" class="btn" data-act="sheet-close">やめる</button><button class="btn primary" type="submit">' + (m ? '変更を保存' : '部員を追加') + '</button></div>' +
       (m ? '<div class="danger-zone">' +
-        (loginAll() && m.active && m.player && m.perm === 'member' ? '<div class="reg-st"><span>アプリの登録：<b>' + ((S.data.regs || {})[m.id] ? '登録済み' : 'まだ') + '</b></span>' +
+        (loginAll() && m.active && m.perm !== 'admin' && (m.player || m.perm !== 'member') ? '<div class="reg-st"><span>アプリの登録：<b>' + ((S.data.regs || {})[m.id] ? '登録済み' : 'まだ') + '</b></span>' +
           ((S.data.regs || {})[m.id] ? '<button type="button" class="btn" data-act="unreg" data-id="' + m.id + '" data-back="member">登録を消す</button>' : '') + '</div>' +
           '<p class="hint">本人ではない人が登録していたときや、本人が暗証番号を忘れたときに消すと、本人がもう一度登録できます。</p>' : '') +
-        (m.active && m.perm !== 'member' ? '<button type="button" class="btn" data-act="pin-reset" data-id="' + m.id + '">暗証番号を発行' + (m.pinSet ? 'し直す' : '') + '</button>' +
+        (m.active && m.perm !== 'member' && (!loginAll() || m.perm === 'admin') ? '<button type="button" class="btn" data-act="pin-reset" data-id="' + m.id + '">暗証番号を発行' + (m.pinSet ? 'し直す' : '') + '</button>' +
           '<p class="hint">' + (m.pinSet ? (m.locked ? 'いまロック中です。出し直すと解除されます。' : (m.mustChange ? '発行済み（本人がまだ変更していません）' : '設定済み')) : 'まだ発行していないので、この人はログインできません。') + '</p>' : '') +
         (m.active ? (m.finance ? '<p class="hint">財務の人の在籍は会計アプリで外します。</p>' : '<button type="button" class="btn danger" data-act="member-del" data-id="' + m.id + '">在籍を外す（卒業・退部）</button><p class="hint">会計アプリの名簿でも在籍なしになります。これまでの記録は残り、あとで戻せます。</p>')
           : '<button type="button" class="btn" data-act="member-restore" data-id="' + m.id + '">在籍に戻す</button>') + '</div>' : '') +
@@ -3559,9 +3559,9 @@
       form = '<form data-form="mlogin" class="form"><input type="hidden" name="memberId" value="' + esc(sel.id) + '">' +
         '<label>暗証番号<input type="password" name="pin" autocomplete="current-password" required autofocus></label>' +
         '<p class="form-err" role="alert" hidden></p><button class="btn primary wide" type="submit">ログイン</button></form>' +
-        '<p class="hint">' + (tab === 'guest' ? '暗証番号を忘れたら、管理者に出し直してもらってください。' : sel.staff ? '暗証番号を忘れたら<button type="button" class="linkbtn inline" data-act="pinreq-open">出し直しを頼む</button>' : '暗証番号を忘れたら、管理者に「登録を消して」と頼んでください。もう一度登録できます。') + '</p>';
-    } else if (sel && sel.staff) {
-      form = '<p class="lead-line small">スタッフ（管理者・マネージャー・主将・副主将）は、管理者からもらった暗証番号でログインします。まだもらっていなければ、管理者に頼んでください。</p>';
+        '<p class="hint">' + (tab === 'guest' ? '暗証番号を忘れたら、管理者に出し直してもらってください。' : sel.admin ? '暗証番号を忘れたら<button type="button" class="linkbtn inline" data-act="pinreq-open">出し直しを頼む</button>' : '暗証番号を忘れたら、管理者に「登録を消して」と頼んでください。もう一度登録できます。') + '</p>';
+    } else if (sel && sel.admin) { // 管理者だけは、ほかの管理者が出した暗証番号で（マネージャー・主将・副主将は選手と同じく自分で登録）
+      form = '<p class="lead-line small">管理者は、ほかの管理者からもらった暗証番号でログインします。まだもらっていなければ、管理者に頼んでください。</p>';
     } else if (sel) {
       form = '<form data-form="register" class="form"><input type="hidden" name="memberId" value="' + esc(sel.id) + '">' +
         '<p class="lead-line small"><b>' + esc(sel.name) + '</b> さん、はじめての登録です。自分だけが知っている暗証番号を決めてください。次からはこの暗証番号でログインします。</p>' +
@@ -4341,12 +4341,12 @@
 
   // ---- 管理者：部員の登録・見るだけの人 ----
   function openRegs() {
-    const list = sortMembers(S.data.members.filter((x) => x.active && x.perm === 'member'));
+    const list = sortMembers(S.data.members.filter((x) => x.active && x.perm !== 'admin' && (x.player || x.perm !== 'member'))); // 自分で登録する人（管理者以外）
     const reg = (S.data.regs || {});
     openSheet('部員の登録',
-      '<p class="lead-line small">部員は自分で名前を選んで登録します。本人ではない人が登録していたら「登録を消す」を押してください。本人がもう一度登録できます。</p>' +
+      '<p class="lead-line small">部員（マネージャー・主将・副主将も）は自分で名前を選んで登録します。本人ではない人が登録していたら「登録を消す」を押してください。本人がもう一度登録できます。</p>' +
       '<p class="reg-n"><b>登録済み ' + list.filter((x) => reg[x.id]).length + ' / ' + list.length + '人</b>' + (list.some((x) => !reg[x.id]) ? '<small>まだの人：' + list.filter((x) => !reg[x.id]).map((x) => esc(x.name)).join('、') + '</small>' : '<small>全員が登録しました</small>') + '</p>' +
-      '<ul class="exlist">' + list.map((x) => '<li><span class="ex-r"><b>' + esc(x.name) + '</b><small>' + esc(x.grade || '') + '・' + (reg[x.id] ? '登録済み' : '未登録') + '</small></span>' +
+      '<ul class="exlist">' + list.map((x) => '<li><span class="ex-r"><b>' + esc(x.name) + '</b><small>' + esc(x.grade || '') + (x.perm !== 'member' ? '・' + PERM[x.perm] : '') + '・' + (reg[x.id] ? '登録済み' : '未登録') + '</small></span>' +
         (reg[x.id] ? '<span class="pr-a"><button class="btn small" data-act="unreg" data-id="' + x.id + '">登録を消す</button></span>' : '<span></span>') + '</li>').join('') + '</ul>', { wide: true });
   }
   async function openGuests() {
@@ -4972,7 +4972,8 @@
           const r = await api('saveMember', { member: member });
           closeSheet(); await loadState(); render();
           const m = memberById(r.member.id);
-          if (m && m.perm !== 'member' && !m.pinSet) toast('保存しました。ログインできるように「編集」から暗証番号を発行してください');
+          if (m && m.perm !== 'member' && !m.pinSet && (!loginAll() || m.perm === 'admin')) toast('保存しました。ログインできるように「編集」から暗証番号を発行してください');
+          else if (m && loginAll() && m.perm !== 'member' && m.perm !== 'admin' && !(S.data.regs || {})[m.id]) toast('保存しました。本人がログインの画面で自分の暗証番号を決めて登録します');
           else toast(member.id ? '変更を保存しました' : '部員を追加しました（会計アプリの名簿にも入りました）');
         } catch (e) { sheetError(e.message); }
       });

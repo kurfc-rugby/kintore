@@ -96,7 +96,26 @@ r = api({ op: 'register', memberId: id['森 健太'], pin: 'mori-pin-1', deviceN
 ok(r.ok && r.token && r.me.perm === 'member', '名前を選んで暗証番号を決めると、そのままログインする');
 const MORI = r.token;
 ok(api({ op: 'register', memberId: id['森 健太'], pin: 'other-pin-1' }).error === 'already', '登録済みの名前は登録できない（なりすまし防止）');
-ok(api({ op: 'register', memberId: id['マネ 花子'], pin: 'other-pin-1' }).error === 'staff', 'スタッフは自分で登録できない');
+ok(api({ op: 'register', memberId: id['マネ 花子'], pin: 'other-pin-1' }).error === 'already', '登録済みのスタッフの名前も登録できない');
+{ // マネージャー・主将・副主将も、選手と同じく自分で暗証番号を決めて登録する。管理者だけは発行
+  api({ op: 'saveMember', token: A, member: { id: id['前田 剛'], perm: 'admin' } });
+  ok(api({ op: 'register', memberId: id['前田 剛'], pin: 'maeda-pin-1' }).error === 'staff', '管理者は自分で登録できない（ほかの管理者が暗証番号を出す）');
+  const lg = api({ op: 'state' }).people.find((x) => x.id === id['前田 剛']);
+  ok(lg && lg.admin === true && lg.staff === true, 'ログインの画面に、管理者かどうかが出る');
+  const bp = api({ op: 'bulkPerms', token: A, rows: [{ id: id['前田 剛'], perm: 'manager' }] });
+  ok(bp.ok && bp.pins.length === 0, '役職をマネージャーにしても、暗証番号は発行しない（本人が登録する）');
+  const rg = api({ op: 'register', memberId: id['前田 剛'], pin: 'maeda-pin-1', deviceName: 'Android' });
+  ok(rg.ok && rg.token && rg.me.perm === 'manager', 'マネージャーも名前を選んで暗証番号を決めると、そのままログインする');
+  ok(gas.sheet('操作履歴').data.some((row) => row.join('|').includes('部員の登録') && row.join('|').includes('前田 剛')), 'スタッフの登録も操作履歴に残る');
+  ok(api({ op: 'state', token: A }).regs[id['前田 剛']] === 1, '管理者の「部員の登録」にスタッフも出る');
+  ok(api({ op: 'unregister', token: A, memberId: id['前田 剛'] }).ok, '管理者はスタッフの登録も消せる（なりすましのとき）');
+  ok(api({ op: 'state', token: rg.token }).needLogin === true || api({ op: 'state', token: rg.token }).me == null, '登録を消すと、その端末はログアウトになる');
+  ok(api({ op: 'register', memberId: id['前田 剛'], pin: 'maeda-pin-2' }).ok, '本人がもう一度登録できる');
+  api({ op: 'bulkPerms', token: A, rows: [{ id: id['前田 剛'], perm: 'member' }] });
+  const back = api({ op: 'login', memberId: id['前田 剛'], pin: 'maeda-pin-2' });
+  ok(back.ok && back.me.perm === 'member', '役職を一般部員に戻しても、自分で決めた暗証番号はそのまま（ログインし直すだけ）');
+  ok(api({ op: 'unregister', token: A, memberId: id['橋本 侑青'] }).error === 'staff', '管理者の登録は消せない（暗証番号の発行で出し直す）');
+}
 ok(gas.sheet('操作履歴').data.some((row) => row.join('|').includes('部員の登録')), '登録は操作履歴に残る');
 st = api({ op: 'state', token: MORI });
 ok(st.me && st.me.perm === 'member' && st.members && st.records && st.clipCode >= 10 && st.clipCode <= 99 && Array.isArray(st.clips), 'ログインした部員は全部見られる（今日の数字・動画の一覧つき）');
