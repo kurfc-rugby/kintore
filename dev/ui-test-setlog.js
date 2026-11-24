@@ -275,6 +275,35 @@ const shot = async (p, name) => { if (SHOT) { require('fs').mkdirSync(SHOT, { re
     await shot(q, '21-icon-ranking');
     await q.evaluate(() => { location.hash = '#clips'; }); await q.waitForTimeout(800);
     ok(await q.locator('.clip-meta .av').count() > 0, '動画の一覧にもアイコンが出る');
+    { // 先読みの途中で「＜」を押しても、読み終わったら一覧が出る（「読み込んでいます…」のまま止まらない）
+      await q.evaluate(() => { window.__clipCacheClear(); localStorage.setItem('kintoreTest.clipUnit', 'day'); location.hash = '#home'; }); await q.waitForTimeout(300);
+      await q.route('**/exec', async (r) => { let op = ''; try { op = JSON.parse(r.request().postData() || '{}').op; } catch (e) { /* noop */ } if (op === 'clips') await new Promise((ok2) => setTimeout(ok2, 1500)); try { await r.fallback(); } catch (e) { /* noop */ } });
+      await q.evaluate(() => { location.hash = '#clips'; });
+      await q.waitForSelector('.clip-pbar'); await q.waitForFunction(() => !document.querySelector('#app .loading'), null, { timeout: 8000 });
+      await q.waitForTimeout(500); // 前の日の先読みが始まる
+      await q.click('[data-act="clip-day"][data-v="-1"]'); await q.waitForTimeout(200);
+      const mid = await q.locator('#app .loading').count();
+      await q.click('[data-act="clip-day"][data-v="-1"]'); await q.waitForTimeout(150);
+      await q.waitForFunction(() => !document.querySelector('#app .loading'), null, { timeout: 9000 }).catch(() => {});
+      const stuck = await q.locator('#app .loading').count();
+      await q.unroute('**/exec');
+      ok(stuck === 0, '動画：前の日を続けて押しても、読み終わったら一覧が出る（読み込んでいますのまま止まらない）（途中 ' + mid + '）');
+      // 週で見る
+      await q.click('[data-act="clip-unit"][data-v="week"]'); await q.waitForFunction(() => !document.querySelector('#app .loading'), null, { timeout: 8000 });
+      const wk = await q.evaluate(() => ({ lbl: document.querySelector('.clip-pbar .plabel').innerText, days: document.querySelectorAll('.clip-wday').length, cards: document.querySelectorAll('.clip-wday .clip-card').length, next: !!document.querySelector('[data-act="clip-week"][data-v="1"][disabled]'), unit: localStorage.getItem('kintoreTest.clipUnit') }));
+      ok(/今週|先週|週前/.test(wk.lbl) && /〜/.test(wk.lbl) && (wk.days > 0 || /ありません/.test(await q.locator('#app').innerText())) && /week/.test(wk.unit || ''), '動画を「週」で見られる：月〜日の1週間を、日ごとの見出しで並べる（' + wk.lbl.replace(/\n/g, ' ') + '・' + wk.days + '日・' + wk.cards + '本）');
+      await shot(q, '26-clips-week');
+      const l0 = await q.locator('.clip-pbar .plabel b').innerText();
+      await q.click('[data-act="clip-week"][data-v="-1"]'); await q.waitForFunction(() => !document.querySelector('#app .loading'), null, { timeout: 8000 }).catch(() => {});
+      const l1 = await q.locator('.clip-pbar .plabel b').innerText();
+      for (let i = 0; i < 4 && !(await q.locator('[data-act="clip-week"][data-v="1"][disabled]').count()); i++) { await q.click('[data-act="clip-week"][data-v="1"]'); await q.waitForTimeout(500); }
+      const l2 = await q.locator('.clip-pbar .plabel b').innerText();
+      await q.waitForFunction(() => !document.querySelector('#app .loading'), null, { timeout: 8000 }).catch(() => {}); await shot(q, '27-clips-thisweek');
+      ok(l1 !== l0 && /週前/.test(l1) && l2 === '今週', '「＜」「＞」で前の週・次の週へ移れる（' + l0 + '→' + l1 + '→' + l2 + '。今週より先へは進めない）');
+      await q.evaluate(() => { location.hash = '#home'; }); await q.waitForTimeout(300); await q.evaluate(() => { location.hash = '#clips'; }); await q.waitForTimeout(600);
+      ok(await q.locator('[data-act="clip-unit"][data-v="week"][aria-pressed="true"]').count() === 1, '次に開いたときも「週」のまま');
+      await q.click('[data-act="clip-unit"][data-v="day"]'); await q.waitForTimeout(300);
+    }
     // 写真
     await q.evaluate((h) => { location.hash = h; }, myHash); await q.waitForTimeout(500);
     await q.click('[data-act="icon-edit"]'); await q.waitForSelector('.ice');

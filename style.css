@@ -1555,6 +1555,9 @@ body.cam-open { overflow: hidden; }
 .clip-done.wait { color: #7a5200; }
 .clip-pbar { justify-content: center; }
 .clip-pbar .pnav { margin: 0 auto; }
+.clip-unit { display: flex; justify-content: center; margin: 6px 0 2px; }
+.clip-unit .seg button { min-width: 64px; }
+.clip-wday .block-h h2 small { font-size: 12px; font-weight: 700; margin-left: 8px; color: var(--enji-bg); }
 
 /* テスト環境：送った時間の内訳 */
 .times { padding: 10px 0; border-top: 1px solid var(--line); font-size: .86rem; }

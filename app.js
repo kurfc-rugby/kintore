@@ -3,7 +3,7 @@
   'use strict';
   const L = window.KLogic;
   const API = window.KINTORE_API;
-  const VERSION = '2.27.0';
+  const VERSION = '2.27.1-t1';
   const WD = ['日', '月', '火', '水', '木', '金', '土'];
   const PERM = { admin: '管理者', manager: 'マネージャー', captain: '主将', leader: '副主将', member: '一般部員', guest: '見るだけ' };
   // 権限を選ぶ一覧の並び
@@ -3973,7 +3973,7 @@
   S.marked = {};
   /** 読み込み済みの動画の一覧（その日・その人）に1本入れる／置きかえる。一覧は捨てない（捨てると「読み込んでいます」に戻ってしまう） */
   function cacheUpsert(c) {
-    ['d:' + c.d, 'm:' + c.m + ':' + c.d.slice(0, 7)].forEach((k) => {
+    ['d:' + c.d, 'w:' + L.weekStart(c.d), 'm:' + c.m + ':' + c.d.slice(0, 7)].forEach((k) => {
       const l = S.clipCache[k];
       if (!Array.isArray(l)) return;
       const rest = l.filter((x) => x.id !== c.id && !(x.local && x.at === c.at && x.m === c.m));
@@ -4165,18 +4165,25 @@
   // ---- 動画の一覧・再生 ----
   S.clipCache = {}; S.clipThumb = {}; S.clipUrl = {};
   /** 動画の一覧を読む。opt.ahead：先読み（画面は描き直さない・エラーも出さない・動画は先に取らない） */
+  // 先読みの途中でその一覧を開いた（画面が待っている）もの。先読みが終わったら描き直す
+  S.clipWait = {};
   async function loadClips(key, payload, opt) {
     const ahead = !!(opt && opt.ahead);
     if (S.clipCache[key] && S.clipCache[key] !== 'loading') return S.clipCache[key];
-    if (S.clipCache[key] === 'loading') return null;
+    if (S.clipCache[key] === 'loading') { if (!ahead) S.clipWait[key] = payload; return null; }
     S.clipCache[key] = 'loading';
     try {
       const r = await api('clips', payload);
       r.clips.forEach((c) => { if (c.th) S.clipThumb[c.id] = c.th; });
       S.clipCache[key] = r.clips;
-      if (!ahead) prefetchClips(r.clips);
-    } catch (e) { if (ahead) delete S.clipCache[key]; else { S.clipCache[key] = null; toast(e.message, 'err'); } }
-    if (!ahead) render();
+      if (!ahead || S.clipWait[key]) prefetchClips(r.clips);
+    } catch (e) {
+      if (ahead) delete S.clipCache[key]; else { S.clipCache[key] = null; toast(e.message, 'err'); }
+      // 先読みに失敗して、画面が待っていたら、もう一度取りに行く
+      if (ahead && S.clipWait[key]) { const pl = S.clipWait[key]; delete S.clipWait[key]; return loadClips(key, pl); }
+    }
+    const waited = !!S.clipWait[key]; delete S.clipWait[key];
+    if (!ahead || waited) render();
     return S.clipCache[key];
   }
   /** 動画を取ってきて、再生できる形（Blob の URL）にする。同じ動画を2回取りに行かない */
@@ -4234,13 +4241,36 @@
         (!Array.isArray(list) ? '<p class="empty loading">読み込んでいます…</p>' : list.length ? '<div class="clip-grid">' + list.map((c) => clipCard(c, { date: true })).join('') + '</div>' : '<p class="empty">確認が要る動画はありません。</p>') + '</section>';
       return h;
     }
+    const keep = L.addDays(today, -CLIP_KEEP);
+    const unit = S.clipUnit || store.get('clipUnit', 'day');
+    h += '<div class="clip-unit"><div class="seg" role="group" aria-label="見る単位"><button data-act="clip-unit" data-v="day" aria-pressed="' + (unit === 'day') + '">日</button><button data-act="clip-unit" data-v="week" aria-pressed="' + (unit === 'week') + '">週</button></div></div>';
+    if (unit === 'week') {
+      // 1週間（月〜日）分をまとめて読み、日ごとに見出しを付けて並べる
+      const ws = L.weekStart(day), we = L.addDays(ws, 6), thisWs = L.weekStart(today);
+      const from = ws < keep ? keep : ws, to = we > today ? today : we;
+      const key = 'w:' + ws, list = S.clipCache[key];
+      if (list === undefined) loadClips(key, { from: from, to: to });
+      const pws = L.addDays(ws, -7);
+      if (Array.isArray(list) && S.clipCache['w:' + pws] === undefined && L.addDays(pws, 6) >= keep) setTimeout(() => loadClips('w:' + pws, { from: pws < keep ? keep : pws, to: L.addDays(pws, 6) }, { ahead: true }), 300);
+      const shown = Array.isArray(list) ? list.filter((c) => c.st !== 'canceled' || can('anyStaff') || (me() && c.m === me().id)) : [];
+      const wk = ws === thisWs ? '今週' : ws === L.addDays(thisWs, -7) ? '先週' : (Math.round((L.parse(thisWs) - L.parse(ws)) / 6048e5)) + '週前';
+      h += '<div class="pbar clip-pbar"><div class="pnav"><button class="ibtn" data-act="clip-week" data-v="-1" aria-label="前の週"' + (L.addDays(ws, -1) < keep ? ' disabled' : '') + '>' + icon('back') + '</button>' +
+        '<div class="plabel"><b>' + wk + '</b><span>' + mdw(ws) + '〜' + mdw(we) + (Array.isArray(list) ? '・' + list.length + '本' : '') + '</span></div>' +
+        '<button class="ibtn" data-act="clip-week" data-v="1" aria-label="次の週"' + (ws >= thisWs ? ' disabled' : '') + '>' + icon('next') + '</button></div></div>';
+      if (!Array.isArray(list)) return h + '<section class="block"><p class="empty loading">読み込んでいます…</p></section>';
+      if (!list.length) return h + '<section class="block"><p class="empty">' + (ws === thisWs ? '今週はまだだれも出していません。' : 'この週の動画はありません。') + '</p></section>';
+      const days = [];
+      for (let d = to; d >= from; d = L.addDays(d, -1)) { const l = list.filter((c) => c.d === d); if (l.length) days.push([d, l]); }
+      return h + days.map(([d, l]) => '<section class="block clip-wday"><div class="block-h"><h2>' + mdw(d) + (d === today ? '<small>今日</small>' : d === L.addDays(today, -1) ? '<small>昨日</small>' : '') + '</h2><span class="count">' + l.length + '本</span></div>' +
+        '<div class="clip-grid">' + l.map((c) => clipCard(c)).join('') + '</div></section>').join('');
+    }
     const list = S.clipCache['d:' + day];
     if (list === undefined) loadClips('d:' + day, { from: day, to: day });
     // 前の日の一覧も先に取っておく（「＜」ですぐ出る）。今の日を読み終わってから
     const prev = L.addDays(day, -1);
-    if (Array.isArray(list) && S.clipCache['d:' + prev] === undefined && prev >= L.addDays(today, -CLIP_KEEP)) setTimeout(() => loadClips('d:' + prev, { from: prev, to: prev }, { ahead: true }), 300);
+    if (Array.isArray(list) && S.clipCache['d:' + prev] === undefined && prev >= keep) setTimeout(() => loadClips('d:' + prev, { from: prev, to: prev }, { ahead: true }), 300);
     const n = Array.isArray(list) ? list.length : (S.data.clips || []).filter((c) => c.d === day && c.st !== 'canceled').length;
-    h += '<div class="pbar clip-pbar"><div class="pnav"><button class="ibtn" data-act="clip-day" data-v="-1" aria-label="前の日">' + icon('back') + '</button>' +
+    h += '<div class="pbar clip-pbar"><div class="pnav"><button class="ibtn" data-act="clip-day" data-v="-1" aria-label="前の日"' + (prev < keep ? ' disabled' : '') + '>' + icon('back') + '</button>' +
       '<div class="plabel"><b>' + (day === today ? '今日' : day === L.addDays(today, -1) ? '昨日' : (Math.round((L.parse(today) - L.parse(day)) / 864e5)) + '日前') + '</b><span>' + mdw(day) + '・' + n + '本</span></div>' +
       '<button class="ibtn" data-act="clip-day" data-v="1" aria-label="次の日"' + (day >= today ? ' disabled' : '') + '>' + icon('next') + '</button></div></div>';
     h += '<section class="block">' + (!Array.isArray(list) ? '<p class="empty loading">読み込んでいます…</p>'
@@ -4800,6 +4830,8 @@
     'clip-retry': (el) => busy(el, () => retryClips(true)),
     'clip-drop': () => { if (!confirm('送れていない動画を捨てますか？（その日の「実施した」は付きません）')) return; store.del('clipQueue'); CLIPQ.clear(); render(); },
     'clips-tab': (el) => { location.hash = el.dataset.v === 'queue' ? '#clips/queue' : '#clips'; },
+    'clip-unit': (el) => { S.clipUnit = el.dataset.v; store.set('clipUnit', el.dataset.v); render(); },
+    'clip-week': (el) => { const d = L.addDays(L.weekStart(S.clipDay || S.data.today), 7 * +el.dataset.v); if (d > S.data.today) return; S.clipDay = d === L.weekStart(S.data.today) ? S.data.today : d; vt(render, +el.dataset.v < 0 ? 'prev' : 'next'); },
     'clip-day': (el) => { const d = L.addDays(S.clipDay || S.data.today, +el.dataset.v); if (d > S.data.today) return; S.clipDay = d; vt(render, +el.dataset.v < 0 ? 'prev' : 'next'); },
     'clip-open': (el) => openClip(el.dataset.id),
     'clip-flag': async (el) => {
