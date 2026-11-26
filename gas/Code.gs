@@ -10,7 +10,7 @@
  * 最初にやること：スプレッドシートのメニュー「筋トレ管理」→「管理者を登録」
  * 詳しくは 04_ドキュメント/筋トレ管理アプリ_使い方と引き継ぎ.md
  */
-const APP_VERSION = '2.27.0';
+const APP_VERSION = '2.27.1';
 const SCHEMA_VERSION = '12';
 const TZ = 'Asia/Tokyo';
 const SESSION_DAYS = 90;
@@ -235,6 +235,7 @@ function dispatch_(op, ctx) {
     case 'clipDraftDrop': return opClipDraftDrop_(ctx);
     case 'clipUpload': return opClipUpload_(ctx);
     case 'clips': return opClips_(ctx);
+    case 'clipThumbs': return opClipThumbs_(ctx);
     case 'clipVideo': return opClipVideo_(ctx);
     case 'clipFlag': return opClipFlag_(ctx);
     case 'clipCancel': return opClipCancel_(ctx);
@@ -300,7 +301,7 @@ function dispatch_(op, ctx) {
   }
 }
 /** 書いたあとの最新の情報を付けない操作（読むだけ・ログインまわり・動画を送るなど） */
-const NO_AFTER = { ping: 1, state: 1, login: 1, logout: 1, register: 1, viewLogin: 1, changePin: 1, clipStart: 1, clipDraft: 1, clipDraftDrop: 1, clipUpload: 1, clipVideo: 1, clips: 1, icons: 1, logs: 1, sessions: 1, trash: 1, feedbackList: 1, memberHistory: 1, menuArchive: 1, pushInbox: 1, pushMove: 1, clientError: 1 };
+const NO_AFTER = { ping: 1, state: 1, login: 1, logout: 1, register: 1, viewLogin: 1, changePin: 1, clipStart: 1, clipDraft: 1, clipDraftDrop: 1, clipUpload: 1, clipVideo: 1, clips: 1, clipThumbs: 1, icons: 1, logs: 1, sessions: 1, trash: 1, feedbackList: 1, memberHistory: 1, menuArchive: 1, pushInbox: 1, pushMove: 1, clientError: 1 };
 
 function err_(code, message) {
   const e = new Error(message);
@@ -4312,8 +4313,22 @@ function opClips_(ctx) {
   list = list.sort(function (a, b) { return a.recordedAt < b.recordedAt ? 1 : -1; }).slice(0, 200);
   const ids = {};
   list.forEach(function (c) { ids[c.id] = 1; });
+  // nothumb：一覧だけすぐ返す（サムネイルは clipThumbs で、見えるものから少しずつ取る）
+  const th = ctx.req.nothumb ? {} : clipThumbsFor_(ids);
+  return { ok: true, from: from, to: to, clips: list.map(function (c) { const w = clipWire_(c, me); if (!ctx.req.nothumb) w.th = c.deletedAt ? '' : (th[c.id] || ''); return w; }) };
+}
+/** サムネイルだけを、指定した動画の分（一度に40本まで）。見られない動画の分は返さない。無いものは '' */
+function opClipThumbs_(ctx) {
+  const me = requireRole_(ctx, ['admin', 'manager', 'leader', 'member', 'guest']);
+  const staff = !!STAFF[me.perm];
+  const want = {};
+  (Array.isArray(ctx.req.ids) ? ctx.req.ids : []).slice(0, 40).forEach(function (id) { want[String(id)] = 1; });
+  const ids = {};
+  table_('clips').rows.forEach(function (c) { if (want[c.id] && shown_(c) && !c.deletedAt && (c.status !== 'canceled' || staff || c.memberId === me.id)) ids[c.id] = 1; });
   const th = clipThumbsFor_(ids);
-  return { ok: true, from: from, to: to, clips: list.map(function (c) { const w = clipWire_(c, me); w.th = c.deletedAt ? '' : (th[c.id] || ''); return w; }) };
+  const out = {};
+  Object.keys(want).forEach(function (id) { out[id] = th[id] || ''; });
+  return { ok: true, th: out };
 }
 function opClipVideo_(ctx) {
   const me = requireRole_(ctx, ['admin', 'manager', 'leader', 'member', 'guest']);

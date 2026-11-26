@@ -106,7 +106,10 @@ const shot = async (p, name) => { if (SHOT) { require('fs').mkdirSync(SHOT, { re
   ok(await b.p.locator('.clip-grid .clip-card').count() >= 1, '「動画」の一覧に森さんの動画が出る');
   ok(reqs.includes('video'), '一覧（ホームの今日の動画）が出たら、押す前に動画を先に取っておく');
   const yday = await b.p.evaluate(() => { const d = new Date(Date.now() + 9 * 3600e3 - 864e5); return d.toISOString().slice(0, 10); });
-  ok(reqs.includes('clips:' + yday), '前の日の一覧も先に取っておく');
+  ok(!reqs.includes('clips:' + yday), '最近35日の前の日は、手元の一覧ですぐ出るので先読みしない');
+  await b.p.click('[data-act="clip-day"][data-v="-1"]'); await b.p.waitForTimeout(150);
+  ok(await b.p.locator('#app .loading').count() === 0, '「＜」で前の日もすぐ出る（読み込んでいますを出さない）');
+  await b.p.click('[data-act="clip-day"][data-v="1"]'); await b.p.waitForTimeout(300);
   const nv0 = reqs.filter((x) => x === 'video').length;
   await shot(b.p, '07-clips');
   await b.p.click('.clip-grid .clip-card'); await b.p.waitForTimeout(400);
@@ -279,7 +282,13 @@ const shot = async (p, name) => { if (SHOT) { require('fs').mkdirSync(SHOT, { re
       await q.evaluate(() => { window.__clipCacheClear(); localStorage.setItem('kintoreTest.clipUnit', 'day'); location.hash = '#home'; }); await q.waitForTimeout(300);
       await q.route('**/exec', async (r) => { let op = ''; try { op = JSON.parse(r.request().postData() || '{}').op; } catch (e) { /* noop */ } if (op === 'clips') await new Promise((ok2) => setTimeout(ok2, 1500)); try { await r.fallback(); } catch (e) { /* noop */ } });
       await q.evaluate(() => { location.hash = '#clips'; });
-      await q.waitForSelector('.clip-pbar'); await q.waitForFunction(() => !document.querySelector('#app .loading'), null, { timeout: 8000 });
+      await q.waitForSelector('.clip-pbar'); await q.waitForTimeout(300);
+      const fast = await q.evaluate(() => ({ cards: document.querySelectorAll('#app .clip-card').length, loading: document.querySelectorAll('#app .loading').length }));
+      ok(fast.cards > 0 && fast.loading === 0, '動画の一覧は、サーバーの返事を待たずにすぐ出る（アプリを開いたときに届いている一覧から）（' + fast.cards + '本）');
+      await q.waitForFunction(() => document.querySelectorAll('#app .clip-card img').length > 0, null, { timeout: 8000 }).catch(() => {});
+      const thumbs = await q.evaluate(() => [document.querySelectorAll('#app .clip-card img').length, document.querySelectorAll('#app .clip-card').length]);
+      ok(thumbs[0] > 0, 'サムネイルは、届いたものから順に絵が入る（' + thumbs.join('/') + '）');
+      await q.waitForFunction(() => !document.querySelector('#app .loading'), null, { timeout: 8000 });
       await q.waitForTimeout(500); // 前の日の先読みが始まる
       await q.click('[data-act="clip-day"][data-v="-1"]'); await q.waitForTimeout(200);
       const mid = await q.locator('#app .loading').count();
@@ -288,6 +297,17 @@ const shot = async (p, name) => { if (SHOT) { require('fs').mkdirSync(SHOT, { re
       const stuck = await q.locator('#app .loading').count();
       await q.unroute('**/exec');
       ok(stuck === 0, '動画：前の日を続けて押しても、読み終わったら一覧が出る（読み込んでいますのまま止まらない）（途中 ' + mid + '）');
+      { // 2回目は、端末にしまったサムネイルを使う（サーバーに取りに行かない）
+        await q.evaluate(() => { window.__clipThumbReset && window.__clipThumbReset(); location.hash = '#home'; }); await q.waitForTimeout(300);
+        let asked = 0; const onReq = (rq) => { try { if (JSON.parse(rq.postData() || '{}').op === 'clipThumbs') asked++; } catch (e) { /* noop */ } };
+        q.on('request', onReq);
+        await q.evaluate(() => { location.hash = '#clips'; }); await q.waitForTimeout(300);
+        for (let i = 0; i < 3 && !(await q.locator('[data-act="clip-day"][data-v="1"][disabled]').count()); i++) { await q.click('[data-act="clip-day"][data-v="1"]'); await q.waitForTimeout(300); }
+        await q.waitForTimeout(900);
+        q.off('request', onReq);
+        const n = await q.evaluate(() => document.querySelectorAll('#app .clip-card img').length);
+        ok(n > 0 && asked === 0, '2回目は、端末にしまったサムネイルがすぐ出る（サーバーに取りに行かない）（' + n + '本・取りに行った回数 ' + asked + '）');
+      }
       // 週で見る
       await q.click('[data-act="clip-unit"][data-v="week"]'); await q.waitForFunction(() => !document.querySelector('#app .loading'), null, { timeout: 8000 });
       const wk = await q.evaluate(() => ({ lbl: document.querySelector('.clip-pbar .plabel').innerText, days: document.querySelectorAll('.clip-wday').length, cards: document.querySelectorAll('.clip-wday .clip-card').length, next: !!document.querySelector('[data-act="clip-week"][data-v="1"][disabled]'), unit: localStorage.getItem('kintoreTest.clipUnit') }));
@@ -299,7 +319,7 @@ const shot = async (p, name) => { if (SHOT) { require('fs').mkdirSync(SHOT, { re
       for (let i = 0; i < 4 && !(await q.locator('[data-act="clip-week"][data-v="1"][disabled]').count()); i++) { await q.click('[data-act="clip-week"][data-v="1"]'); await q.waitForTimeout(500); }
       const l2 = await q.locator('.clip-pbar .plabel b').innerText();
       await q.waitForFunction(() => !document.querySelector('#app .loading'), null, { timeout: 8000 }).catch(() => {}); await shot(q, '27-clips-thisweek');
-      ok(l1 !== l0 && /週前/.test(l1) && l2 === '今週', '「＜」「＞」で前の週・次の週へ移れる（' + l0 + '→' + l1 + '→' + l2 + '。今週より先へは進めない）');
+      ok(l1 !== l0 && /先週|週前/.test(l1) && l2 === '今週', '「＜」「＞」で前の週・次の週へ移れる（' + l0 + '→' + l1 + '→' + l2 + '。今週より先へは進めない）');
       await q.evaluate(() => { location.hash = '#home'; }); await q.waitForTimeout(300); await q.evaluate(() => { location.hash = '#clips'; }); await q.waitForTimeout(600);
       ok(await q.locator('[data-act="clip-unit"][data-v="week"][aria-pressed="true"]').count() === 1, '次に開いたときも「週」のまま');
       await q.click('[data-act="clip-unit"][data-v="day"]'); await q.waitForTimeout(300);
@@ -380,7 +400,7 @@ const shot = async (p, name) => { if (SHOT) { require('fs').mkdirSync(SHOT, { re
     const ex = holeOk['免除を申し込む'] || {}, rk = holeOk['ランキング'] || {};
     ok(tt.length <= 10 && tt.indexOf('応援スタンプを送る') >= 0 && ex.ex && ex.inside, '選手の画面の案内（10か所以内）に、応援スタンプと「免除を申し込む」（ボタンを光らせる）がある（' + tt.join('→') + '）');
     ok(nums.every((n, k) => n === (k + 1) + ' / ' + nums.length), '案内の番号は飛ばない（' + nums.join('・') + '）');
-    ok(holeOk.wait && holeOk.wait.loading && holeOk.wait.wait && holeOk.wait.tip === '0', '別の画面に移るときは、中身の読み込みがそろうまで吹き出しを出さず全体を暗くして待つ（' + JSON.stringify(holeOk.wait) + '）');
+    ok(holeOk.wait && (!holeOk.wait.loading || (holeOk.wait.wait && holeOk.wait.tip === '0')), '別の画面に移るとき、読み込み中なら吹き出しを出さず全体を暗くして待つ（手元の一覧ですぐ出るときは待たない）（' + JSON.stringify(holeOk.wait) + '）');
     ok(holeOk.late && holeOk.late.ok && holeOk.late.head === 0, '案内の途中で中身が後から読み込まれて場所がずれても、光らせる所と吹き出しが画面に収まり、上の見出しも固定のまま（' + JSON.stringify(holeOk.late) + '）');
     ok(rk.head && rk.inside && rk.onScreen, 'ランキングは見出しと「すべて見る」ごと光らせ、枠が画面からはみ出さない');
     ok(tt.filter((t) => /今日の1本/.test(t)).length === 1 && await q.evaluate(() => location.hash) === '#home' && /通知/.test(await q.locator('#guide-root h2').innerText().catch(() => '')), '「今日の1本を撮る」の説明は1回だけ。案内はホームで終わり、紹介の続き（通知）に戻る');

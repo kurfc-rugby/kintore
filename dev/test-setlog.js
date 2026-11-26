@@ -21,7 +21,7 @@ const api0 = gas.api;
 let tcChecks = 0;
 const tcBad = [];
 const tcStrip = (s) => JSON.stringify(s, (k, v) => (k === '_t' ? undefined : v));
-const NO_AFTER_T = { ping: 1, state: 1, login: 1, logout: 1, register: 1, viewLogin: 1, changePin: 1, clipStart: 1, clipDraft: 1, clipDraftDrop: 1, clipUpload: 1, clipVideo: 1, clips: 1, icons: 1, logs: 1, sessions: 1, trash: 1, feedbackList: 1, memberHistory: 1, menuArchive: 1, pushInbox: 1, pushMove: 1, clientError: 1 };
+const NO_AFTER_T = { ping: 1, state: 1, login: 1, logout: 1, register: 1, viewLogin: 1, changePin: 1, clipStart: 1, clipDraft: 1, clipDraftDrop: 1, clipUpload: 1, clipVideo: 1, clips: 1, clipThumbs: 1, icons: 1, logs: 1, sessions: 1, trash: 1, feedbackList: 1, memberHistory: 1, menuArchive: 1, pushInbox: 1, pushMove: 1, clientError: 1 };
 let afChecks = 0;
 const afBad = [];
 const api = (req) => {
@@ -193,6 +193,13 @@ st = api({ op: 'state', token: ISHI });
 ok(st.clips.some((c) => c.id === clip1 && c.m === id['森 健太'] && c.nf === undefined), 'ほかの部員の一覧に出る（「気になる」の数はスタッフだけ）');
 r = api({ op: 'clips', token: ISHI });
 ok(r.ok && r.clips[0].id === clip1 && r.clips[0].th === thumb, '一覧はサムネイルつき');
+{ // 一覧だけすぐ返す（nothumb）。サムネイルは clipThumbs で、見られるものの分だけ
+  const r2 = api({ op: 'clips', token: MG, nothumb: true });
+  ok(r2.ok && r2.clips.length === r.clips.length && r2.clips.every((c) => c.th === undefined), 'nothumb のときは一覧だけ（サムネイルなし）');
+  const t = api({ op: 'clipThumbs', token: MG, ids: [clip1, 'nope'] });
+  ok(t.ok && t.th[clip1] === thumb && t.th.nope === '', 'clipThumbs で、指定した動画のサムネイルだけ取れる（無いものは空）');
+  ok(api({ op: 'clipThumbs', ids: [clip1] }).error, 'ログインしていないと、サムネイルは取れない');
+}
 r = api({ op: 'clipVideo', token: G, id: clip1 });
 ok(r.ok && r.mime === 'video/mp4' && r.data === vid, '動画を見られる（見るだけの人も）');
 

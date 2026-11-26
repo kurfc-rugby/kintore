@@ -3,7 +3,7 @@
   'use strict';
   const L = window.KLogic;
   const API = window.KINTORE_API;
-  const VERSION = '2.27.1-t1';
+  const VERSION = '2.27.1-t2';
   const WD = ['日', '月', '火', '水', '木', '金', '土'];
   const PERM = { admin: '管理者', manager: 'マネージャー', captain: '主将', leader: '副主将', member: '一般部員', guest: '見るだけ' };
   // 権限を選ぶ一覧の並び
@@ -3002,7 +3002,7 @@
     }
     tip.style.left = tx / k + 'px'; tip.style.top = ty / k + 'px';
   }
-  if (/^(localhost|127\.0\.0\.1)$/.test(location.hostname)) { window.__tourEl = () => TOUR && TOUR.el; window.__clipCacheClear = () => { S.clipCache = {}; }; } // 開発時のテスト用
+  if (/^(localhost|127\.0\.0\.1)$/.test(location.hostname)) { window.__tourEl = () => TOUR && TOUR.el; window.__clipCacheClear = () => { S.clipCache = {}; }; window.__clipThumbReset = () => { S.clipThumb = {}; THUMB.asked = {}; }; } // 開発時のテスト用
   function endTour(done) {
     if (!TOUR) return;
     const t = TOUR; TOUR = null;
@@ -3372,6 +3372,7 @@
     }
     S.celebrate = null;
     if (TOUR) requestAnimationFrame(tourPlace);
+    setTimeout(wantThumbs, 0);
     if ((r.name === 'help' || r.name === 'settings') && r.arg) {
       const el = document.getElementById(r.name === 'help' ? 'h-' + r.arg : r.arg);
       if (el) setTimeout(() => el.scrollIntoView({ block: 'start', behavior: reduceMotion() ? 'auto' : 'smooth' }), 60);
@@ -4165,6 +4166,76 @@
   // ---- 動画の一覧・再生 ----
   S.clipCache = {}; S.clipThumb = {}; S.clipUrl = {};
   /** 動画の一覧を読む。opt.ahead：先読み（画面は描き直さない・エラーも出さない・動画は先に取らない） */
+  /** 一覧をすぐ出す：読み込み済みならそれ。まだでも、最近35日の分はアプリを開いたときに届いている一覧（サムネイルなし）から作る。
+   *  そのうえで裏で最新の一覧を取り直す（届いたら差しかえ）。35日より前で、まだ読んでいなければ undefined */
+  const STATE_CLIP_DAYS = 35; // サーバーの state に入っている日数（clipState_ と同じ）
+  function clipsNow(key, from, to, extra) {
+    const c = S.clipCache[key];
+    if (Array.isArray(c)) return c;
+    if (c === undefined) loadClips(key, Object.assign({ from: from, to: to }, extra || {}));
+    if (from < L.addDays(S.data.today, -STATE_CLIP_DAYS) || (extra && extra.queue)) return c;
+    const mid = extra && extra.memberId;
+    return (S.data.clips || []).filter((x) => !x.local && x.d >= from && x.d <= to && (!mid || x.m === mid)).sort((a, b) => (a.at < b.at ? 1 : -1));
+  }
+  /** サムネイル：画面に出ている順に、まず端末にしまったもの、なければサーバーから8本ずつ取って、届いたものから絵を入れる */
+  const THUMB = {
+    db: null, asked: {}, none: {}, busy: 0,
+    open() {
+      if (this.db !== null) return Promise.resolve(this.db);
+      return new Promise((ok) => {
+        try {
+          const r = indexedDB.open(SP + 'thumbs', 1);
+          r.onupgradeneeded = () => r.result.createObjectStore('t');
+          r.onsuccess = () => { this.db = r.result; ok(this.db); };
+          r.onerror = () => { this.db = false; ok(false); };
+        } catch (e) { this.db = false; ok(false); }
+      });
+    },
+    async getMany(ids) {
+      const db = await this.open(), out = {};
+      if (!db || !ids.length) return out;
+      return new Promise((ok) => {
+        try {
+          const st = db.transaction('t').objectStore('t');
+          let n = ids.length;
+          ids.forEach((id) => { const r = st.get(id); r.onsuccess = () => { if (r.result) out[id] = r.result; if (!--n) ok(out); }; r.onerror = () => { if (!--n) ok(out); }; });
+        } catch (e) { ok(out); }
+      });
+    },
+    async putMany(map) {
+      const db = await this.open();
+      if (!db) return;
+      try { const st = db.transaction('t', 'readwrite').objectStore('t'); Object.keys(map).forEach((id) => { if (map[id]) st.put(map[id], id); }); } catch (e) { /* しまえなくても動く */ }
+    }
+  };
+  function thumbPaint(id) {
+    const th = S.clipThumb[id];
+    if (!th) return;
+    $$('#app .clip-card[data-id="' + id + '"] .clip-ph').forEach((ph) => { const img = document.createElement('img'); img.src = 'data:image/jpeg;base64,' + th; img.alt = ''; img.className = 'th-in'; ph.replaceWith(img); });
+  }
+  async function wantThumbs() {
+    if (!S.data || !loginAll()) return;
+    const ids = [];
+    $$('#app .clip-card[data-id] .clip-ph').forEach((ph) => {
+      const id = ph.closest('.clip-card').dataset.id, c = findClip(id);
+      if (!id || ids.indexOf(id) >= 0 || S.clipThumb[id] || THUMB.asked[id] || THUMB.none[id] || !c || c.local || c.gone) return;
+      ids.push(id);
+    });
+    if (!ids.length) return;
+    ids.forEach((id) => { THUMB.asked[id] = 1; });
+    const got = await THUMB.getMany(ids);
+    Object.keys(got).forEach((id) => { S.clipThumb[id] = got[id]; thumbPaint(id); });
+    const rest = ids.filter((id) => !got[id]);
+    for (let i = 0; i < rest.length; i += 8) {
+      const part = rest.slice(i, i + 8);
+      const run = api('clipThumbs', { ids: part }).then((r) => {
+        const put = {};
+        part.forEach((id) => { const t = r.th && r.th[id]; if (t) { S.clipThumb[id] = put[id] = t; thumbPaint(id); } else THUMB.none[id] = 1; });
+        THUMB.putMany(put);
+      }).catch(() => { part.forEach((id) => { delete THUMB.asked[id]; }); });
+      if (i % 16 === 8 || i + 8 >= rest.length) await run; // 2つずつ並べて取りに行く
+    }
+  }
   // 先読みの途中でその一覧を開いた（画面が待っている）もの。先読みが終わったら描き直す
   S.clipWait = {};
   async function loadClips(key, payload, opt) {
@@ -4173,7 +4244,7 @@
     if (S.clipCache[key] === 'loading') { if (!ahead) S.clipWait[key] = payload; return null; }
     S.clipCache[key] = 'loading';
     try {
-      const r = await api('clips', payload);
+      const r = await api('clips', Object.assign({ nothumb: true }, payload)); // サムネイルは別に、見えるものから
       r.clips.forEach((c) => { if (c.th) S.clipThumb[c.id] = c.th; });
       S.clipCache[key] = r.clips;
       if (!ahead || S.clipWait[key]) prefetchClips(r.clips);
@@ -4248,10 +4319,9 @@
       // 1週間（月〜日）分をまとめて読み、日ごとに見出しを付けて並べる
       const ws = L.weekStart(day), we = L.addDays(ws, 6), thisWs = L.weekStart(today);
       const from = ws < keep ? keep : ws, to = we > today ? today : we;
-      const key = 'w:' + ws, list = S.clipCache[key];
-      if (list === undefined) loadClips(key, { from: from, to: to });
+      const key = 'w:' + ws, list = clipsNow(key, from, to);
       const pws = L.addDays(ws, -7);
-      if (Array.isArray(list) && S.clipCache['w:' + pws] === undefined && L.addDays(pws, 6) >= keep) setTimeout(() => loadClips('w:' + pws, { from: pws < keep ? keep : pws, to: L.addDays(pws, 6) }, { ahead: true }), 300);
+      if (Array.isArray(list) && S.clipCache['w:' + pws] === undefined && L.addDays(pws, 6) >= keep && pws < L.addDays(today, -STATE_CLIP_DAYS)) setTimeout(() => loadClips('w:' + pws, { from: pws < keep ? keep : pws, to: L.addDays(pws, 6) }, { ahead: true }), 300);
       const shown = Array.isArray(list) ? list.filter((c) => c.st !== 'canceled' || can('anyStaff') || (me() && c.m === me().id)) : [];
       const wk = ws === thisWs ? '今週' : ws === L.addDays(thisWs, -7) ? '先週' : (Math.round((L.parse(thisWs) - L.parse(ws)) / 6048e5)) + '週前';
       h += '<div class="pbar clip-pbar"><div class="pnav"><button class="ibtn" data-act="clip-week" data-v="-1" aria-label="前の週"' + (L.addDays(ws, -1) < keep ? ' disabled' : '') + '>' + icon('back') + '</button>' +
@@ -4264,11 +4334,10 @@
       return h + days.map(([d, l]) => '<section class="block clip-wday"><div class="block-h"><h2>' + mdw(d) + (d === today ? '<small>今日</small>' : d === L.addDays(today, -1) ? '<small>昨日</small>' : '') + '</h2><span class="count">' + l.length + '本</span></div>' +
         '<div class="clip-grid">' + l.map((c) => clipCard(c)).join('') + '</div></section>').join('');
     }
-    const list = S.clipCache['d:' + day];
-    if (list === undefined) loadClips('d:' + day, { from: day, to: day });
-    // 前の日の一覧も先に取っておく（「＜」ですぐ出る）。今の日を読み終わってから
+    const list = clipsNow('d:' + day, day, day);
+    // 前の日の一覧も先に取っておく（「＜」ですぐ出る）。最近35日の分は手元にあるので、それより前の日だけ
     const prev = L.addDays(day, -1);
-    if (Array.isArray(list) && S.clipCache['d:' + prev] === undefined && prev >= keep) setTimeout(() => loadClips('d:' + prev, { from: prev, to: prev }, { ahead: true }), 300);
+    if (Array.isArray(list) && S.clipCache['d:' + prev] === undefined && prev >= keep && prev < L.addDays(today, -STATE_CLIP_DAYS)) setTimeout(() => loadClips('d:' + prev, { from: prev, to: prev }, { ahead: true }), 300);
     const n = Array.isArray(list) ? list.length : (S.data.clips || []).filter((c) => c.d === day && c.st !== 'canceled').length;
     h += '<div class="pbar clip-pbar"><div class="pnav"><button class="ibtn" data-act="clip-day" data-v="-1" aria-label="前の日"' + (prev < keep ? ' disabled' : '') + '>' + icon('back') + '</button>' +
       '<div class="plabel"><b>' + (day === today ? '今日' : day === L.addDays(today, -1) ? '昨日' : (Math.round((L.parse(today) - L.parse(day)) / 864e5)) + '日前') + '</b><span>' + mdw(day) + '・' + n + '本</span></div>' +
@@ -4282,8 +4351,7 @@
   function homeClips() {
     if (!loginAll()) return '';
     const today = S.data.today;
-    const list = S.clipCache['d:' + today];
-    if (list === undefined) setTimeout(() => loadClips('d:' + today, { from: today, to: today }), 0);
+    const list = clipsNow('d:' + today, today, today);
     const own = me() ? (S.data.clips || []).filter((c) => c.m === me().id && c.d === today && c.st !== 'canceled') : [];
     const mine = own.some((c) => c.st === 'ok'), wait = !mine && own.length > 0;
     const held = !mine && !wait && qList().some((x) => x.at.slice(0, 10) === today);
@@ -4302,8 +4370,7 @@
     const today = S.data.today, key = memberClipKey(id, mo), keep = L.addDays(today, -CLIP_KEEP);
     const head = '<section class="block"><div class="block-h"><h2>動画（' + +mo.from.slice(5, 7) + '月）</h2><span class="count">3か月で消えます</span></div>';
     if (mo.to < keep) return head + '<p class="empty small">この月の動画は、もう消えています（3か月で消えます）。</p></section>';
-    const list = S.clipCache[key];
-    if (list === undefined) setTimeout(() => loadClips(key, { memberId: id, from: mo.from < keep ? keep : mo.from, to: mo.to > today ? today : mo.to }), 0);
+    const list = clipsNow(key, mo.from < keep ? keep : mo.from, mo.to > today ? today : mo.to, { memberId: id });
     return head + (!Array.isArray(list) ? '<p class="empty small loading">読み込んでいます…</p>' : list.length ? '<div class="clip-grid">' + list.map((c) => clipCard(c, { date: true, noName: true })).join('') + '</div>' : '<p class="empty small">この月の動画はありません。</p>') + '</section>';
   }
   /** その人の、日付ごとの動画（見られるもの：消えていない・下書きでない）。部員のページのカレンダーと履歴から開く。1日に何本かあれば、実施した＞確認待ち＞取り消し、同じなら新しい方 */
