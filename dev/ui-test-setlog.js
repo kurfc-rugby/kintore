@@ -308,6 +308,17 @@ const shot = async (p, name) => { if (SHOT) { require('fs').mkdirSync(SHOT, { re
         const n = await q.evaluate(() => document.querySelectorAll('#app .clip-card img').length);
         ok(n > 0 && asked === 0, '2回目は、端末にしまったサムネイルがすぐ出る（サーバーに取りに行かない）（' + n + '本・取りに行った回数 ' + asked + '）');
       }
+      { // サーバーが古くて clipThumbs が無いときは、前と同じく一覧と一緒にサムネイルを取る
+        await q.route('**/exec', async (r) => { let op = ''; try { op = JSON.parse(r.request().postData() || '{}').op; } catch (e) { /* noop */ }
+          if (op === 'clipThumbs') return r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: false, error: 'unknown_op', message: '不明な操作です。' }) });
+          try { await r.fallback(); } catch (e) { /* noop */ } });
+        await q.evaluate(async () => { window.__clipThumbReset(); const d = indexedDB.deleteDatabase('kintoreTest.thumbs'); await new Promise((ok) => { d.onsuccess = d.onerror = d.onblocked = ok; }); location.hash = '#home'; }); await q.waitForTimeout(300);
+        await q.evaluate(() => { location.hash = '#clips'; });
+        await q.waitForFunction(() => document.querySelectorAll('#app .clip-card img').length > 0, null, { timeout: 8000 }).catch(() => {});
+        const n = await q.evaluate(() => document.querySelectorAll('#app .clip-card img').length);
+        await q.unroute('**/exec');
+        ok(n > 0, 'サーバーが古くても（サムネイルだけを取る操作が無くても）、前と同じくサムネイルが出る（' + n + '本）');
+      }
       // 週で見る
       await q.click('[data-act="clip-unit"][data-v="week"]'); await q.waitForFunction(() => !document.querySelector('#app .loading'), null, { timeout: 8000 });
       const wk = await q.evaluate(() => ({ lbl: document.querySelector('.clip-pbar .plabel').innerText, days: document.querySelectorAll('.clip-wday').length, cards: document.querySelectorAll('.clip-wday .clip-card').length, next: !!document.querySelector('[data-act="clip-week"][data-v="1"][disabled]'), unit: localStorage.getItem('kintoreTest.clipUnit') }));

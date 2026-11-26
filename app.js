@@ -3,7 +3,7 @@
   'use strict';
   const L = window.KLogic;
   const API = window.KINTORE_API;
-  const VERSION = '2.27.1-t2';
+  const VERSION = '2.27.1-t3';
   const WD = ['日', '月', '火', '水', '木', '金', '土'];
   const PERM = { admin: '管理者', manager: 'マネージャー', captain: '主将', leader: '副主将', member: '一般部員', guest: '見るだけ' };
   // 権限を選ぶ一覧の並び
@@ -4179,7 +4179,7 @@
   }
   /** サムネイル：画面に出ている順に、まず端末にしまったもの、なければサーバーから8本ずつ取って、届いたものから絵を入れる */
   const THUMB = {
-    db: null, asked: {}, none: {}, busy: 0,
+    db: null, asked: {}, none: {}, busy: 0, old: false,
     open() {
       if (this.db !== null) return Promise.resolve(this.db);
       return new Promise((ok) => {
@@ -4214,7 +4214,7 @@
     $$('#app .clip-card[data-id="' + id + '"] .clip-ph').forEach((ph) => { const img = document.createElement('img'); img.src = 'data:image/jpeg;base64,' + th; img.alt = ''; img.className = 'th-in'; ph.replaceWith(img); });
   }
   async function wantThumbs() {
-    if (!S.data || !loginAll()) return;
+    if (!S.data || !loginAll() || THUMB.old) return;
     const ids = [];
     $$('#app .clip-card[data-id] .clip-ph').forEach((ph) => {
       const id = ph.closest('.clip-card').dataset.id, c = findClip(id);
@@ -4232,7 +4232,11 @@
         const put = {};
         part.forEach((id) => { const t = r.th && r.th[id]; if (t) { S.clipThumb[id] = put[id] = t; thumbPaint(id); } else THUMB.none[id] = 1; });
         THUMB.putMany(put);
-      }).catch(() => { part.forEach((id) => { delete THUMB.asked[id]; }); });
+      }).catch((e) => {
+        part.forEach((id) => { delete THUMB.asked[id]; });
+        // サーバーが古い（サムネイルだけを取る操作が無い）：前と同じく、一覧と一緒にサムネイルを取り直す
+        if (e && e.code === 'unknown_op' && !THUMB.old) { THUMB.old = true; S.clipCache = {}; render(); }
+      });
       if (i % 16 === 8 || i + 8 >= rest.length) await run; // 2つずつ並べて取りに行く
     }
   }
@@ -4244,7 +4248,7 @@
     if (S.clipCache[key] === 'loading') { if (!ahead) S.clipWait[key] = payload; return null; }
     S.clipCache[key] = 'loading';
     try {
-      const r = await api('clips', Object.assign({ nothumb: true }, payload)); // サムネイルは別に、見えるものから
+      const r = await api('clips', THUMB.old ? payload : Object.assign({ nothumb: true }, payload)); // サムネイルは別に、見えるものから（サーバーが古ければ一覧と一緒に）
       r.clips.forEach((c) => { if (c.th) S.clipThumb[c.id] = c.th; });
       S.clipCache[key] = r.clips;
       if (!ahead || S.clipWait[key]) prefetchClips(r.clips);
