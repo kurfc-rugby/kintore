@@ -3768,7 +3768,12 @@ function clipWire_(c, me) {
   const staff = !!(me && STAFF[me.perm]);
   const flags = clipFlags_(c);
   return { id: c.id, m: c.memberId, d: c.date, at: c.recordedAt, st: c.status, gone: !!c.deletedAt, nv: !c.fileId && !c.deletedAt && !pendGet_(c.memberId, c.recordedAt) ? 1 : 0,
-    nf: staff ? flags.length : undefined, mine: !!(me && flags.indexOf(me.id) >= 0), why: (staff || (me && me.id === c.memberId)) ? (c.reason || '') : '' };
+    nf: staff && !(me && me.id === c.memberId) ? flags.length : undefined, /* 審議の数：本人（スタッフでも）には見せない */ mine: !!(me && flags.indexOf(me.id) >= 0), why: (staff || (me && me.id === c.memberId)) ? (c.reason || '') : '' };
+}
+/** スタッフの「確認」の一覧に入るか。審議だけの動画は、出した本人（主将など）の一覧には入れない（だれかが押したことが本人に伝わらないように） */
+function clipInQueue_(c, me) {
+  if (c.status === 'pending') return true;
+  return c.status === 'ok' && !c.checkedBy && clipFlags_(c).length > 0 && !(me && me.id === c.memberId);
 }
 function clipFlags_(c) { try { const a = JSON.parse(c.flags || '[]'); return Array.isArray(a) ? a : []; } catch (x) { return []; } }
 /** state に足すもの：今日の数字、最近35日の動画（サムネイルなし）、スタッフには確認が要る数 */
@@ -3783,7 +3788,7 @@ function clipState_(ctx, today) {
     members_().forEach(function (m) { if (m.set && m.set.pinHash && m.perm !== 'admin') out.regs[m.id] = 1; }); // 自分で登録する人（管理者以外）
     out.guests = table_('guests').rows.filter(function (g) { return !g.deletedAt; }).map(function (g) { return { id: g.id, name: g.name, note: g.note }; });
   }
-  if (staff) out.clipQueue = list.filter(function (c) { return c.status === 'pending' || (c.status === 'ok' && !c.checkedBy && clipFlags_(c).length); }).length;
+  if (staff) out.clipQueue = list.filter(function (c) { return clipInQueue_(c, me); }).length;
   return out;
 }
 /** 動画を受け取る：撮った日を自動で「実施した」にする（取り消された日に撮り直したものは確認待ち） */
@@ -4309,7 +4314,7 @@ function opClips_(ctx) {
   let list = table_('clips').rows.filter(function (c) {
     return shown_(c) && c.date >= from && c.date <= to && (!mid || c.memberId === mid) && (c.status !== 'canceled' || staff || c.memberId === me.id);
   });
-  if (ctx.req.queue && staff) list = list.filter(function (c) { return c.status === 'pending' || (c.status === 'ok' && !c.checkedBy && clipFlags_(c).length); });
+  if (ctx.req.queue && staff) list = list.filter(function (c) { return clipInQueue_(c, me); });
   list = list.sort(function (a, b) { return a.recordedAt < b.recordedAt ? 1 : -1; }).slice(0, 200);
   const ids = {};
   list.forEach(function (c) { ids[c.id] = 1; });
@@ -4342,7 +4347,7 @@ function opClipVideo_(ctx) {
   try { blob = DriveApp.getFileById(fid).getBlob(); } catch (x) { throw err_('gone', 'この動画は見つかりませんでした。'); }
   return { ok: true, id: c.id, mime: c.mime, data: Utilities.base64Encode(blob.getBytes()) };
 }
-/** 部員の「気になる」（押す・やめる）。自分の動画には押せない */
+/** 部員の「審議」（押す・やめる。シートの列名は「気になる」のまま）。自分の動画には押せない */
 function opClipFlag_(ctx) {
   const me = requireRole_(ctx, ['admin', 'manager', 'leader', 'member']);
   const on = ctx.req.on !== false;
@@ -4356,15 +4361,15 @@ function opClipFlag_(ctx) {
     update_('clips', c);
     if (on && f.length === 1) {
       const m = memberById_(c.memberId);
-      notifyStaffClip_('「気になる」がつきました', (m ? m.name : '') + ' さんの ' + c.date.slice(5).replace('-', '/') + ' の動画。確認してください。');
+      notifyStaffClip_('審議の動画があります', (m ? m.name : '') + ' さんの ' + c.date.slice(5).replace('-', '/') + ' の動画に「審議」がつきました。動画を見て確認してください。', c.memberId);
     }
     return { ok: true, clip: clipWire_(c, me) };
   });
 }
-function notifyStaffClip_(title, body) {
+function notifyStaffClip_(title, body, exceptId) {
   try {
     const staff = {};
-    members_().forEach(function (m) { if (m.active && !m.gone && STAFF[m.perm]) staff[m.id] = 1; });
+    members_().forEach(function (m) { if (m.active && !m.gone && STAFF[m.perm] && m.id !== exceptId) staff[m.id] = 1; }); // 審議は、動画を出した本人には送らない
     const rows = pushTargets_('clipq').filter(function (r) { return staff[r.staffId]; }); // 「動画の確認」をオンにしたスタッフだけ
     sendPush_(rows, function () { return { title: title, body: body, url: './#clips/queue', tag: 'clipq' }; });
   } catch (x) { console.error(x); }
@@ -4414,7 +4419,7 @@ function opClipCancel_(ctx) {
   }
   return res;
 }
-/** スタッフ：確認待ち・気になるの動画を「問題なし」にする（確認待ちなら実施したにする） */
+/** スタッフ：確認待ち・審議の動画を「問題なし」にする（確認待ちなら実施したにする） */
 function opClipApprove_(ctx) {
   const me = requireRole_(ctx, ['admin', 'manager', 'leader']);
   return withLock_(function () {

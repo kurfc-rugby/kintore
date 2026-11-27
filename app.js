@@ -3,7 +3,7 @@
   'use strict';
   const L = window.KLogic;
   const API = window.KINTORE_API;
-  const VERSION = '2.27.1-t4';
+  const VERSION = '2.27.1-t5';
   const WD = ['日', '月', '火', '水', '木', '金', '土'];
   const PERM = { admin: '管理者', manager: 'マネージャー', captain: '主将', leader: '副主将', member: '一般部員', guest: '見るだけ' };
   // 権限を選ぶ一覧の並び
@@ -141,7 +141,7 @@
     ['milestone', '記録の節目', '連続達成が自己ベストに並んだ・更新した、通算○回になったとき', 'self'],
     ['menu', '新しいメニューが出たとき', '自分が対象のメニューだけ', 'self'],
     ['pinreq', '管理者へのお知らせ', '管理者だけ。暗証番号の再発行の依頼と、要望・不具合が届いたらすぐ', 'admin'],
-    ['clipq', '動画の確認', 'スタッフだけ。確認待ちの動画が届いたとき・「気になる」がついたとき', 'staff'],
+    ['clipq', '動画の確認', 'スタッフだけ。確認待ちの動画が届いたとき・部員が「審議」を押したとき', 'staff'],
     ['exreq', '免除の申し込み', '主将・副主将・管理者だけ。選手から免除の申し込みが届いたとき', 'judge'],
     ['clipnew', 'みんなの動画', 'だれかが今日の1本を出すたびに（自分の動画は来ません）', 'all']
   ];
@@ -2425,7 +2425,7 @@
       '<tr><td><b>今週あと○回</b><small>まだ週' + goal() + '回に届いていない本人だけ</small></td><td>土曜18時・日曜9時</td></tr>' +
       '<tr><td><b>応援が届いた</b><small>だれからか・どのスタンプか</small></td><td>1時間ごとにまとめて（夜10時〜朝7時は送らない）</td></tr>' +
       (loginAll() ? '<tr><td><b>動画が取り消された</b><small>本人だけ。理由つき</small></td><td>取り消されたらすぐ</td></tr>' +
-        '<tr><td><b>動画の確認</b><small>スタッフだけ。確認待ちの動画・「気になる」</small></td><td>届いたらすぐ</td></tr>' +
+        '<tr><td><b>動画の確認</b><small>スタッフだけ。確認待ちの動画・「審議」</small></td><td>届いたらすぐ</td></tr>' +
         '<tr><td><b>免除の申し込み</b><small>主将・副主将・管理者だけ</small></td><td>届いたらすぐ</td></tr>' +
         '<tr><td><b>みんなの動画</b><small>オンにした人だけ。だれが出したか（自分の動画は来ない）</small></td><td>だれかが出すたびにすぐ</td></tr>' +
         '<tr><td><b>免除が認められた・認められなかった</b><small>申し込んだ本人</small></td><td>決まったらすぐ</td></tr>' : '') +
@@ -2454,7 +2454,7 @@
       ['about', 'all', 'このアプリでできること', '全体の流れ',
         (loginAll() ? '<ul class="dots"><li>選手は、筋トレをしたらアプリで <b>2秒の動画</b> を撮って送ります。送るとその日は <b>「実施した」</b> になります</li>' +
         '<li>全員が <b>自分の名前と暗証番号でログイン</b> して使います。ログインした本人が「わたし」です</li>' +
-        '<li>みんなの動画は <b>「動画」</b> で見られます。応援スタンプ・「気になる」も押せます。スタッフは確認して取り消すこともできます</li>' +
+        '<li>みんなの動画は <b>「動画」</b> で見られます。応援スタンプを送れます。筋トレしているように見えない動画は<b>「審議」</b>を押すと、スタッフが確認します（押したことは本人には伝わりません）。スタッフは確認して取り消すこともできます</li>' +
         '<li><b>週' + g + '回以上（月曜〜日曜）がマスト</b>。ホームで「まだの人」、ランキングで回数がわかります</li>' +
         '<li>主将・副主将のメニュー・自己ベスト・称号・体重の変化・通知もあります</li></ul>' +
         '<div class="flow"><span>筋トレ<small>アプリで2秒撮る</small></span>' + icon('next') + '<span>送る<small>自動で「実施した」</small></span>' + icon('next') + '<span>みんな<small>動画・ランキングで見る</small></span></div>' :
@@ -2505,7 +2505,7 @@
       loginAll() ? ['new', 'all', '新しくなったところ', '動画で記録・全員ログイン・アイコン・免除の申し込み',
         '<ul class="dots"><li><b>動画で「実施した」</b>：選手は筋トレをしたらアプリで2秒の動画を送ります。送るとその日は「実施した」になります（マネージャーが押さなくてよくなりました）</li>' +
         '<li><b>全員ログイン</b>：自分の名前と暗証番号で登録して使います。ログインした本人が「わたし」です</li>' +
-        '<li><b>みんなの動画</b>：「動画」でその日の動画が見られます。応援スタンプ・「気になる」も押せます</li>' +
+        '<li><b>みんなの動画</b>：「動画」でその日の動画が見られます。応援スタンプを送れます。筋トレしているように見えない動画は「審議」でスタッフに確認してもらえます</li>' +
         '<li><b>アイコン</b>：自分のページで、絵文字か写真のアイコンを決められます</li>' +
         '<li><b>免除の申し込み</b>：けが・病気・試験で休むときは、自分のページから申し込めます。主将・副主将が認めると免除になります</li>' +
         '<li><b>カレンダーから動画</b>：自分のページのカレンダーで、印のある日を押すと、その日の動画が開きます</li>' +
@@ -2556,8 +2556,8 @@
         steps(['「設定」→ <b>「ログイン」</b>', '自分の名前を選び、<b>暗証番号</b>を入れる（最初は管理者からもらった番号）', '最初のログインでは、<b>自分だけの暗証番号（半角6文字以上）</b>に変える']) +
         '<ul class="dots"><li>忘れたとき：ログイン画面の<b>「暗証番号を忘れたとき」</b>→ 名前を選んで依頼 → 管理者が新しい番号を出してくれます</li>' +
         '<li>5回まちがえると15分ログインできません</li><li>なくしたスマホは「設定」→「ログインしている端末」からログアウトできます</li></ul>'],
-      loginAll() ? ['clipcheck', 'manager', '動画を確認する', '確認待ち・気になる・取り消す',
-        steps(['「動画」の <b>「確認」</b>（数字は確認が要る本数。ホームにも出ます）', '<b>確認待ち</b>（取り消された日に撮り直した動画）は、見て<b>「確認して『実施した』に」</b>', '部員が<b>「気になる」</b>を押した動画は、見て<b>「問題なし」</b>か<b>「取り消す」</b>（理由は本人に届きます）']) +
+      loginAll() ? ['clipcheck', 'manager', '動画を確認する', '確認待ち・審議・取り消す',
+        steps(['「動画」の <b>「確認」</b>（数字は確認が要る本数。ホームにも出ます）', '<b>確認待ち</b>（取り消された日に撮り直した動画）は、見て<b>「確認して『実施した』に」</b>', '部員が<b>「審議」</b>を押した動画は、見て<b>「問題なし」</b>か<b>「取り消す」</b>（理由は本人に届きます）']) +
         '<ul class="dots"><li>取り消すと、その日の「実施した」が外れます</li><li>動画が24時間届かなかった日は、自動で取り消されます</li></ul>'] : null,
       ['record', 'manager', '実施記録をつける', '押すだけ・まとめて・確認して保存',
         steps(['下の <b>「記録」</b> を開く（日付は今日。' + kbd('‹') + ' で前の日にもつけられます）', 'やった人の <b>「実施した」</b> を押す（もう一度押すと戻る）', '<b>「保存する」</b>→ 内容を確かめて <b>「この内容で保存」</b>']) +
@@ -2808,6 +2808,9 @@
     all: { name: 'みんな', steps: [
       { r: 'home', sel: '.selfcard', t: 'わたし', p: '自分の今週の回数と、<b>あと何回で達成</b>かが出ます。届いた応援もここ。押すと自分のページ（自己ベスト・称号・体重の変化）。' },
       { r: 'home', sel: '.home-clips', login: 1, t: '今日の1本を撮る', p: () => (mePlayer() ? '筋トレをしたら' : '選手は筋トレをしたら') + '<b>「今日の1本を撮る」</b>（または下の<b>「撮る」</b>）で<b>2秒の動画</b>を送ります。日時と今日の数字は自動で入り、送るとその日は<b>「実施した」</b>になります。みんなの動画もここで見られます。' },
+      { r: 'clips', login: 1, sel: () => $('.view-clips .clip-grid') || $('.view-clips .clip-unit') || $('.view-clips .toolbar'), t: 'みんなの動画・審議',
+        p: () => '<b>「動画」</b>では、部員みんなのその日の動画が見られます（日・週で切り替え）。押すと大きく見られて、応援スタンプも送れます。' +
+          (me() && me().perm !== 'guest' ? '<br>筋トレしているように見えない動画は、<b>「審議」</b>を押すと、スタッフが動画を見て判断します。<b>押したことは本人には伝わりません</b>。' : '') },
       { r: 'home', sel: '.todaycard', t: '今日のメニュー', p: '主将・副主将が出した今日のメニューです。押すと内容と、種目ごとの<b>フォームの動画</b>が見られます。' },
       { r: 'home', sel: '.board', t: '部全体の数字', p: '部全体の実施回数と、<b>週{g}回（マスト）</b>を達成した人の割合です。すぐ上で<b>週間・月間</b>を切り替えられ、矢印で前の週・月も見られます。' },
       { r: 'home', sel: '.block.goal', t: 'まだの人', p: '今週まだ週{g}回に届いていない人です。名前を押すとその人のページ。その下の<b>「声をかけたい人」</b>は、連続達成がピンチの人や、ペースが落ちている人です。' },
@@ -2819,7 +2822,7 @@
       { r: 'home', sel: '.top-help', t: '使い方ガイド', p: () => 'わからないときはここ。<b>' + howtoLen() + 'の動画</b>と、立場ごとの使い方があります。この案内ももう一度見られます。「こうしてほしい」「ここがおかしい」は、<b>「設定」→「要望・不具合を送る」</b>から管理者に送れます。' }
     ] },
     manager: { name: 'マネージャー', perm: 'record', steps: [
-      { r: 'clips', arg: () => 'queue', login: 1, sel: '.view-clips .seg', t: '動画の確認', p: '取り消された日に撮り直した<b>確認待ち</b>と、部員が<b>「気になる」</b>を押した動画はここ。見て「問題なし」か「取り消す」を押します。' },
+      { r: 'clips', arg: () => 'queue', login: 1, sel: '.view-clips .seg', t: '動画の確認', p: '取り消された日に撮り直した<b>確認待ち</b>と、部員が<b>「審議」</b>を押した動画はここ。見て「問題なし」か「取り消す」を押します。' },
       { r: 'home', sel: ['.nav a.rec', '.nav a[href="#record"]'], t: '記録をつける', p: () => '記録はここから。マネージャーと管理者にだけ出ます。' + (loginAll() ? '動画を送った人は自動で「実施した」なので、ここは<b>動画を送れなかった人の分</b>などです。' : '') },
       { r: 'record', sel: '.rec-date', t: '記録する日', p: 'ふだんは<b>今日</b>。矢印や日付を押すと、前の日の分もつけられます。' },
       { r: 'record', sel: '.rec-menus', t: 'その日のメニュー', p: 'その日のメニューです。対象の人が上にまとまって出ます。' },
@@ -4399,7 +4402,7 @@
     const th = S.clipThumb[c.id];
     const staff = !!(me() && can('anyStaff'));
     const tag = c.st === 'pending' ? '<span class="clip-tag wait">確認待ち</span>' : c.st === 'canceled' ? '<span class="clip-tag no">取り消し</span>' :
-      c.nv ? '<span class="clip-tag wait">動画を送信中</span>' : (staff && c.nf ? '<span class="clip-tag flag">気になる ' + c.nf + '</span>' : '');
+      c.nv ? '<span class="clip-tag wait">動画を送信中</span>' : (staff && c.nf ? '<span class="clip-tag flag">審議 ' + c.nf + '</span>' : '');
     return '<button class="clip-card" data-act="clip-open" data-id="' + esc(c.id) + '">' +
       '<span class="clip-th">' + (th ? '<img src="data:image/jpeg;base64,' + th + '" alt="" loading="lazy">' : '<span class="clip-ph" aria-hidden="true">' + icon('cam') + '</span>') + tag + '</span>' +
       '<span class="clip-meta">' + (opt && opt.noName ? '' : '<b>' + avatarOf(c.m, 'av-xs') + esc(memberName(c.m)) + '</b>') + '<small>' + (opt && opt.date ? mdw(c.d) + ' ' : '') + esc((c.at || '').slice(11, 16)) + '</small></span></button>';
@@ -4416,7 +4419,7 @@
       const list = S.clipCache.queue;
       if (list === undefined) loadClips('queue', { from: L.addDays(today, -35), to: today, queue: true });
       h += '<section class="block"><div class="block-h"><h2>確認が要る動画</h2><span class="count">' + (Array.isArray(list) ? list.length + '本' : '') + '</span></div>' +
-        '<p class="lead-line small">取り消された日に撮り直した「確認待ち」と、部員が「気になる」を押した動画です。見て「問題なし」か「取り消す」を押してください。</p>' +
+        '<p class="lead-line small">取り消された日に撮り直した「確認待ち」と、部員が「審議」を押した動画です。見て「問題なし」か「取り消す」を押してください。</p>' +
         (!Array.isArray(list) ? '<p class="empty loading">読み込んでいます…</p>' : list.length ? '<div class="clip-grid">' + list.map((c) => clipCard(c, { date: true })).join('') + '</div>' : '<p class="empty">確認が要る動画はありません。</p>') + '</section>';
       return h;
     }
@@ -4505,7 +4508,7 @@
     const m = me(), staff = can('anyStaff'), own = m && m.id === c.m;
     const name = memberName(c.m);
     const acts = [];
-    if (m && m.perm !== 'guest' && !own && c.st !== 'canceled' && !c.local) acts.push('<button class="btn' + (c.mine ? ' on' : '') + '" data-act="clip-flag" data-id="' + esc(c.id) + '" aria-pressed="' + !!c.mine + '">' + (c.mine ? '「気になる」を取り消す' : '気になる') + '</button>');
+    if (m && m.perm !== 'guest' && !own && c.st !== 'canceled' && !c.local) acts.push('<button class="btn' + (c.mine ? ' on' : '') + '" data-act="clip-flag" data-id="' + esc(c.id) + '" aria-pressed="' + !!c.mine + '">' + (c.mine ? '審議を取り消す' : '審議') + '</button>');
     if (staff && c.st !== 'canceled') {
       if (c.st === 'pending' || c.nf) acts.push('<button class="btn primary" data-act="clip-approve" data-id="' + esc(c.id) + '">' + (c.st === 'pending' ? '確認して「実施した」に' : '問題なし') + '</button>');
       acts.push('<button class="btn danger" data-act="clip-cancel-open" data-id="' + esc(c.id) + '">取り消す</button>');
@@ -4516,6 +4519,7 @@
       (c.st === 'canceled' ? '<p class="note err">取り消されました' + (c.why ? '（' + esc(c.why) + '）' : '') + '。</p>' : '') +
       (c.st !== 'canceled' && !c.local ? stampBar(c.m, 'c:' + c.id) : '') +
       (acts.length ? '<div class="toolbar clip-acts">' + acts.join('') + '</div>' : '') +
+      (acts.length && acts[0].indexOf('clip-flag') >= 0 ? '<p class="clip-flag-note">「審議」は、筋トレしているように見えないときに押します。スタッフが動画を見て判断します。押したことは本人には伝わりません。</p>' : '') +
       '<div class="clip-cancel" id="clip-cancel" hidden><form data-form="clipcancel" class="form"><input type="hidden" name="id" value="' + esc(c.id) + '">' +
       '<label>取り消す理由<span class="opt">任意・本人に届きます</span><input name="reason" maxlength="80" placeholder="例：ジムで撮った動画ではない"></label>' +
       '<p class="form-err" role="alert" hidden></p><div class="actions"><button type="button" class="btn" data-act="clip-cancel-close">やめる</button><button class="btn danger" type="submit">取り消す</button></div></form></div>' +
@@ -5018,13 +5022,13 @@
       const c = findClip(el.dataset.id); if (!c || S.flagBusy) return;
       const want = !c.mine;
       clipUpdated({ id: c.id, mine: want });
-      el.classList.toggle('on', want); el.setAttribute('aria-pressed', String(want)); el.textContent = want ? '「気になる」を取り消す' : '気になる';
-      toast(want ? '「気になる」を押しました。スタッフが確認します' : '「気になる」を取り消しました');
+      el.classList.toggle('on', want); el.setAttribute('aria-pressed', String(want)); el.textContent = want ? '審議を取り消す' : '審議';
+      toast(want ? '審議にしました。スタッフが動画を確認します' : '審議を取り消しました');
       S.flagBusy = true;
       try { const r = await api('clipFlag', { id: c.id, on: want }); clipUpdated(r.clip); }
       catch (e) {
         clipUpdated({ id: c.id, mine: !want });
-        toast('「気になる」を送れませんでした：' + e.message, 'err');
+        toast('審議を送れませんでした：' + e.message, 'err');
         if ($('.sheet [data-act="clip-flag"]')) openClip(c.id);
       } finally { S.flagBusy = false; }
     },

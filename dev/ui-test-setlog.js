@@ -132,7 +132,7 @@ const shot = async (p, name) => { if (SHOT) { require('fs').mkdirSync(SHOT, { re
   ok(await p.locator('[data-act="clip-q"]').count() === 0, '画質は「今のまま」に決めたので、切りかえは出さない');
   await p.evaluate(() => { location.hash = ''; }); await p.waitForTimeout(500);
 
-  console.log('■ 別の部員が見る・気になる');
+  console.log('■ 別の部員が見る・審議');
   const b = await mk();
   const reqs = [];
   b.p.on('request', (q) => { const d = q.postData() || ''; if (/"op":"clipVideo"/.test(d)) reqs.push('video'); else if (/"op":"clips"/.test(d)) reqs.push('clips:' + (JSON.parse(d).from || '')); });
@@ -165,7 +165,8 @@ const shot = async (p, name) => { if (SHOT) { require('fs').mkdirSync(SHOT, { re
   ok(await b.p.locator('.sheet .stamps').count() === 1, '応援スタンプを押せる');
   await shot(b.p, '08-player');
   await b.p.click('[data-act="clip-flag"]'); await b.p.waitForTimeout(150);
-  ok(/「気になる」を取り消す/.test(await b.p.locator('.sheet').innerText()), '「気になる」は押したらすぐ反映');
+  ok(/審議を取り消す/.test(await b.p.locator('.sheet').innerText()), '「審議」は押したらすぐ反映');
+  ok(/筋トレしているように見えないときに押します/.test(await b.p.locator('.sheet .clip-flag-note').innerText().catch(() => '')) && /本人には伝わりません/.test(await b.p.locator('.sheet .clip-flag-note').innerText().catch(() => '')), '「審議」のボタンの下に、いつ押すか・本人には伝わらないことの説明');
   await b.p.waitForTimeout(1200);
 
   console.log('■ サーバーが古い（先に送れない）ときは1回で送る');
@@ -577,7 +578,7 @@ const shot = async (p, name) => { if (SHOT) { require('fs').mkdirSync(SHOT, { re
     ok(/ルールは3つ/.test(pk.welcome) && pk.titles.join('→') === 'KURFC 筋トレへようこそ→画面で使い方を見る', '紹介：1枚目にルール3つ、2枚目で画面の案内へ（' + pk.titles.join('→') + '）');
     ok(pk.gp.btn && pk.gp.all === pk.length && pk.gp.on === pk.gp.all && mk.gp.all === mk.length && mk.gp.on === mk.ken, '紹介の通知の説明では「次へ」が「オンにして次へ」になり、「通知はいらない」も選べる（はじめはすべてチェック済み ' + pk.gp.on + '/' + pk.gp.all + '）');
     ok(pk.gp.after && pk.gp.after.ok && pk.gp.after.kinds.indexOf('clipnew') < 0 && pk.gp.after.kinds.indexOf('goal') >= 0, '「オンにして次へ」でオンになって次へ進み（最後にテスト通知のボタン）、外したものは届かない（' + (pk.gp.after ? pk.gp.after.kinds.join(',') : '') + '）');
-    ok(mk.indexOf('clipq') >= 0, 'マネージャーの通知の設定に「動画の確認」（確認待ち・気になる）がある（' + mk.join('・') + '）');
+    ok(mk.indexOf('clipq') >= 0, 'マネージャーの通知の設定に「動画の確認」（確認待ち・審議）がある（' + mk.join('・') + '）');
     ok(pk.length >= 1 && pk.indexOf('clipq') < 0, '選手の通知の設定には「動画の確認」は出ない（' + pk.join('・') + '）');
     ok(pk.indexOf('clipnew') >= 0 && mk.indexOf('clipnew') >= 0, '選手にもマネージャーにも「みんなの動画」（だれかが出すたび）がある');
     // 今日、動画でついた「実施した」がある人（動画が取り消されていない）を、サーバーに聞いて確かめる
