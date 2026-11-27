@@ -3,7 +3,7 @@
   'use strict';
   const L = window.KLogic;
   const API = window.KINTORE_API;
-  const VERSION = '2.27.1-t3';
+  const VERSION = '2.27.1-t4';
   const WD = ['日', '月', '火', '水', '木', '金', '土'];
   const PERM = { admin: '管理者', manager: 'マネージャー', captain: '主将', leader: '副主将', member: '一般部員', guest: '見るだけ' };
   // 権限を選ぶ一覧の並び
@@ -2747,6 +2747,9 @@
   }
   function guideList0() {
     if (!loginAll()) return GUIDE;
+    return guideList1().filter((g) => !(store.get('setupDone', 0) && (g.x === 'push' || g.x === 'view'))); // はじめの設定で聞いたものは聞かない
+  }
+  function guideList1() {
     const pl = !!mePlayer();
     return GUIDE.map((g) => {
       if (g.x === 'self') return { t: '画面で使い方を見る', i: 'cam', tour: g.tour, p: () => 'このあと、<b>実際の画面を光らせながら</b>、' + (pl ? '動画の撮り方・応援スタンプ・免除の申し込み' : '選手の動画・応援スタンプ・ランキング') + 'などの場所を順に案内します（10か所ほど・1分）。途中で<b>「閉じる」</b>を押しても、紹介の続きに戻ります。' };
@@ -2789,7 +2792,7 @@
       '<div class="guide-dots" aria-hidden="true">' + GL.map((x, i) => '<i class="' + (i === guideStep ? 'on' : '') + '"></i>').join('') + '</div>' +
       '<div class="actions">' + (guideStep ? '<button class="btn" data-act="guide-prev">戻る</button>' : '<button class="btn" data-act="guide-close">スキップ</button>') +
       (g.x === 'push' && guidePushOff() ? '<button class="btn primary" data-act="guide-push-next" autofocus>' + icon('bell') + 'オンにして次へ</button></div>'
-        : '<button class="btn primary" data-act="' + (last ? 'guide-close' : 'guide-next') + '" autofocus>' + (last ? 'はじめる' : g.tour ? '画面で案内を見る' : '次へ') + '</button></div>') +
+        : '<button class="btn primary" data-act="' + (last && !g.tour ? 'guide-close' : 'guide-next') + '" autofocus>' + (g.tour ? '画面で案内を見る' : last ? 'はじめる' : '次へ') + '</button></div>') +
       '<p class="guide-n">' + (guideStep + 1) + ' / ' + GL.length + (guideStep ? '・<button class="linkbtn inline" data-act="guide-close">閉じる</button>' : '') + '</p></section>';
     document.body.classList.add('sheet-open');
     const b = $('#guide-root [autofocus]'); if (b) b.focus();
@@ -3022,9 +3025,103 @@
   function afterLogin() {
     setTimeout(() => {
       if (gated() || TOUR || $('#guide-root').innerHTML || $('#sheet-root').innerHTML) return;
-      if (guideDue()) openGuide(0); else maybeRoleTour();
+      if (guideDue()) openGuide(0); else if (!maybeIconAsk()) maybeRoleTour();
     }, 900);
   }
+
+  // ---------- はじめの設定（登録した直後・もらった暗証番号を変えた直後に1回）：アイコン → 文字の大きさと明るさ → 通知 ----------
+  // どれも「あとで」で飛ばせる。済んだら紹介へ（紹介では、ここで聞いた通知・見やすさは聞かない）
+  let SETUP = null; // { i, list, then, wait }
+  function setupSteps() {
+    const m = me(), l = [];
+    if (iconsOn() && m && m.perm !== 'guest' && memberById(m.id)) l.push('icon');
+    l.push('view');
+    if (pushSupported()) l.push('push');
+    return l;
+  }
+  function openSetup(then) {
+    if (!me()) { if (then) then(); return; }
+    SETUP = { i: 0, list: setupSteps(), then: then || null, wait: 0 };
+    store.set('iconAsk', 1); // ここで聞くので、「アイコンを決めませんか？」はもう出さない
+    setupGo(0);
+  }
+  function setupGo(d) {
+    if (!SETUP) return;
+    SETUP.i = Math.max(0, SETUP.i + d);
+    if (SETUP.i >= SETUP.list.length) { setupEnd(); return; }
+    if (SETUP.list[SETUP.i] === 'icon') { const m = memberById(me().id); if (m && !S.iced) iconEditInit(m); } else S.iced = null;
+    renderSetup();
+    const b = $('#guide-root .setup'); if (b) b.scrollTop = 0;
+  }
+  function setupEnd() {
+    const then = SETUP && SETUP.then;
+    SETUP = null; S.iced = null;
+    store.set('setupDone', 1);
+    $('#guide-root').innerHTML = '';
+    if (!$('#sheet-root').innerHTML) document.body.classList.remove('sheet-open');
+    render();
+    if (then) then();
+  }
+  const SETUP_HEAD = {
+    icon: ['自分のアイコン', 'ランキング・応援・動画の一覧で、<b>名前の横</b>に出ます。<b>絵文字</b>か<b>写真</b>で決めてください。'],
+    view: ['文字の大きさと明るさ', '押すとすぐ変わります。見やすいものを選んでください。'],
+    push: ['通知', '「今週あと○回」や「応援が届いた」などを、スマホに知らせます。']
+  };
+  function renderSetup() {
+    if (!SETUP) return;
+    const k = SETUP.list[SETUP.i], n = SETUP.list.length, last = SETUP.i === n - 1, m = me();
+    let body = '', acts = '';
+    if (k === 'icon') body = iconEditorHtml(); // 「あとで」「これにする」は中にある
+    else if (k === 'view') body = setupViewHtml();
+    else body = setupPushHtml();
+    if (k !== 'icon') acts = '<div class="actions">' + (SETUP.i ? '<button class="btn" data-act="setup-prev">戻る</button>' : '') +
+      '<button class="btn primary" data-act="setup-next" autofocus>' + (last ? 'はじめる' : '次へ') + '</button></div>';
+    $('#guide-root').innerHTML = '<div class="guide-bg"></div><section class="guide setup" role="dialog" aria-modal="true" aria-label="はじめの設定">' +
+      '<p class="setup-n">はじめの設定<span><b>' + (SETUP.i + 1) + '</b> / ' + n + '</span></p>' +
+      (SETUP.i === 0 ? '<p class="setup-hi">ようこそ、<b>' + esc(m ? m.name : '') + '</b> さん。はじめに' + n + 'つだけ決めましょう（あとで「設定」からいつでも変えられます）。</p>' : '') +
+      '<h2>' + SETUP_HEAD[k][0] + '</h2><p>' + SETUP_HEAD[k][1] + '</p>' +
+      '<div class="setup-b">' + body + '</div>' + acts +
+      '<div class="guide-dots" aria-hidden="true">' + SETUP.list.map((x, i) => '<i class="' + (i === SETUP.i ? 'on' : '') + '"></i>').join('') + '</div></section>';
+    document.body.classList.add('sheet-open');
+    if (k === 'icon') iconEditorWire();
+    const b = $('#guide-root [autofocus]'); if (b) b.focus();
+  }
+  function setupViewHtml() {
+    return '<div class="setup-view">' +
+      '<p class="ice-h">文字の大きさ</p><div class="seg small" role="group" aria-label="文字の大きさ">' + SIZES.map((z) => '<button data-act="pref-size" data-v="' + z[0] + '" aria-pressed="' + (PREF.size === z[0]) + '">' + z[1] + '</button>').join('') + '</div>' +
+      '<p class="ice-h">画面の明るさ</p><div class="seg small" role="group" aria-label="画面の明るさ">' + [['light', 'ライト'], ['dark', 'ダーク'], ['auto', 'スマホに合わせる']].map((z) => '<button data-act="pref-theme" data-v="' + z[0] + '" aria-pressed="' + (PREF.theme === z[0]) + '">' + z[1] + '</button>').join('') + '</div>' +
+      '<div class="setup-sample" aria-hidden="true"><b>今週 2回</b><small>/3</small><span>あと1回で週3回 達成</span></div></div>';
+  }
+  function setupPushHtml() {
+    if (!PWA.reg || !S.data.pushKey) {
+      // アプリの準備（数秒）が終わるのを少し待つ
+      if (SETUP.wait < 6) { SETUP.wait++; setTimeout(() => { if (SETUP && SETUP.list[SETUP.i] === 'push') renderSetup(); }, 1000); return '<p class="empty small">準備しています…</p>'; }
+      return '<p class="hint">いまは通知の準備ができませんでした。あとで「設定」→「通知」でオンにしてください。</p>';
+    }
+    if (!PUSH.ready) { loadPush().then(() => { if (SETUP && SETUP.list[SETUP.i] === 'push') renderSetup(); }); return '<p class="empty small">読み込み中…</p>'; }
+    const on = !!PUSH.endpoint, denied = Notification.permission === 'denied';
+    const state = denied ? 'スマホの設定で「許可しない」になっています' : on ? 'この端末で受け取っています' : 'オフ';
+    const kinds = pushKindsFor().filter((k) => !(k[3] === 'self' && !PREF.self));
+    return '<div class="pmain setup-push"><label class="pk swk swmain"><span><b>通知を受け取る</b><small class="pstate' + (on ? ' on' : denied ? ' ng' : '') + '">' + state + '</small></span>' +
+      '<input type="checkbox" class="sw" role="switch" data-act-change="setup-push"' + (on ? ' checked' : '') + (denied ? ' disabled' : '') + ' aria-label="通知を受け取る"></label>' +
+      (denied ? pushDeniedHelp() : '') + '<p class="form-err" hidden></p></div>' +
+      '<p class="hint">' + (on ? '届くもの' : 'オンにすると届くもの') + '：' + kinds.map((k) => k[1]).join('・') + '。いらないものは「設定」→「通知」で外せます。</p>';
+  }
+  /** もう登録している人で、アイコンがまだの人に1回だけ聞く（この端末で1回） */
+  function maybeIconAsk() {
+    const m = me(), mm = m && memberById(m.id);
+    if (!iconsOn() || !m || m.perm === 'guest' || !mm || mm.ic || store.get('iconAsk', 0) || TOUR || SETUP || gated() || $('#guide-root').innerHTML || $('#sheet-root').innerHTML) return false;
+    store.set('iconAsk', 1);
+    $('#guide-root').innerHTML = '<div class="guide-bg"></div><section class="guide icon-ask" role="dialog" aria-modal="true" aria-label="自分のアイコン">' +
+      '<div class="guide-av">' + avatar(mm, 'av-lg') + '</div><h2>自分のアイコンを決めませんか？</h2>' +
+      '<p>ランキング・応援・動画の一覧で、<b>名前の横</b>に出ます。<b>絵文字</b>か<b>写真</b>で決められます（1分）。</p>' +
+      '<div class="actions"><button class="btn" data-act="icon-ask-later">あとで</button><button class="btn primary" data-act="icon-ask-go" autofocus>アイコンを決める</button></div>' +
+      '<p class="guide-n">あとからでも「わたし」→ 自分のページで決められます</p></section>';
+    document.body.classList.add('sheet-open');
+    const b = $('#guide-root [autofocus]'); if (b) b.focus();
+    return true;
+  }
+  function clearGuideRoot() { $('#guide-root').innerHTML = ''; if (!$('#sheet-root').innerHTML) document.body.classList.remove('sheet-open'); }
   function maybeRoleTour() {
     const m = me(), key = m && TOUR_FOR[m.perm];
     if (!key || store.get('tour:' + key, 0) || store.get('tourAsk:' + key, 0) || TOUR || $('#guide-root').innerHTML || $('#sheet-root').innerHTML || !store.get('guided', 0)) return;
@@ -3442,14 +3539,19 @@
   }
   const avatarOf = (id, cls) => avatar(memberById(id), cls);
   // 自分のアイコンを決めるシート
+  function iconEditInit(m) {
+    const ic = m.ic || '', isE = ic.slice(0, 2) === 'e:', i = isE ? ic.indexOf(':', 2) : -1;
+    S.iced = { kind: ic.slice(0, 2) === 'p:' ? 'p' : 'e', emoji: isE ? ic.slice(i + 1) : '🔥', color: isE ? ic.slice(2, i) : ICON_COLORS[0], img: null, zoom: 1, x: 0, y: 0, had: !!ic };
+  }
   function openIconEditor() {
     const m = me() && memberById(me().id);
     if (!m) return;
-    const ic = m.ic || '', isE = ic.slice(0, 2) === 'e:', i = isE ? ic.indexOf(':', 2) : -1;
-    S.iced = { kind: ic.slice(0, 2) === 'p:' ? 'p' : 'e', emoji: isE ? ic.slice(i + 1) : '🔥', color: isE ? ic.slice(2, i) : ICON_COLORS[0], img: null, zoom: 1, x: 0, y: 0, had: !!ic };
+    iconEditInit(m);
     openSheet('自分のアイコン', iconEditorHtml());
     iconEditorWire();
   }
+  /** アイコンを決める画面が入っている所（ふだんはシート、はじめの設定では紹介の枠） */
+  const iceRoot = () => (SETUP ? $('#guide-root .setup-b') : $('#sheet-root .sheet-b'));
   function iconEditorHtml() {
     const E = S.iced, m = memberById(me().id);
     const prev = E.kind === 'e' ? '<span class="av av-xl av-e" style="--av:' + E.color + '">' + esc(E.emoji) + '</span>' :
@@ -3465,11 +3567,11 @@
         (E.img ? '<label class="ice-zoom">大きさ<input type="range" id="ice-zoom" min="1" max="3" step="0.01" value="' + E.zoom + '"></label><p class="hint">写真を指で動かして、丸の中に顔を合わせてください。</p>' :
           '<p class="hint">顔が写った写真がおすすめです。丸く切り抜いて使います。部のみんなが見るので、自分の写真か、人に見せてよいものにしてください。</p>')) +
       '<p class="form-err" id="ice-err" role="alert" hidden></p>' +
-      '<div class="actions">' + (E.had ? '<button class="btn" data-act="ice-clear">アイコンを外す</button>' : '') +
+      '<div class="actions">' + (SETUP ? '<button class="btn" data-act="setup-next">あとで</button>' : E.had ? '<button class="btn" data-act="ice-clear">アイコンを外す</button>' : '') +
       '<button class="btn primary" data-act="ice-save"' + (E.kind === 'p' && !E.img ? ' disabled' : '') + '>これにする</button></div></div>';
   }
   function iconEditorRedraw() {
-    const b = $('#sheet-root .sheet-b');
+    const b = iceRoot();
     if (!b || !S.iced) return;
     b.innerHTML = iconEditorHtml();
     iconEditorWire();
@@ -3481,8 +3583,8 @@
       const v = Array.from(other.value.trim()).slice(0, 4).join('');
       if (!v || /^[\x20-\x7e]+$/.test(v)) return;
       E.emoji = v;
-      const pv = $('#sheet-root .ice-prev .av'); if (pv) pv.textContent = v;
-      document.querySelectorAll('#sheet-root .ice-em.on').forEach((x) => { x.classList.remove('on'); x.setAttribute('aria-pressed', 'false'); });
+      const rt = iceRoot(), pv = rt && $('.ice-prev .av', rt); if (pv) pv.textContent = v;
+      if (rt) rt.querySelectorAll('.ice-em.on').forEach((x) => { x.classList.remove('on'); x.setAttribute('aria-pressed', 'false'); });
     });
     ['ice-cam', 'ice-file'].forEach((idn) => {
       const f = $('#' + idn);
@@ -3537,7 +3639,9 @@
         if (r.data) S.icons[m.id] = { v: r.ic, d: r.data };
         saveIcons();
         if (E.img && E.img.src) URL.revokeObjectURL(E.img.src);
-        S.iced = null; closeSheet(); render();
+        S.iced = null;
+        if (SETUP) { render(); toast('アイコンを決めました'); setupGo(1); return; }
+        closeSheet(); render();
         toast(clear ? 'アイコンを外しました' : 'アイコンを変えました');
       } catch (e) { err(e.message); }
     });
@@ -4484,7 +4588,7 @@
   }
   function rerenderKeepGuide() {
     if (S.data) render();
-    if ($('#guide-root').innerHTML) openGuide(guideStep);
+    if (SETUP) renderSetup(); else if ($('#guide-root').innerHTML && !$('#guide-root .icon-ask')) openGuide(guideStep);
   }
 
   // ---------- ルーティング ----------
@@ -4665,13 +4769,17 @@
       if (!g.tour) { openGuide(back); return; }
       // 実際の画面で案内 → 終わったら残りの紹介（応援・免除・通知・見やすく）
       $('#guide-root').innerHTML = '';
-      startTour(g.tour, { then: () => openGuide(back), home: true });
+      startTour(g.tour, { then: () => { if (back < guideList().length) openGuide(back); else closeGuide(); }, home: true });
     },
     'guide-prev': () => openGuide(guideStep - 1),
     'guide-push': () => { closeGuide(); location.hash = '#settings/push'; },
     'guide-help': (el) => { closeGuide(); location.hash = '#help' + (el.dataset.v ? '/' + el.dataset.v : ''); },
     'help-role': (el) => { S.helpRole = el.dataset.v; render(); },
     'guide-close': () => closeGuide(),
+    'setup-next': () => setupGo(1),
+    'setup-prev': () => setupGo(-1),
+    'icon-ask-later': () => clearGuideRoot(),
+    'icon-ask-go': () => { clearGuideRoot(); openIconEditor(); },
     'tour-next': () => { if (TOUR) tourGo(TOUR.i + 1, 1); },
     'tour-prev': () => { if (TOUR) tourGo(TOUR.i - 1, -1); },
     'tour-close': () => endTour(false),
@@ -5001,7 +5109,7 @@
         try {
           const r = await api('register', { memberId: f.memberId.value, pin: f.pin.value, deviceName: deviceName() });
           S.token = r.token; store.set('token', r.token); S.loginErr = '';
-          await loadState(); render(); toast('登録しました。ようこそ、' + r.me.name + ' さん'); afterLogin();
+          await loadState(); render(); toast('登録しました。ようこそ、' + r.me.name + ' さん'); openSetup(afterLogin);
         } catch (e) { sheetErrorIn(f, e.message); }
       });
     },
@@ -5040,7 +5148,8 @@
       await busy(btn, async () => {
         try {
           await api('changePin', { oldPin: f.oldPin.value, newPin: f.newPin.value });
-          pendingOldPin = ''; closeSheet(); await loadState(); render(); toast('暗証番号を変更しました'); afterLogin();
+          pendingOldPin = ''; closeSheet(); await loadState(); render(); toast('暗証番号を変更しました');
+          if (loginAll() && !store.get('setupDone', 0)) openSetup(afterLogin); else afterLogin();
         } catch (e) { sheetError(e.message); }
       });
     },
@@ -5305,6 +5414,22 @@
       }
       return;
     }
+    // はじめの設定の通知：オンにするときは許可の確認を、押した操作の中で出す
+    if (t.dataset && t.dataset.actChange === 'setup-push') {
+      const sec = t.closest('.setup-push');
+      if (t.checked) {
+        const kinds = pushKindsFor().filter((k) => !(k[3] === 'self' && !PREF.self)).map((k) => k[0]);
+        enablePush(sec, t, kinds.length ? kinds : pushKindsFor().map((k) => k[0]), (ok) => {
+          if (ok) toast('通知をオンにしました');
+          if (!SETUP) return;
+          if (ok || Notification.permission === 'denied') renderSetup(); else t.checked = false;
+        }).then(() => { if (!PUSH.endpoint && t.isConnected) { t.checked = false; t.disabled = false; } }); // 登録に失敗したらスイッチを戻す
+      } else {
+        t.disabled = true;
+        pushOff().then(() => { if (SETUP) renderSetup(); }).catch(() => { toast('オフにできませんでした', 'err'); if (SETUP) renderSetup(); });
+      }
+      return;
+    }
     // 設定の通知：種類ごとのスイッチ。押したらすぐ保存。全部オフにしたら通知そのものをオフに
     if (t.dataset && t.dataset.actChange === 'push-kind') { pushKindSave(); return; }
     if (t.dataset && t.dataset.actChange === 'pref-self') {
@@ -5412,7 +5537,7 @@
     S.stale = false;
     render();
     if (S.data && !gated() && guideDue()) openGuide(0);
-    else if (S.data && !gated()) setTimeout(maybeRoleTour, 1200);
+    else if (S.data && !gated()) setTimeout(() => { if (!maybeIconAsk()) maybeRoleTour(); }, 1200);
     if (S.data && S.data.loginAll) { syncQueueList().then(() => retryClips()); window.addEventListener('online', () => retryClips()); }
   })();
 })();

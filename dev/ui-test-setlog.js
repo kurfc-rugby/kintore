@@ -14,7 +14,7 @@ const shot = async (p, name) => { if (SHOT) { require('fs').mkdirSync(SHOT, { re
   const mk = async () => {
     const c = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true, reducedMotion: 'reduce', permissions: ['camera', 'background-sync'] });
     await c.route(/fonts\.(googleapis|gstatic)\.com/, (r) => r.abort());
-    await c.addInitScript(() => { localStorage.setItem('kintoreTest.guided', '2'); ['manager', 'leader', 'admin'].forEach((k) => localStorage.setItem('kintoreTest.tourAsk:' + k, '1')); });
+    await c.addInitScript(() => { localStorage.setItem('kintoreTest.iconAsk', '1'); localStorage.setItem('kintoreTest.guided', '2'); ['manager', 'leader', 'admin'].forEach((k) => localStorage.setItem('kintoreTest.tourAsk:' + k, '1')); });
     const p = await c.newPage();
     p.on('pageerror', (e) => errors.push(e.message));
     p.on('dialog', (d) => d.accept());
@@ -39,7 +39,45 @@ const shot = async (p, name) => { if (SHOT) { require('fs').mkdirSync(SHOT, { re
   await p.click('form[data-form="register"] button[type="submit"]'); await p.waitForTimeout(300);
   ok(/違います/.test(await p.locator('form[data-form="register"] .form-err').innerText()), '1回目と2回目が違うと登録しない');
   await p.fill('form[data-form="register"] input[name="pin2"]', 'mori-pin-1');
-  await p.click('form[data-form="register"] button[type="submit"]'); await p.waitForSelector('.board', { timeout: 8000 }); await p.waitForTimeout(800);
+  await p.click('form[data-form="register"] button[type="submit"]'); await p.waitForSelector('.board', { timeout: 8000 });
+  { // はじめの設定：アイコン → 文字の大きさと明るさ → 通知（どれも「あとで」で飛ばせる）
+    await p.waitForSelector('#guide-root .setup', { timeout: 5000 }).catch(() => {});
+    const t1 = await p.locator('#guide-root .setup').innerText().catch(() => '');
+    ok(/はじめの設定/.test(t1) && /1\s*\/\s*3/.test(t1) && /ようこそ/.test(t1) && /自分のアイコン/.test(t1), '登録した直後に「はじめの設定」（1/3 自分のアイコン）が出る');
+    await shot(p, '02b-setup-icon');
+    await p.click('#guide-root [data-act="ice-emoji"][data-v="🏉"]'); await p.waitForTimeout(150);
+    await p.click('#guide-root [data-act="ice-color"][data-v="#1f3a68"]'); await p.waitForTimeout(150);
+    ok(await p.locator('#guide-root .setup .ice-prev .av-e').innerText() === '🏉', '絵文字と色を選ぶと、上の見本がすぐ変わる');
+    await p.click('#guide-root [data-act="ice-save"]'); await p.waitForTimeout(1200);
+    const t2 = await p.locator('#guide-root .setup').innerText().catch(() => '');
+    ok(/2\s*\/\s*3/.test(t2) && /文字の大きさと明るさ/.test(t2), '「これにする」でアイコンが決まり、次（2/3 文字の大きさと明るさ）へ');
+    await shot(p, '02c-setup-view');
+    await p.click('#guide-root [data-act="pref-size"][data-v="l"]'); await p.waitForTimeout(200);
+    const sz = await p.evaluate(() => localStorage.getItem('kintoreTest.size'));
+    ok(/l/.test(sz || '') && await p.locator('#guide-root .setup [data-act="pref-size"][data-v="l"][aria-pressed="true"]').count() === 1 && /2\s*\/\s*3/.test(await p.locator('#guide-root .setup').innerText()), '文字の大きさを押すとすぐ変わり、はじめの設定はそのまま');
+    await p.click('#guide-root [data-act="pref-size"][data-v="m"]'); await p.waitForTimeout(200);
+    await p.click('#guide-root [data-act="setup-next"]'); await p.waitForTimeout(300);
+    const t3 = await p.locator('#guide-root .setup').innerText().catch(() => '');
+    ok(/3\s*\/\s*3/.test(t3) && /通知/.test(t3) && await p.locator('#guide-root [data-act="setup-next"]').innerText() === 'はじめる', '3/3 は通知。最後のボタンは「はじめる」');
+    await shot(p, '02d-setup-push');
+    await p.click('#guide-root [data-act="setup-prev"]'); await p.waitForTimeout(200);
+    ok(/2\s*\/\s*3/.test(await p.locator('#guide-root .setup').innerText()), '「戻る」で前に戻れる');
+    await p.click('#guide-root [data-act="setup-next"]'); await p.waitForTimeout(200);
+    await p.click('#guide-root [data-act="setup-next"]'); await p.waitForTimeout(1500);
+    const st = await p.evaluate(() => ({ g: document.querySelector('#guide-root').innerHTML, d: localStorage.getItem('kintoreTest.setupDone'), av: (document.querySelector('.selfcard .av-e') || {}).textContent || '' }));
+    ok(!st.g && st.d === '1', '「はじめる」で閉じる（紹介を見た端末なので、紹介は出ない）');
+    ok(st.av === '🏉', '決めたアイコンがホームの「わたし」に出る（' + st.av + '）');
+    // 紹介を見ると、はじめの設定で聞いた「通知」「見やすく」は飛ばす。最後は画面の案内
+    await p.evaluate(() => { document.body.insertAdjacentHTML('beforeend', '<button id="tg" data-act="guide" hidden></button>'); document.getElementById('tg').click(); });
+    await p.waitForTimeout(300);
+    const gd = await p.evaluate(() => ({ n: document.querySelectorAll('#guide-root .guide-dots i').length, t: document.querySelector('#guide-root').innerText }));
+    await p.click('#guide-root [data-act="guide-next"]'); await p.waitForTimeout(300);
+    const gl = await p.evaluate(() => { const b = document.querySelector('#guide-root .actions .btn.primary'); return b ? b.dataset.act + ':' + b.textContent : ''; });
+    ok(gd.n === 2 && gl === 'guide-next:画面で案内を見る', 'はじめの設定のあとの紹介は2枚（通知・見やすさは聞かない）。最後は「画面で案内を見る」（' + gd.n + '枚・' + gl + '）');
+    await p.click('#guide-root [data-act="guide-close"]'); await p.waitForTimeout(300);
+    await p.evaluate(() => document.getElementById('tg').remove());
+  }
+  await p.waitForTimeout(500);
   ok(await p.locator('.board').count() === 1 && await p.locator('.home-clips').count() === 1, '登録するとホームが出る（今日の動画つき）');
   ok(await p.locator('.nav .shoot').count() === 1 && /撮る/.test(await p.locator('.nav .shoot').innerText()), '下のメニューの真ん中が「撮る」');
   ok(/森 健太/.test(await p.locator('.self, .selfcard, #main').first().innerText()), '「わたし」に自分が出る（名前を選ばなくてよい）');
@@ -101,7 +139,13 @@ const shot = async (p, name) => { if (SHOT) { require('fs').mkdirSync(SHOT, { re
   await b.p.goto(BASE); await b.p.waitForSelector('.login-gate');
   await pick(b.p, '石川 大地');
   await b.p.fill('form[data-form="register"] input[name="pin"]', 'ishi-pin-1'); await b.p.fill('form[data-form="register"] input[name="pin2"]', 'ishi-pin-1');
-  await b.p.click('form[data-form="register"] button[type="submit"]'); await b.p.waitForSelector('.board'); await b.p.waitForTimeout(800);
+  await b.p.click('form[data-form="register"] button[type="submit"]'); await b.p.waitForSelector('.board');
+  await b.p.waitForSelector('#guide-root .setup', { timeout: 5000 }).catch(() => {});
+  for (let k = 0; k < 3; k++) { await b.p.click('#guide-root [data-act="setup-next"]').catch(() => {}); await b.p.waitForTimeout(200); }
+  ok(await b.p.locator('#guide-root .guide').count() === 0 && !(await b.p.evaluate(() => !!document.querySelector('.selfcard .av-e'))), '「あとで」「次へ」で、なにも決めずに飛ばせる');
+  await b.p.reload(); await b.p.waitForSelector('.board'); await b.p.waitForTimeout(1800);
+  ok(await b.p.locator('#guide-root .guide').count() === 0, 'はじめの設定を見た人には、開き直しても「アイコンを決めませんか？」は出ない');
+  await b.p.waitForTimeout(300);
   await b.p.evaluate(() => { location.hash = '#clips'; }); await b.p.waitForTimeout(2500);
   ok(await b.p.locator('.clip-grid .clip-card').count() >= 1, '「動画」の一覧に森さんの動画が出る');
   ok(reqs.includes('video'), '一覧（ホームの今日の動画）が出たら、押す前に動画を先に取っておく');
@@ -258,13 +302,13 @@ const shot = async (p, name) => { if (SHOT) { require('fs').mkdirSync(SHOT, { re
   {
     const c3 = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 1, isMobile: true, hasTouch: true, reducedMotion: 'reduce' });
     await c3.route(/fonts\.(googleapis|gstatic)\.com/, (r) => r.abort());
-    await c3.addInitScript(() => { localStorage.setItem('kintoreTest.guided', '2'); ['manager', 'leader', 'admin'].forEach((k) => localStorage.setItem('kintoreTest.tourAsk:' + k, '1')); });
+    await c3.addInitScript(() => { localStorage.setItem('kintoreTest.iconAsk', '1'); localStorage.setItem('kintoreTest.guided', '2'); ['manager', 'leader', 'admin'].forEach((k) => localStorage.setItem('kintoreTest.tourAsk:' + k, '1')); });
     const q = await c3.newPage(); q.on('pageerror', (e) => { errors.push(e.message); console.log('    画面のエラー：', e.message, String(e.stack || '').split('\n').slice(1, 3).join(' / ')); }); q.on('dialog', (d) => d.accept());
     await q.goto(BASE); await q.waitForSelector('.login-gate');
     await pick(q, '森 健太');
     await q.fill('form[data-form="mlogin"] input[name="pin"]', 'mori-pin-1');
     await q.click('form[data-form="mlogin"] button[type="submit"]'); await q.waitForSelector('.board'); await q.waitForTimeout(600);
-    ok(await q.locator('.selfcard .av-i').count() === 1, 'まだ決めていない人は、名前の頭文字のアイコン');
+    ok(await q.locator('.selfcard .av-e', { hasText: '🏉' }).count() === 1, 'はじめの設定で決めたアイコンは、別の端末でログインしても出る（頭文字のアイコンは「元に戻す」で確かめる）');
     await q.click('.selfcard'); await q.waitForTimeout(600);
     const myHash = await q.evaluate(() => location.hash);
     if (!await q.locator('[data-act="icon-edit"]').count()) console.log('    診断：', myHash, await q.evaluate(() => JSON.stringify({ guide: !!document.querySelector('#guide-root *'), sheet: !!document.querySelector('#sheet-root .sheet'), prof: (document.querySelector('.profile') || {}).outerHTML ? document.querySelector('.profile').outerHTML.slice(0, 200) : 'なし', main: document.querySelector('#main').innerText.slice(0, 200) })));
@@ -350,7 +394,7 @@ const shot = async (p, name) => { if (SHOT) { require('fs').mkdirSync(SHOT, { re
     // ほかの人（マネージャー）から見る・元に戻す
     const c4 = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 1, isMobile: true, hasTouch: true, reducedMotion: 'reduce' });
     await c4.route(/fonts\.(googleapis|gstatic)\.com/, (r) => r.abort());
-    await c4.addInitScript(() => { localStorage.setItem('kintoreTest.guided', '2'); ['manager', 'leader', 'admin'].forEach((k) => localStorage.setItem('kintoreTest.tourAsk:' + k, '1')); });
+    await c4.addInitScript(() => { localStorage.setItem('kintoreTest.iconAsk', '1'); localStorage.setItem('kintoreTest.guided', '2'); ['manager', 'leader', 'admin'].forEach((k) => localStorage.setItem('kintoreTest.tourAsk:' + k, '1')); });
     const g4 = await c4.newPage(); g4.on('pageerror', (e) => errors.push(e.message)); g4.on('dialog', (d) => d.accept());
     await g4.goto(BASE); await g4.waitForSelector('.login-gate');
     await pick(g4, 'マネ 花子');
@@ -463,7 +507,7 @@ const shot = async (p, name) => { if (SHOT) { require('fs').mkdirSync(SHOT, { re
     const pushKinds = async (who, pin) => {
       const cx = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 1, isMobile: true, hasTouch: true, reducedMotion: 'reduce' });
       await cx.route(/fonts\.(googleapis|gstatic)\.com/, (r) => r.abort());
-      await cx.addInitScript(() => { localStorage.setItem('kintoreTest.guided', '2'); localStorage.setItem('kintoreTest.swdev', '1'); ['manager', 'leader', 'admin'].forEach((k) => localStorage.setItem('kintoreTest.tourAsk:' + k, '1')); });
+      await cx.addInitScript(() => { localStorage.setItem('kintoreTest.iconAsk', '1'); localStorage.setItem('kintoreTest.guided', '2'); localStorage.setItem('kintoreTest.swdev', '1'); ['manager', 'leader', 'admin'].forEach((k) => localStorage.setItem('kintoreTest.tourAsk:' + k, '1')); });
       await cx.grantPermissions(['notifications']).catch(() => {});
       const px = await cx.newPage(); px.on('pageerror', (e) => errors.push(e.message));
       await px.goto(BASE); await px.waitForSelector('.login-gate');
@@ -514,7 +558,7 @@ const shot = async (p, name) => { if (SHOT) { require('fs').mkdirSync(SHOT, { re
     { // 紹介の版を上げたので、前に見た人（guided=1）にも1回だけもう一度出る。見たら2度目は出ない
       const cz = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 1, isMobile: true, hasTouch: true, reducedMotion: 'reduce' });
       await cz.route(/fonts\.(googleapis|gstatic)\.com/, (r) => r.abort());
-      await cz.addInitScript(() => { if (!sessionStorage.getItem('x')) { sessionStorage.setItem('x', '1'); localStorage.setItem('kintoreTest.guided', '1'); ['manager', 'leader', 'admin'].forEach((k) => localStorage.setItem('kintoreTest.tourAsk:' + k, '1')); } });
+      await cz.addInitScript(() => { if (!sessionStorage.getItem('x')) { sessionStorage.setItem('x', '1'); localStorage.setItem('kintoreTest.iconAsk', '1'); localStorage.setItem('kintoreTest.guided', '1'); ['manager', 'leader', 'admin'].forEach((k) => localStorage.setItem('kintoreTest.tourAsk:' + k, '1')); } });
       const pz = await cz.newPage(); pz.on('pageerror', (e) => errors.push(e.message));
       await pz.goto(BASE); await pz.waitForSelector('.login-gate');
       await pick(pz, '森 健太'); await pz.fill('form[data-form="mlogin"] input[name="pin"]', 'mori-pin-1');
@@ -549,6 +593,26 @@ const shot = async (p, name) => { if (SHOT) { require('fs').mkdirSync(SHOT, { re
     await c4.close(); await c3.close();
   }
 
+  console.log('■ もう登録している人で、アイコンがまだの人に1回だけ聞く');
+  {
+    const cq = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 1, isMobile: true, hasTouch: true, reducedMotion: 'reduce' });
+    await cq.route(/fonts\.(googleapis|gstatic)\.com/, (r) => r.abort());
+    await cq.addInitScript(() => { localStorage.setItem('kintoreTest.guided', '2'); ['manager', 'leader', 'admin'].forEach((k) => localStorage.setItem('kintoreTest.tourAsk:' + k, '1')); });
+    const pq = await cq.newPage(); pq.on('pageerror', (e) => errors.push(e.message)); pq.on('dialog', (d) => d.accept());
+    await pq.goto(BASE); await pq.waitForSelector('.login-gate');
+    await pick(pq, '石川 大地'); await pq.fill('form[data-form="mlogin"] input[name="pin"]', 'ishi-pin-1');
+    await pq.click('form[data-form="mlogin"] button[type="submit"]'); await pq.waitForSelector('.board');
+    await pq.waitForSelector('#guide-root .icon-ask', { timeout: 5000 }).catch(() => {});
+    ok(/アイコンを決めませんか/.test(await pq.locator('#guide-root').innerText().catch(() => '')), 'アイコンがまだの人がログインすると「自分のアイコンを決めませんか？」が出る');
+    await shot(pq, '20-icon-ask');
+    await pq.click('#guide-root [data-act="icon-ask-go"]'); await pq.waitForTimeout(400);
+    ok(await pq.locator('#sheet-root .ice').count() === 1 && await pq.locator('#guide-root .guide').count() === 0, '「アイコンを決める」でアイコンを決める画面が開く');
+    await pq.click('#sheet-root [data-act="sheet-close"]'); await pq.waitForTimeout(400);
+    await pq.reload(); await pq.waitForSelector('.board'); await pq.waitForTimeout(1800);
+    ok(await pq.locator('#guide-root .guide').count() === 0, '聞くのは1回だけ（開き直しても出ない）');
+    await cq.close();
+  }
+
   console.log('■ 見るだけの人');
   const g = await mk();
   await g.p.goto(BASE); await g.p.waitForSelector('.login-gate');
@@ -559,6 +623,11 @@ const shot = async (p, name) => { if (SHOT) { require('fs').mkdirSync(SHOT, { re
   ok(await g.p.locator('form[data-form="pin"]').count() === 1, '最初は自分の暗証番号に変える');
   await g.p.fill('form[data-form="pin"] input[name="newPin"]', 'guest-pin-1'); await g.p.fill('form[data-form="pin"] input[name="newPin2"]', 'guest-pin-1');
   await g.p.click('form[data-form="pin"] button[type="submit"]'); await g.p.waitForTimeout(1500);
+  {
+    const t = await g.p.locator('#guide-root .setup').innerText().catch(() => '');
+    ok(/はじめの設定/.test(t) && /1\s*\/\s*2/.test(t) && /文字の大きさ/.test(t) && !/アイコン/.test(t), '見るだけの人も、暗証番号を変えたら「はじめの設定」（アイコンは無く、見やすさと通知の2つ）');
+    for (let k = 0; k < 2; k++) { await g.p.click('#guide-root [data-act="setup-next"]').catch(() => {}); await g.p.waitForTimeout(200); }
+  }
   ok(await g.p.locator('.board').count() === 1 && await g.p.locator('.nav .shoot').count() === 0, '見るだけの人はホームを見られる（「撮る」は出ない）');
   await g.c.close();
 
@@ -627,7 +696,7 @@ const shot = async (p, name) => { if (SHOT) { require('fs').mkdirSync(SHOT, { re
   for (const [w, h, lab] of [[360, 560, '縦が短いスマホ'], [844, 390, '横向き'], [768, 1024, 'タブレット']]) {
     const c2 = await browser.newContext({ viewport: { width: w, height: h }, deviceScaleFactor: 1, isMobile: w < 700, hasTouch: true, reducedMotion: 'reduce', permissions: ['camera'] });
     await c2.route(/fonts\.(googleapis|gstatic)\.com/, (r) => r.abort());
-    await c2.addInitScript(() => { localStorage.setItem('kintoreTest.guided', '2'); ['manager', 'leader', 'admin'].forEach((k) => localStorage.setItem('kintoreTest.tourAsk:' + k, '1')); });
+    await c2.addInitScript(() => { localStorage.setItem('kintoreTest.iconAsk', '1'); localStorage.setItem('kintoreTest.guided', '2'); ['manager', 'leader', 'admin'].forEach((k) => localStorage.setItem('kintoreTest.tourAsk:' + k, '1')); });
     const q = await c2.newPage(); q.on('pageerror', (e) => errors.push(e.message));
     await q.goto(BASE); await q.waitForSelector('.login-gate');
     await pick(q, '森 健太');
