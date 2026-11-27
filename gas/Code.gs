@@ -1350,7 +1350,7 @@ function opState_(ctx) {
   const today = today_();
   if (setlogOn_() && !ctx.me) return loginList_(today);
   const dflt = !ctx.req.from && !ctx.req.to;
-  // ログインした一般部員・見るだけの人は、見る人と同じ作り置きを使う（スタッフだけは毎回作る）
+  // ログインした一般部員・見るだけの人は、見る人と同じ作り置きを使う（幹部だけは毎回作る）
   if (ctx.me && !STAFF[ctx.me.perm] && dflt) {
     const r = pubState_({ req: ctx.req, me: null, view: true }, today); lap_('pub');
     r.me = ctx.me;
@@ -2629,7 +2629,7 @@ function lifeAndPast_(from) {
 }
 
 // ---------------------------------------------------------------------------
-// 体重・体組成（入力は管理者・マネージャー・主将・副主将。数値はだれでも見られる。メモはスタッフだけ）
+// 体重・体組成（入力は管理者・マネージャー・主将・副主将。数値はだれでも見られる。メモは幹部だけ）
 // ---------------------------------------------------------------------------
 const BODY_RANGE = { weight: [20, 250, '体重'], fat: [1, 70, '体脂肪率'], muscle: [5, 150, '筋肉量'] };
 function bodyNum_(v, key) {
@@ -2974,7 +2974,7 @@ function ecKeygen_() {
 //   （中身を暗号化しなくてよいので、Apps Script だけで送れる）。届いた中身はキャッシュに6時間だけ置く。
 //   種類：goal＝今週あと○回（土曜18時・日曜9時）／cheer＝応援が届いた（7〜22時に1時間ごとにまとめて）／pinreq＝暗証番号の再発行の依頼（管理者）
 // ---------------------------------------------------------------------------
-const PUSH_KINDS = { goal: 1, cheer: 1, pinreq: 1, menu: 1, milestone: 1, clipq: 1, exreq: 1, clipnew: 1 }; // clipq：動画の確認（全員ログイン版のスタッフ）、exreq：免除の申し込み（キャプテン・管理者）、clipnew：だれかが動画を出したとき（全員ログイン版）
+const PUSH_KINDS = { goal: 1, cheer: 1, pinreq: 1, menu: 1, milestone: 1, clipq: 1, exreq: 1, clipnew: 1 }; // clipq：動画の確認（全員ログイン版の幹部）、exreq：免除の申し込み（キャプテン・管理者）、clipnew：だれかが動画を出したとき（全員ログイン版）
 const PUSH_HOSTS = /^(([a-z0-9-]+\.)*(googleapis|google)\.com|updates\.push\.services\.mozilla\.com|([a-z0-9-]+\.)*push\.apple\.com|[a-z0-9.-]+\.notify\.windows\.com)$/;
 const PUSH_MAX = 400;
 const PUSH_SUB = 'https://kurfc-rugby.github.io/kintore/';
@@ -3069,7 +3069,7 @@ function opPushRegister_(ctx) {
       if (k === 'clipnew') return !!(setlogOn_() && ctx.me); // ログインした人ならだれでも（選手でなくても）
       return !!memberId;
     });
-    const forStaff = kinds.indexOf('pinreq') >= 0 || kinds.indexOf('clipq') >= 0 || kinds.indexOf('exreq') >= 0 || kinds.indexOf('clipnew') >= 0; // スタッフ・キャプテン向けの通知と「みんなの動画」は、ログインした本人（staffId）にひもづける
+    const forStaff = kinds.indexOf('pinreq') >= 0 || kinds.indexOf('clipq') >= 0 || kinds.indexOf('exreq') >= 0 || kinds.indexOf('clipnew') >= 0; // 幹部・キャプテン向けの通知と「みんなの動画」は、ログインした本人（staffId）にひもづける
     const t = table_('push');
     let r = t.rows.filter(function (x) { return x.endpoint === endpoint; })[0];
     const now = now_();
@@ -3389,7 +3389,7 @@ function opFeedbackDone_(ctx) {
 }
 
 // ---------------------------------------------------------------------------
-// 目標体重（v2.9。スタッフが入れる。数値はだれでも見られる）と、種目ごとの重さの目安（体重×倍率。管理者が決める）
+// 目標体重（v2.9。幹部が入れる。数値はだれでも見られる）と、種目ごとの重さの目安（体重×倍率。管理者が決める）
 // ---------------------------------------------------------------------------
 function opSaveBodyGoal_(ctx) {
   const me = requireRole_(ctx, ['admin', 'manager', 'leader']);
@@ -3640,7 +3640,7 @@ function opRegister_(ctx) {
     me.perm = m.perm;
     log_(me, '部員の登録', m.name + '（' + deviceLabel_(ctx.req.deviceName) + '）');
     cache.put('regCount', String(n + 1), 3600);
-    notifyAdmins_(STAFF[m.perm] ? 'スタッフの登録' : '部員の登録', m.name + ' さん' + (STAFF[m.perm] ? '（' + ENC.perm[m.perm] + '）' : '') + 'が登録しました。本人でなければ、設定の「部員の登録」から消してください。', './#settings');
+    notifyAdmins_(STAFF[m.perm] ? '幹部の登録' : '部員の登録', m.name + ' さん' + (STAFF[m.perm] ? '（' + ENC.perm[m.perm] + '）' : '') + 'が登録しました。本人でなければ、設定の「部員の登録」から消してください。', './#settings');
     return { ok: true, token: token, me: me };
   });
 }
@@ -3768,15 +3768,15 @@ function clipWire_(c, me) {
   const staff = !!(me && STAFF[me.perm]);
   const flags = clipFlags_(c);
   return { id: c.id, m: c.memberId, d: c.date, at: c.recordedAt, st: c.status, gone: !!c.deletedAt, nv: !c.fileId && !c.deletedAt && !pendGet_(c.memberId, c.recordedAt) ? 1 : 0,
-    nf: staff && !(me && me.id === c.memberId) ? flags.length : undefined, /* 審議の数：本人（スタッフでも）には見せない */ mine: !!(me && flags.indexOf(me.id) >= 0), why: (staff || (me && me.id === c.memberId)) ? (c.reason || '') : '' };
+    nf: staff && !(me && me.id === c.memberId) ? flags.length : undefined, /* 審議の数：本人（幹部でも）には見せない */ mine: !!(me && flags.indexOf(me.id) >= 0), why: (staff || (me && me.id === c.memberId)) ? (c.reason || '') : '' };
 }
-/** スタッフの「確認」の一覧に入るか。審議だけの動画は、出した本人（主将など）の一覧には入れない（だれかが押したことが本人に伝わらないように） */
+/** 幹部の「確認」の一覧に入るか。審議だけの動画は、出した本人（主将など）の一覧には入れない（だれかが押したことが本人に伝わらないように） */
 function clipInQueue_(c, me) {
   if (c.status === 'pending') return true;
   return c.status === 'ok' && !c.checkedBy && clipFlags_(c).length > 0 && !(me && me.id === c.memberId);
 }
 function clipFlags_(c) { try { const a = JSON.parse(c.flags || '[]'); return Array.isArray(a) ? a : []; } catch (x) { return []; } }
-/** state に足すもの：今日の数字、最近35日の動画（サムネイルなし）、スタッフには確認が要る数 */
+/** state に足すもの：今日の数字、最近35日の動画（サムネイルなし）、幹部には確認が要る数 */
 function clipState_(ctx, today) {
   const from = addDays_(today, -35);
   const me = ctx.me;
@@ -4370,7 +4370,7 @@ function notifyStaffClip_(title, body, exceptId) {
   try {
     const staff = {};
     members_().forEach(function (m) { if (m.active && !m.gone && STAFF[m.perm] && m.id !== exceptId) staff[m.id] = 1; }); // 審議は、動画を出した本人には送らない
-    const rows = pushTargets_('clipq').filter(function (r) { return staff[r.staffId]; }); // 「動画の確認」をオンにしたスタッフだけ
+    const rows = pushTargets_('clipq').filter(function (r) { return staff[r.staffId]; }); // 「動画の確認」をオンにした幹部だけ
     sendPush_(rows, function () { return { title: title, body: body, url: './#clips/queue', tag: 'clipq' }; });
   } catch (x) { console.error(x); }
 }
@@ -4389,7 +4389,7 @@ function notifyNewClip_(me, k, clipId) {
     }, { light: true });
   } catch (x) { console.error(x); }
 }
-/** スタッフ：取り消す。その日の「実施した」を外し、本人に知らせる */
+/** 幹部：取り消す。その日の「実施した」を外し、本人に知らせる */
 function opClipCancel_(ctx) {
   const me = requireRole_(ctx, ['admin', 'manager', 'leader']);
   const reason = text_(ctx.req.reason, 80, '理由', false);
@@ -4419,7 +4419,7 @@ function opClipCancel_(ctx) {
   }
   return res;
 }
-/** スタッフ：確認待ち・審議の動画を「問題なし」にする（確認待ちなら実施したにする） */
+/** 幹部：確認待ち・審議の動画を「問題なし」にする（確認待ちなら実施したにする） */
 function opClipApprove_(ctx) {
   const me = requireRole_(ctx, ['admin', 'manager', 'leader']);
   return withLock_(function () {
@@ -4474,7 +4474,7 @@ function setupTestEnv() {
 
 // ---------------------------------------------------------------------------
 // アイコン（setlog）：一人一人が自分で決める。絵文字と背景の色、または写真（丸く切り抜いた 128×128 の JPEG）。
-// スタッフ（管理者・マネージャー）は、ほかの人のアイコンを元に戻せる。
+// 幹部（管理者・マネージャー）は、ほかの人のアイコンを元に戻せる。
 // ---------------------------------------------------------------------------
 const ICON_COLORS = ['#8c1d2f', '#1b1b1b', '#1f3a68', '#2b7bb9', '#1f7a4d', '#b8860b', '#c2185b', '#6b7280'];
 const ICON_MAX_BYTES = 30 * 1024;
@@ -4567,7 +4567,7 @@ function archiveClips_() {
 // 免除の申し込み（全員ログイン版）
 //   選手：自分のページから申し込む（期間・理由・メモ）。申し込み中なら取り消せる。
 //   主将・副主将（名簿の役割）と管理者：認める／認めない。認めると、ふつうの免除になる。
-//   理由・メモは、本人と、認める人（主将・副主将・管理者）にだけ見える。認めたあとの免除は、今までどおりスタッフに見える。
+//   理由・メモは、本人と、認める人（主将・副主将・管理者）にだけ見える。認めたあとの免除は、今までどおり幹部に見える。
 // ---------------------------------------------------------------------------
 const EXREQ_REASONS = ['けが', '病気・体調不良', '試験', '就活・実習', '家の用事', 'その他'];
 const EXREQ_BACK_DAYS = 14;   // 何日前の分まで申し込めるか（休んだあとで申し込むこともある）

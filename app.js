@@ -3,7 +3,7 @@
   'use strict';
   const L = window.KLogic;
   const API = window.KINTORE_API;
-  const VERSION = '2.27.1-t5';
+  const VERSION = '2.27.1-t6';
   const WD = ['日', '月', '火', '水', '木', '金', '土'];
   const PERM = { admin: '管理者', manager: 'マネージャー', captain: '主将', leader: '副主将', member: '一般部員', guest: '見るだけ' };
   // 権限を選ぶ一覧の並び
@@ -102,7 +102,7 @@
   window.addEventListener('appinstalled', () => { PWA.prompt = null; PWA.installed = true; toast('ホーム画面に追加しました'); if (installGateOn()) render(); });
   // ---------- スマホはホーム画面に追加してから使う（ブラウザのままでは使わせない） ----------
   // 通知・ログインの保存（iPhone はホーム画面版と Safari で別）・1タップで開くために、部員みんなにホーム画面版を使ってもらう。
-  // パソコン（スタッフの作業用）はそのまま使える
+  // パソコン（幹部の作業用）はそのまま使える
   const isPhone = () => /Android|iPhone|iPod/.test(navigator.userAgent) || isIOS();
   const inAppBrowser = () => /\bLine\/|FBAN|FBAV|Instagram|MicroMessenger|KAKAOTALK/i.test(navigator.userAgent);
   const installGateOn = () => isPhone() && !isStandalone() && !store.get('gateOff', 0);
@@ -141,7 +141,7 @@
     ['milestone', '記録の節目', '連続達成が自己ベストに並んだ・更新した、通算○回になったとき', 'self'],
     ['menu', '新しいメニューが出たとき', '自分が対象のメニューだけ', 'self'],
     ['pinreq', '管理者へのお知らせ', '管理者だけ。暗証番号の再発行の依頼と、要望・不具合が届いたらすぐ', 'admin'],
-    ['clipq', '動画の確認', 'スタッフだけ。確認待ちの動画が届いたとき・部員が「審議」を押したとき', 'staff'],
+    ['clipq', '動画の確認', '幹部だけ。確認待ちの動画が届いたとき・部員が「審議」を押したとき', 'staff'],
     ['exreq', '免除の申し込み', '主将・副主将・管理者だけ。選手から免除の申し込みが届いたとき', 'judge'],
     ['clipnew', 'みんなの動画', 'だれかが今日の1本を出すたびに（自分の動画は来ません）', 'all']
   ];
@@ -422,7 +422,7 @@
     S.data = d;
     const gate = d.locked || d.needLogin;
     S.idx = gate ? null : L.buildIndex(d);
-    // 全員ログイン（setlog）：「わたし」はログインした本人だけ。選手なら自分の名前を自動で選び、選手でない人（スタッフ・見るだけ）は、
+    // 全員ログイン（setlog）：「わたし」はログインした本人だけ。選手なら自分の名前を自動で選び、選手でない人（幹部・見るだけ）は、
     // 前の版でこの端末に選んでいた名前を消す（名前を選ぶ画面はもう無いので、残ると別の人が「わたし」になる）
     if (d.loginAll && d.me) {
       const self = d.me.perm !== 'guest' && d.members && d.members.some((x) => x.id === d.me.id && x.player) ? d.me.id : '';
@@ -1033,7 +1033,7 @@
     return h + '</section>';
   }
   // ---------- v2.9：MVP・FW対BK・落ちてきている人・分布・先週との比べ ----------
-  /** 声をかけたい人：連続がピンチ（みんな）と、落ちてきている人（スタッフだけ）をひとつに */
+  /** 声をかけたい人：連続がピンチ（みんな）と、落ちてきている人（幹部だけ）をひとつに */
   function voiceBlock() {
     const pin = pinchBlock(), slip = slipBlock();
     if (!pin && !slip) return '';
@@ -1060,7 +1060,7 @@
       '<div class="vs-bar" role="img" aria-label="1人あたりの実施回数 FW ' + f1(fw.per) + '回・BK ' + f1(bk.per) + '回"><i style="width:' + (share * 100).toFixed(1) + '%"></i></div>' +
       '<p class="note">人数が違うので、1人あたりの実施回数で比べます。達成は週' + goal() + '回（マスト）を達成した割合です。</p></section>';
   }
-  /** 落ちてきている人（スタッフだけ）：終わった直近2週とも週の目標に届かなかった人 */
+  /** 落ちてきている人（幹部だけ）：終わった直近2週とも週の目標に届かなかった人 */
   /** 部で最初に「実施した」が記録された日（通算の最初の日の中でいちばん前） */
   function teamStart() {
     let st = '';
@@ -1075,7 +1075,7 @@
     const FIRST = 6;
     const li = (r) => '<li><a href="#member/' + r.id + '"><span class="slip-n">' + esc(r.name) + '<small>先週' + r.weeks[1].count + '回・先々週' + r.weeks[0].count + '回・' +
       (r.last ? '最後の実施 ' + mdw(r.last) : 'まだ記録なし') + '</small></span>' + icon('next') + '</a></li>';
-    return '<div class="slip"><h3 class="sub3">ペースが落ちている人<small>' + list.length + '人・スタッフだけに表示</small></h3>' +
+    return '<div class="slip"><h3 class="sub3">ペースが落ちている人<small>' + list.length + '人・幹部だけに表示</small></h3>' +
       '<ul class="slip-list">' + list.slice(0, FIRST).map(li).join('') + '</ul>' +
       (list.length > FIRST ? '<details class="goal-more"><summary>ほか ' + (list.length - FIRST) + '人を見る</summary><ul class="slip-list">' + list.slice(FIRST).map(li).join('') + '</ul></details>' : '') +
       '</div>';
@@ -1280,7 +1280,7 @@
       const pers = personalOf(m);
       return h + bestsBlock(m, pers) + badgesBlock(m, pers) + cheerBlock(m);
     }
-    if (tab === 'body') return h + (bodyBlock(m) || emptyState('list', '体重の記録はまだありません', 'スタッフが測定した値を入れると、ここに変化が出ます。'));
+    if (tab === 'body') return h + (bodyBlock(m) || emptyState('list', '体重の記録はまだありません', '幹部が測定した値を入れると、ここに変化が出ます。'));
     const atNow = mo.from === tm.from;
     h += memberClips(m.id, mo);
     h += '<section class="block"><div class="mcal-nav"><button class="ibtn" data-act="mmonth" data-v="-1" aria-label="前の月">' + icon('back') + '</button>' +
@@ -1469,7 +1469,7 @@
       '<form data-form="body1" class="form"><input type="hidden" name="memberId" value="' + esc(memberId) + '">' +
       '<label>測定日<input type="date" name="date" value="' + S.data.today + '" max="' + S.data.today + '" required></label>' +
       bodyInputs('', null) +
-      '<label>メモ<span class="opt">任意・スタッフだけに見える</span><input type="text" name="note" maxlength="100" placeholder="例：朝・練習前"></label>' +
+      '<label>メモ<span class="opt">任意・幹部だけに見える</span><input type="text" name="note" maxlength="100" placeholder="例：朝・練習前"></label>' +
       '<p class="hint">数値は部員みんなが見られます。同じ日にもう一度入れると上書きします。</p><p class="form-err" hidden></p>' +
       '<div class="actions"><button type="button" class="btn" data-act="sheet-close">やめる</button><button class="btn primary" type="submit">保存</button></div></form>');
   }
@@ -1546,7 +1546,7 @@
       '<div class="two"><label>開始日<input type="date" name="from" value="' + today + '" required></label><label>終了日<input type="date" name="to" value="' + L.addDays(today, 6) + '" required></label></div>' +
       '<label>理由<select name="reason" required>' + reasons.map((r) => '<option>' + r + '</option>').join('') + '</select></label>' +
       '<label>メモ（任意）<input type="text" name="note" maxlength="100" placeholder="' + (team ? '例：前期の試験' : '例：右足首の捻挫、全治2週間') + '"></label>' +
-      (team ? '' : '<p class="hint">理由とメモは、スタッフ（管理者・マネージャー・主将・副主将）にだけ見えます（ほかの部員の画面には「免除」とだけ出ます）。</p>') +
+      (team ? '' : '<p class="hint">理由とメモは、幹部（管理者・マネージャー・主将・副主将）にだけ見えます（ほかの部員の画面には「免除」とだけ出ます）。</p>') +
       '<p class="form-err" hidden></p>' +
       '<div class="actions"><button type="button" class="btn" data-act="sheet-close">やめる</button><button class="btn primary" type="submit">登録する</button></div></form>');
   }
@@ -1583,7 +1583,7 @@
       '<div class="two"><label>開始日<input type="date" name="from" value="' + today + '" min="' + L.addDays(today, -14) + '" required></label><label>終了日<input type="date" name="to" value="' + L.addDays(today, 6) + '" min="' + L.addDays(today, -14) + '" required></label></div>' +
       '<label>理由<select name="reason" required>' + EX_REASONS.map((r) => '<option>' + r + '</option>').join('') + '</select></label>' +
       '<label>メモ（任意）<input type="text" name="note" maxlength="100" placeholder="例：右足首の捻挫、全治2週間"></label>' +
-      '<p class="hint">理由とメモは、スタッフ（管理者・マネージャー・主将・副主将）にだけ見えます（ほかの部員には「免除」とだけ出ます）。2週間前の分まで申し込めます。</p>' +
+      '<p class="hint">理由とメモは、幹部（管理者・マネージャー・主将・副主将）にだけ見えます（ほかの部員には「免除」とだけ出ます）。2週間前の分まで申し込めます。</p>' +
       '<p class="form-err" hidden></p>' +
       '<div class="actions"><button type="button" class="btn" data-act="sheet-close">やめる</button><button class="btn primary" type="submit">申し込む</button></div></form>');
   }
@@ -2305,7 +2305,7 @@
     h += timesBlock();
     // 2. 通知・ホーム画面のアプリ
     h += pushBlock() + (isStandalone() ? '' : installBlock());
-    // 3. ログイン（スタッフ。全員ログインのときは全員）
+    // 3. ログイン（幹部。全員ログインのときは全員）
     h += '<section class="block"><div class="block-h"><h2>ログイン</h2><span class="count">' + (loginAll() ? 'ログイン中' : '管理者・マネージャー・主将・副主将') + '</span></div>';
     if (m) h += '<p class="acct"><b>' + esc(m.name) + '</b><span class="chip role">' + permLabel(memberById(m.id) || m) + '</span></p>' +
       '<div class="toolbar"><button class="btn" data-act="pin-change">暗証番号を変更</button>' + (STAFF_P[m.perm] ? '<button class="btn" data-act="sessions-open">ログインしている端末</button>' : '') + '<button class="btn" data-act="logout">ログアウト</button></div>' +
@@ -2425,7 +2425,7 @@
       '<tr><td><b>今週あと○回</b><small>まだ週' + goal() + '回に届いていない本人だけ</small></td><td>土曜18時・日曜9時</td></tr>' +
       '<tr><td><b>応援が届いた</b><small>だれからか・どのスタンプか</small></td><td>1時間ごとにまとめて（夜10時〜朝7時は送らない）</td></tr>' +
       (loginAll() ? '<tr><td><b>動画が取り消された</b><small>本人だけ。理由つき</small></td><td>取り消されたらすぐ</td></tr>' +
-        '<tr><td><b>動画の確認</b><small>スタッフだけ。確認待ちの動画・「審議」</small></td><td>届いたらすぐ</td></tr>' +
+        '<tr><td><b>動画の確認</b><small>幹部だけ。確認待ちの動画・「審議」</small></td><td>届いたらすぐ</td></tr>' +
         '<tr><td><b>免除の申し込み</b><small>主将・副主将・管理者だけ</small></td><td>届いたらすぐ</td></tr>' +
         '<tr><td><b>みんなの動画</b><small>オンにした人だけ。だれが出したか（自分の動画は来ない）</small></td><td>だれかが出すたびにすぐ</td></tr>' +
         '<tr><td><b>免除が認められた・認められなかった</b><small>申し込んだ本人</small></td><td>決まったらすぐ</td></tr>' : '') +
@@ -2454,7 +2454,7 @@
       ['about', 'all', 'このアプリでできること', '全体の流れ',
         (loginAll() ? '<ul class="dots"><li>選手は、筋トレをしたらアプリで <b>2秒の動画</b> を撮って送ります。送るとその日は <b>「実施した」</b> になります</li>' +
         '<li>全員が <b>自分の名前と暗証番号でログイン</b> して使います。ログインした本人が「わたし」です</li>' +
-        '<li>みんなの動画は <b>「動画」</b> で見られます。応援スタンプを送れます。筋トレしているように見えない動画は<b>「審議」</b>を押すと、スタッフが確認します（押したことは本人には伝わりません）。スタッフは確認して取り消すこともできます</li>' +
+        '<li>みんなの動画は <b>「動画」</b> で見られます。応援スタンプを送れます。筋トレしているように見えない動画は<b>「審議」</b>を押すと、幹部が確認します（押したことは本人には伝わりません）。幹部は確認して取り消すこともできます</li>' +
         '<li><b>週' + g + '回以上（月曜〜日曜）がマスト</b>。ホームで「まだの人」、ランキングで回数がわかります</li>' +
         '<li>主将・副主将のメニュー・自己ベスト・称号・体重の変化・通知もあります</li></ul>' +
         '<div class="flow"><span>筋トレ<small>アプリで2秒撮る</small></span>' + icon('next') + '<span>送る<small>自動で「実施した」</small></span>' + icon('next') + '<span>みんな<small>動画・ランキングで見る</small></span></div>' :
@@ -2469,7 +2469,7 @@
         '<li><b>Android</b>：「待たずに戻る」で閉じても、裏で送ります</li>' +
         '<li>電波が弱くて送れないと、画面の上に<b>「送れていない動画」</b>が出ます。電波のよいところで<b>「送る」</b>を押すと送り直せます</li>' +
         '<li>動画は<b>3か月</b>で消えます。みんなの動画は<b>「動画」</b>で見られます</li>' +
-        '<li>スタッフに取り消されると「実施した」が外れます。撮り直すと<b>確認待ち</b>になり、スタッフが確認すると「実施した」に戻ります</li>' +
+        '<li>幹部に取り消されると「実施した」が外れます。撮り直すと<b>確認待ち</b>になり、幹部が確認すると「実施した」に戻ります</li>' +
         '<li>動画が24時間届かないときも、「実施した」は自動で外れます</li></ul>' +
         tip('「今日の数字」は毎日変わる数字です。アプリのカメラで、その日に撮ったことがわかるようにしています。')] : null,
       loginAll() ? ['icon', 'all', '自分のアイコン', '絵文字・写真',
@@ -2483,7 +2483,7 @@
         '<dl class="defs">' +
         '<dt>部全体の数字（赤い欄）</dt><dd>部全体の実施回数と、<b>週' + g + '回の達成率</b>。途中の週・月は、前の週・月の<b>同じ時点まで</b>と比べます。上の「週間／月間」と ' + kbd('‹') + kbd('›') + ' で期間を変えられます</dd>' +
         '<dt>週' + g + '回（マスト）まだの人</dt><dd>今週まだ届いていない人と、あと何回か。週は<b>月曜〜日曜</b>で、日曜までに' + g + '回以上で達成。<b>けがなどで免除の日</b>がある人は、そのぶん必要な回数が減ります（7日とも免除ならその週は対象外）</dd>' +
-        '<dt>声をかけたい人</dt><dd>「連続記録がピンチ」は、先週まで週' + g + '回を2週以上続けていて、今週まだ届いていない人のうち、残りの日数に余裕がなくなってきた人（余裕が2日以下。週の初めは出ません）。スタッフには「ペースが落ちている人」（先々週・先週と2週続けて届かなかった人。免除の週がある人と、部で記録を始める前の週は入りません）も出ます</dd>' +
+        '<dt>声をかけたい人</dt><dd>「連続記録がピンチ」は、先週まで週' + g + '回を2週以上続けていて、今週まだ届いていない人のうち、残りの日数に余裕がなくなってきた人（余裕が2日以下。週の初めは出ません）。幹部には「ペースが落ちている人」（先々週・先週と2週続けて届かなかった人。免除の週がある人と、部で記録を始める前の週は入りません）も出ます</dd>' +
         '<dt>ランキング</dt><dd>上位3人の表彰台（ジャージの背番号が順位）。4位から下は「すべて見る」で</dd>' +
         '<dt>最近の達成</dt><dd>この10日間に週' + g + '回を達成した人・通算○回になった人。「＋応援」から<b>応援スタンプ</b>を送ると、その人に応援が届きます' + (loginAll() ? '' : '（ログイン不要。設定で自分の名前を選ぶと、だれからかも伝わります）') + '</dd>' +
         '<dt>くわしい分析</dt><dd>FW対BK・ポジション別・達成率の分布は、ランキングの<b>「分析」</b>にあります</dd></dl>'],
@@ -2498,14 +2498,14 @@
         '<li>上に<b>今週・今月</b>の回数と、週' + g + '回の連続達成。その下を3つに分けています</li>' +
         '<li><b>記録</b>：月ごとのカレンダーと履歴、免除</li>' +
         '<li><b>実績</b>：自己ベスト（通算・いちばん長い連続・いちばん多い月／週）、<b>称号のメダル</b>（全20種。押すと取った日と応援）、届いた応援</li>' +
-        '<li><b>体重</b>：体重のグラフ、目標体重、重さの目安（入力はスタッフ）</li></ul>'],
+        '<li><b>体重</b>：体重のグラフ、目標体重、重さの目安（入力は幹部）</li></ul>'],
       ['cheer', 'all', '応援スタンプを送る', loginAll() ? '「＋」から9種類' : '「＋」から9種類。ログインなしでOK',
         steps(['ホームの<b>「最近の達成」</b>の「＋応援」、または部員ページの<b>称号</b>の下のスタンプを押す', '数字が増えれば送れています。<b>もう一度押すと取り消し</b>', '相手が通知をオンにしていれば、1時間以内に「応援が届きました」が届きます']) +
         tip((loginAll() ? 'ログインした人の名前で「○○さんから」と伝わります（見るだけの人は名前なし）。' : '自分の名前を選んでおくと「○○さんから」と伝わります。') + '自分あてのスタンプは押せません。')],
       loginAll() ? ['new', 'all', '新しくなったところ', '動画で記録・全員ログイン・アイコン・免除の申し込み',
         '<ul class="dots"><li><b>動画で「実施した」</b>：選手は筋トレをしたらアプリで2秒の動画を送ります。送るとその日は「実施した」になります（マネージャーが押さなくてよくなりました）</li>' +
         '<li><b>全員ログイン</b>：自分の名前と暗証番号で登録して使います。ログインした本人が「わたし」です</li>' +
-        '<li><b>みんなの動画</b>：「動画」でその日の動画が見られます。応援スタンプを送れます。筋トレしているように見えない動画は「審議」でスタッフに確認してもらえます</li>' +
+        '<li><b>みんなの動画</b>：「動画」でその日の動画が見られます。応援スタンプを送れます。筋トレしているように見えない動画は「審議」で幹部に確認してもらえます</li>' +
         '<li><b>アイコン</b>：自分のページで、絵文字か写真のアイコンを決められます</li>' +
         '<li><b>免除の申し込み</b>：けが・病気・試験で休むときは、自分のページから申し込めます。主将・副主将が認めると免除になります</li>' +
         '<li><b>カレンダーから動画</b>：自分のページのカレンダーで、印のある日を押すと、その日の動画が開きます</li>' +
@@ -2525,12 +2525,12 @@
       loginAll() ? ['exempt', 'all', 'けが・病気・試験で休むとき', '免除を申し込む',
         steps(['自分のページ（ホームの<b>「わたし」</b>）の<b>「免除」</b>で<b>「免除を申し込む」</b>', '期間・理由（けが・病気・試験など）・メモを入れて<b>「申し込む」</b>', '<b>主将・副主将</b>が認めると「免除」になります（通知が届きます）']) +
         '<p>免除の日は、その日数ぶん週' + g + '回の必要回数が減り、メニューの×にもなりません。</p>' +
-        '<ul class="dots"><li>2週間前の分まで申し込めます。それより前や、スタッフに直接頼みたいときは、マネージャーに伝えてください</li>' +
+        '<ul class="dots"><li>2週間前の分まで申し込めます。それより前や、幹部に直接頼みたいときは、マネージャーに伝えてください</li>' +
         '<li>申し込み中なら<b>「取り消す」</b>で取り消せます。認められなかったときは、理由が届きます</li></ul>' +
-        tip('理由とメモは、スタッフ（管理者・マネージャー・主将・副主将）にしか見えません（みんなの画面には「免除」とだけ出ます）。')] :
+        tip('理由とメモは、幹部（管理者・マネージャー・主将・副主将）にしか見えません（みんなの画面には「免除」とだけ出ます）。')] :
       ['exempt', 'all', 'けが・病気で休むとき', '免除してもらう',
         '<p>けが・病気・就活などで筋トレできない期間は、<b>マネージャーに伝えてください</b>。「免除」に登録されると、その日数ぶん週' + g + '回の必要回数が減り、メニューの×にもなりません。</p>' +
-        tip('免除の理由やメモは、スタッフにしか見えません（みんなの画面には「免除」とだけ出ます）。')],
+        tip('免除の理由やメモは、幹部にしか見えません（みんなの画面には「免除」とだけ出ます）。')],
       loginAll() ? ['exjudge', 'all', '免除の申し込みを認める（主将・副主将）', '主将・副主将と管理者',
         steps(['申し込みが届くと、ホームに<b>「免除の申し込みが○件」</b>が出ます（通知の「免除の申し込み」をオンにすると、通知も届きます）', '期間・理由・メモを見て<b>「認める」</b>か<b>「認めない」</b>', '認めないときは理由を書くと、本人に届きます']) +
         '<ul class="dots"><li>主将・副主将は、部員の編集で<b>筋トレアプリの権限</b>を「主将」「副主将」にした人です（名簿の<b>役割</b>が「主将」「副主将」の選手も、自動でそうなります）</li>' +
@@ -2538,14 +2538,14 @@
         '<li>認めた免除を外すときは、マネージャーか管理者に頼んでください（その人のページの免除の「取り消す」）</li></ul>'] : null,
       ['faq', 'all', 'よくある質問', '記録がちがう・数え方・古いまま',
         '<dl class="defs"><dt>自分の記録がちがう</dt><dd>マネージャーに伝えてください（取り消しや追加ができます）</dd>' +
-        (loginAll() ? '<dt>動画を送ったのに「実施した」にならない</dt><dd>画面の上に「送れていない動画」が出ていれば<b>「送る」</b>。取り消された日に撮り直した動画は、スタッフが確認するまで<b>確認待ち</b>です</dd>' +
+        (loginAll() ? '<dt>動画を送ったのに「実施した」にならない</dt><dd>画面の上に「送れていない動画」が出ていれば<b>「送る」</b>。取り消された日に撮り直した動画は、幹部が確認するまで<b>確認待ち</b>です</dd>' +
           '<dt>動画が取り消された</dt><dd>通知かホームに理由が出ます。その日のうちなら撮り直せます（確認待ちになります）</dd>' +
           '<dt>暗証番号を忘れた</dt><dd>選手は管理者に「登録を消して」と伝えると、もう一度登録できます</dd>' : '') +
         '<dt>週' + g + '回の「週」はいつから？</dt><dd>月曜〜日曜です。月曜にその週の回数が0に戻ります</dd>' +
         '<dt>自主トレの人の実施率が「－」</dt><dd>実施率は主将・副主将のメニューに参加している人だけ。自主トレの人は回数で見ます</dd>' +
         '<dt>情報が古いまま</dt><dd>画面を<b>一番上で下に引っぱる</b>と最新になります。ホーム画面のアプリで「アプリの新しいバージョンがあります」が出たら「更新する」</dd>' +
         '<dt>機種変更した</dt><dd>新しいスマホでホーム画面に追加し直して、' + (loginAll() ? 'ログイン' : '自分の名前') + '・通知をもう一度</dd></dl>'],
-      // スタッフ
+      // 幹部
       loginAll() ? ['login', 'all', 'ログイン・暗証番号', 'はじめての登録・忘れたとき',
         steps(['アプリを開くと<b>ログインの画面</b>。名前の一覧から<b>自分</b>を選ぶ', 'はじめての人は、自分だけの<b>暗証番号</b>（半角6文字以上）を決めて<b>「登録してはじめる」</b>。2回目からはその暗証番号でログイン', 'マネージャー・主将・副主将も同じ。<b>管理者</b>と<b>見るだけの人</b>だけは、管理者からもらった暗証番号でログインし、最初に自分の暗証番号に変える']) +
         '<ul class="dots"><li>アプリを開くたびに、ログインの期限が<b>半年</b>のびます</li>' +
@@ -2574,7 +2574,7 @@
         (loginAll() ? '<ul class="dots"><li>選手は自分で免除を申し込めます。<b>主将・副主将</b>（または管理者）が認めると、ここに「本人の申し込み」と出ます</li><li>申し込みから決まった免除は、マネージャーも「取り消す」で外せます</li></ul>' : '') +
         tip('部全体のオフ（試験期間・合宿など）は管理者が「設定」から登録します。')],
       ['body', 'staff', '体重を入れる', 'まとめて／1人ずつ',
-        steps(['「部員」→ <b>「体重をまとめて入れる」</b>（1人だけなら部員ページの「入れる」）', '測定日を選び、測った人だけ体重を入れる → <b>「保存」</b>']) + tip('同じ日にもう一度入れると上書き。数値は部員みんなが見られます（メモはスタッフだけ）。')],
+        steps(['「部員」→ <b>「体重をまとめて入れる」</b>（1人だけなら部員ページの「入れる」）', '測定日を選び、測った人だけ体重を入れる → <b>「保存」</b>']) + tip('同じ日にもう一度入れると上書き。数値は部員みんなが見られます（メモは幹部だけ）。')],
       ['line', 'manager', 'LINEで「まだの人」を送る', '文章を自動で作る',
         steps(['ホーム（週間・今週）の「週' + g + '回（マスト）まだの人」の下', '<b>「LINE用の文章をコピー」</b>→ LINEに貼る、または <b>「LINEで送る」</b>']) + tip('月間のホームでは、MVP・皆勤などの<b>表彰の文章</b>もコピーできます。')],
       ['menu', 'leader', 'メニューを作る', '対象・よく使う種目・動画',
@@ -2633,7 +2633,7 @@
       (role === 'all' ? '<p class="note is-top">知りたいところを押すと開きます。マネージャー・主将・副主将・管理者の使い方は、上で切り替えてください。</p>' : '<p class="note is-top">ログインしてできることです。みんな向けの使い方は「みんな」にあります。</p>') +
       tourCard(role) +
       '<div class="help">';
-    // マネージャー・主将・副主将の画面は、その立場だけの使い方を先に（スタッフ共通のものはあと）
+    // マネージャー・主将・副主将の画面は、その立場だけの使い方を先に（幹部共通のものはあと）
     const secs = helpSections().filter((x) => x && show(x[1]));
     if (role === 'manager' || role === 'leader') secs.sort((a, b) => (a[1] === role ? 0 : 1) - (b[1] === role ? 0 : 1));
     secs.forEach((x, i) => {
@@ -2810,14 +2810,14 @@
       { r: 'home', sel: '.home-clips', login: 1, t: '今日の1本を撮る', p: () => (mePlayer() ? '筋トレをしたら' : '選手は筋トレをしたら') + '<b>「今日の1本を撮る」</b>（または下の<b>「撮る」</b>）で<b>2秒の動画</b>を送ります。日時と今日の数字は自動で入り、送るとその日は<b>「実施した」</b>になります。みんなの動画もここで見られます。' },
       { r: 'clips', login: 1, sel: () => $('.view-clips .clip-grid') || $('.view-clips .clip-unit') || $('.view-clips .toolbar'), t: 'みんなの動画・審議',
         p: () => '<b>「動画」</b>では、部員みんなのその日の動画が見られます（日・週で切り替え）。押すと大きく見られて、応援スタンプも送れます。' +
-          (me() && me().perm !== 'guest' ? '<br>筋トレしているように見えない動画は、<b>「審議」</b>を押すと、スタッフが動画を見て判断します。<b>押したことは本人には伝わりません</b>。' : '') },
+          (me() && me().perm !== 'guest' ? '<br>筋トレしているように見えない動画は、<b>「審議」</b>を押すと、幹部が動画を見て判断します。<b>押したことは本人には伝わりません</b>。' : '') },
       { r: 'home', sel: '.todaycard', t: '今日のメニュー', p: '主将・副主将が出した今日のメニューです。押すと内容と、種目ごとの<b>フォームの動画</b>が見られます。' },
       { r: 'home', sel: '.board', t: '部全体の数字', p: '部全体の実施回数と、<b>週{g}回（マスト）</b>を達成した人の割合です。すぐ上で<b>週間・月間</b>を切り替えられ、矢印で前の週・月も見られます。' },
       { r: 'home', sel: '.block.goal', t: 'まだの人', p: '今週まだ週{g}回に届いていない人です。名前を押すとその人のページ。その下の<b>「声をかけたい人」</b>は、連続達成がピンチの人や、ペースが落ちている人です。' },
       { r: 'home', sel: () => { const e = $('.view-home .podium') || $('.view-home .rlist'); return e ? e.closest('.block') || e : null; }, t: 'ランキング', p: 'この期間の実施回数の上位です。<b>「すべて見る」</b>で全員の順位と、FW対BK・ポジション別などの<b>分析</b>が見られます。' },
       { r: 'home', sel: '.block.feed', t: '応援スタンプを送る', p: () => '週{g}回の達成や節目が出ます。<b>「＋応援」</b>から9種類のスタンプを送れます（もう一度押すと取り消し）。' + (loginAll() ? 'あなたの名前で届きます。<b>動画</b>や<b>部員のページ</b>からも送れます。' : '自分の名前を選んでおくと、だれからか伝わります。') },
       { r: 'member', prep: () => { S.memberTab = 'rec'; }, arg: () => (loginAll() && mePlayer() ? me().id : ''), sel: () => { const b = $('#app [data-act="exreq-new"]') || $('#app [data-act="exempt-new"]'); return b ? b.closest('.block') || b : null; }, t: '免除を申し込む',
-        p: () => 'けが・病気・試験などで筋トレできない期間は、自分のページのここから<b>免除</b>を' + (can('record') ? '入れます。スタッフは<b>「免除を追加」</b>で、そのまま登録できます（選手は「免除を申し込む」から申し込み、主将・副主将が認めます）。' : '申し込みます。主将・副主将が認めると、') + '日数に合わせて<b>その週に必要な回数が減ります</b>（1週間まるごとなら、その週は数えません）。' },
+        p: () => 'けが・病気・試験などで筋トレできない期間は、自分のページのここから<b>免除</b>を' + (can('record') ? '入れます。幹部は<b>「免除を追加」</b>で、そのまま登録できます（選手は「免除を申し込む」から申し込み、主将・副主将が認めます）。' : '申し込みます。主将・副主将が認めると、') + '日数に合わせて<b>その週に必要な回数が減ります</b>（1週間まるごとなら、その週は数えません）。' },
       { r: 'menus', prep: () => { S.menuTab = 'exercises'; S.exPart = ''; }, sel: '.exparts-bar', t: 'フォームの動画', p: '種目の<b>フォームの動画</b>と<b>やり方・ポイント</b>は「メニュー」の<b>「種目の動画」</b>で、部位（胸・背中・脚など）から探せます。メニューの種目の横の<b>「フォーム」</b>からも見られます。' },
       { r: 'home', sel: '.top-help', t: '使い方ガイド', p: () => 'わからないときはここ。<b>' + howtoLen() + 'の動画</b>と、立場ごとの使い方があります。この案内ももう一度見られます。「こうしてほしい」「ここがおかしい」は、<b>「設定」→「要望・不具合を送る」</b>から管理者に送れます。' }
     ] },
@@ -3681,7 +3681,7 @@
     return '<div class="gate login-gate"><div class="boot-mark" aria-hidden="true">' + jersey({ num: '', front: true }) + '</div><h1>KURFC 筋トレ</h1>' +
       (isTestSite() ? '<p class="test-tag">テスト環境</p>' : '') +
       (guests.length ? '<div class="seg" role="group" aria-label="ログインする人">' +
-        '<button data-act="login-tab" data-v="member" aria-pressed="' + (tab !== 'guest') + '">部員・スタッフ</button>' +
+        '<button data-act="login-tab" data-v="member" aria-pressed="' + (tab !== 'guest') + '">部員・幹部</button>' +
         '<button data-act="login-tab" data-v="guest" aria-pressed="' + (tab === 'guest') + '">見るだけの人</button></div>' : '') +
       '<label class="form login-name">名前<select data-act-change="login-pick"><option value="">' + (tab === 'guest' ? '選んでください' : '自分の名前を選んでください') + '</option>' + opts + '</select></label>' +
       form +
@@ -4020,7 +4020,7 @@
     b.innerHTML = '<div class="cam-meter" id="cam-meter" role="status" aria-live="polite">' +
       '<div class="cam-meter-top"><b id="cam-meter-lab">動画を送っています</b><span id="cam-meter-left"></span></div>' +
       '<div class="cam-meter-bar"><span id="cam-meter-fill"></span></div>' +
-      '<p class="cam-hint" id="cam-meter-note">' + (pend ? '取り消された日なので、スタッフが確認すると「実施した」になります。' : '画面は先に「実施した」にしてあります。') +
+      '<p class="cam-hint" id="cam-meter-note">' + (pend ? '取り消された日なので、幹部が確認すると「実施した」になります。' : '画面は先に「実施した」にしてあります。') +
       (bg ? '' : '<br>送り終わるまで、この画面のまま待ってください') + '</p>' +
       (bg ? '<button class="btn cam-meter-btn" data-act="cam-bg">待たずに戻る（あとは裏で送ります）</button>' : '') + '</div>';
     clearInterval(CAM.meterTimer);
@@ -4062,7 +4062,7 @@
     if (fill) fill.style.width = Math.round(M.p * 100) + '%';
     if (t.done) {
       M.end = true; clearInterval(CAM.meterTimer);
-      set('cam-meter-lab', M.pend ? '届きました（スタッフの確認待ち）' : '送り終わりました');
+      set('cam-meter-lab', M.pend ? '届きました（幹部の確認待ち）' : '送り終わりました');
       set('cam-meter-left', '');
       set('cam-meter-note', M.bg ? '' : 'アプリを閉じても大丈夫です。');
       { const btn = box.querySelector('.cam-meter-btn'); if (btn) btn.remove(); } // 終わったので「待たずに戻る」は要らない
@@ -4171,7 +4171,7 @@
     if (stage === 'video') { if (!(CAM.meter && CAM.meter.at === item.at)) toast('動画も送り終わりました'); return; }
     // 「実施した」は押したときに画面で出してあるので、ここでは言わない（前に開いたときの動画を送り直したときだけ言う）
     if (r.again || S.marked[item.at]) return;
-    toast(r.pending ? '届きました。取り消された日なので、スタッフが確認するまで待ちになります' : day + 'は「実施した」になりました');
+    toast(r.pending ? '届きました。取り消された日なので、幹部が確認するまで待ちになります' : day + 'は「実施した」になりました');
   }
   // Service Worker からの知らせ（送れた・送れない動画だった・電波待ち）
   if ('serviceWorker' in navigator) {
@@ -4471,7 +4471,7 @@
     const strip = (S.data.clips || []).filter((c) => c.local && c.d === today && !lst.some((x) => x.id === c.id)).concat(lst);
     const q = can('anyStaff') && S.data.clipQueue ? '<a class="banner warn" href="#clips/queue">' + icon('alert') + '<span>確認が要る動画が' + S.data.clipQueue + '本あります</span></a>' : '';
     return q + '<section class="block home-clips"><div class="block-h"><h2>今日の動画</h2><a class="more" href="#clips">すべて見る</a></div>' +
-      (mePlayer() ? (mine ? '<p class="clip-done">' + icon('check') + '今日の1本は出しました' + (qList().some((x) => x.at.slice(0, 10) === today) ? '<small>' + (S.clipSending ? '<span class="spin"></span>動画を送っています…' : '動画はまだ送れていません') + '</small>' : '') + '</p>' : wait ? '<p class="clip-done wait">確認待ちです。スタッフが確認すると「実施した」になります</p>' : held ? '<p class="clip-done wait">' + (S.clipSending ? '<span class="spin"></span>今日の1本を送っています…' : '今日の1本はまだ送れていません。電波のよい所で「送る」を押してください') + '</p>' : '<button class="btn primary wide cam-cta" data-act="cam-open">' + icon('cam') + '今日の1本を撮る（' + CLIP_SEC + '秒）</button>') : '') +
+      (mePlayer() ? (mine ? '<p class="clip-done">' + icon('check') + '今日の1本は出しました' + (qList().some((x) => x.at.slice(0, 10) === today) ? '<small>' + (S.clipSending ? '<span class="spin"></span>動画を送っています…' : '動画はまだ送れていません') + '</small>' : '') + '</p>' : wait ? '<p class="clip-done wait">確認待ちです。幹部が確認すると「実施した」になります</p>' : held ? '<p class="clip-done wait">' + (S.clipSending ? '<span class="spin"></span>今日の1本を送っています…' : '今日の1本はまだ送れていません。電波のよい所で「送る」を押してください') + '</p>' : '<button class="btn primary wide cam-cta" data-act="cam-open">' + icon('cam') + '今日の1本を撮る（' + CLIP_SEC + '秒）</button>') : '') +
       (strip.length ? '<div class="clip-strip">' + strip.slice(0, 12).map((c) => clipCard(c)).join('') + '</div>' : Array.isArray(list) ? '<p class="empty small">まだだれも出していません。</p>' : '') + '</section>';
   }
   /** 部員ページの動画：カレンダーで見ている月の分（動画は3か月で消える） */
@@ -4515,11 +4515,11 @@
     }
     openSheet(name + '・' + mdw(c.d) + ' ' + (c.at || '').slice(11, 16),
       '<div class="clip-player"><video id="clip-v" playsinline muted loop autoplay' + (S.clipThumb[c.id] ? ' poster="data:image/jpeg;base64,' + S.clipThumb[c.id] + '"' : '') + '></video><p class="clip-load" id="clip-load"><span class="spin"></span>読み込んでいます…</p></div>' +
-      (c.st === 'pending' ? '<p class="note">取り消された日に撮り直した動画です。スタッフが確認すると「実施した」になります。</p>' : '') +
+      (c.st === 'pending' ? '<p class="note">取り消された日に撮り直した動画です。幹部が確認すると「実施した」になります。</p>' : '') +
       (c.st === 'canceled' ? '<p class="note err">取り消されました' + (c.why ? '（' + esc(c.why) + '）' : '') + '。</p>' : '') +
       (c.st !== 'canceled' && !c.local ? stampBar(c.m, 'c:' + c.id) : '') +
       (acts.length ? '<div class="toolbar clip-acts">' + acts.join('') + '</div>' : '') +
-      (acts.length && acts[0].indexOf('clip-flag') >= 0 ? '<p class="clip-flag-note">「審議」は、筋トレしているように見えないときに押します。スタッフが動画を見て判断します。押したことは本人には伝わりません。</p>' : '') +
+      (acts.length && acts[0].indexOf('clip-flag') >= 0 ? '<p class="clip-flag-note">「審議」は、筋トレしているように見えないときに押します。幹部が動画を見て判断します。押したことは本人には伝わりません。</p>' : '') +
       '<div class="clip-cancel" id="clip-cancel" hidden><form data-form="clipcancel" class="form"><input type="hidden" name="id" value="' + esc(c.id) + '">' +
       '<label>取り消す理由<span class="opt">任意・本人に届きます</span><input name="reason" maxlength="80" placeholder="例：ジムで撮った動画ではない"></label>' +
       '<p class="form-err" role="alert" hidden></p><div class="actions"><button type="button" class="btn" data-act="clip-cancel-close">やめる</button><button class="btn danger" type="submit">取り消す</button></div></form></div>' +
@@ -5023,7 +5023,7 @@
       const want = !c.mine;
       clipUpdated({ id: c.id, mine: want });
       el.classList.toggle('on', want); el.setAttribute('aria-pressed', String(want)); el.textContent = want ? '審議を取り消す' : '審議';
-      toast(want ? '審議にしました。スタッフが動画を確認します' : '審議を取り消しました');
+      toast(want ? '審議にしました。幹部が動画を確認します' : '審議を取り消しました');
       S.flagBusy = true;
       try { const r = await api('clipFlag', { id: c.id, on: want }); clipUpdated(r.clip); }
       catch (e) {

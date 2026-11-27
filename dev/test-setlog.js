@@ -80,12 +80,12 @@ ok(gas.props.getProperty('ENV') === 'test' && gas.props.getProperty('SETLOG') ==
 ok(api({ op: 'state', token: A }).needLogin, 'テスト環境にすると、ログインはいったん全部切れる');
 A = api({ op: 'login', memberId: id['橋本 侑青'], pin: 'admin-pin-01' }).token;
 MG = api({ op: 'login', memberId: id['マネ 花子'], pin: 'manager-pin-1' }).token;
-ok(A && MG, 'スタッフは今までの暗証番号でログインできる');
+ok(A && MG, '幹部は今までの暗証番号でログインできる');
 
 section('ログインしていない人');
 st = api({ op: 'state' });
 ok(st.needLogin && !st.members && !st.records && st.people.length >= 5 && st.people.every((p) => 'reg' in p && !('pinHash' in p)), 'ログインの画面に出す名前の一覧だけ（記録などは出さない）');
-ok(st.people.find((p) => p.id === id['橋本 侑青']).staff && st.people.find((p) => p.id === id['橋本 侑青']).reg, 'スタッフ・登録済みがわかる');
+ok(st.people.find((p) => p.id === id['橋本 侑青']).staff && st.people.find((p) => p.id === id['橋本 侑青']).reg, '幹部・登録済みがわかる');
 ok(api({ op: 'memberHistory', memberId: id['森 健太'] }).error === 'auth', 'ほかの読み取りもログインが必要');
 ok(api({ op: 'stamp', target: id['森 健太'], event: 'g:2026-11-16', kind: 'clap', device: 'aaaaaaaaaaaaaaaa' }).error === 'auth', '応援もログインが必要');
 
@@ -96,7 +96,7 @@ r = api({ op: 'register', memberId: id['森 健太'], pin: 'mori-pin-1', deviceN
 ok(r.ok && r.token && r.me.perm === 'member', '名前を選んで暗証番号を決めると、そのままログインする');
 const MORI = r.token;
 ok(api({ op: 'register', memberId: id['森 健太'], pin: 'other-pin-1' }).error === 'already', '登録済みの名前は登録できない（なりすまし防止）');
-ok(api({ op: 'register', memberId: id['マネ 花子'], pin: 'other-pin-1' }).error === 'already', '登録済みのスタッフの名前も登録できない');
+ok(api({ op: 'register', memberId: id['マネ 花子'], pin: 'other-pin-1' }).error === 'already', '登録済みの幹部の名前も登録できない');
 { // マネージャー・主将・副主将も、選手と同じく自分で暗証番号を決めて登録する。管理者だけは発行
   api({ op: 'saveMember', token: A, member: { id: id['前田 剛'], perm: 'admin' } });
   ok(api({ op: 'register', memberId: id['前田 剛'], pin: 'maeda-pin-1' }).error === 'staff', '管理者は自分で登録できない（ほかの管理者が暗証番号を出す）');
@@ -106,9 +106,9 @@ ok(api({ op: 'register', memberId: id['マネ 花子'], pin: 'other-pin-1' }).er
   ok(bp.ok && bp.pins.length === 0, '役職をマネージャーにしても、暗証番号は発行しない（本人が登録する）');
   const rg = api({ op: 'register', memberId: id['前田 剛'], pin: 'maeda-pin-1', deviceName: 'Android' });
   ok(rg.ok && rg.token && rg.me.perm === 'manager', 'マネージャーも名前を選んで暗証番号を決めると、そのままログインする');
-  ok(gas.sheet('操作履歴').data.some((row) => row.join('|').includes('部員の登録') && row.join('|').includes('前田 剛')), 'スタッフの登録も操作履歴に残る');
-  ok(api({ op: 'state', token: A }).regs[id['前田 剛']] === 1, '管理者の「部員の登録」にスタッフも出る');
-  ok(api({ op: 'unregister', token: A, memberId: id['前田 剛'] }).ok, '管理者はスタッフの登録も消せる（なりすましのとき）');
+  ok(gas.sheet('操作履歴').data.some((row) => row.join('|').includes('部員の登録') && row.join('|').includes('前田 剛')), '幹部の登録も操作履歴に残る');
+  ok(api({ op: 'state', token: A }).regs[id['前田 剛']] === 1, '管理者の「部員の登録」に幹部も出る');
+  ok(api({ op: 'unregister', token: A, memberId: id['前田 剛'] }).ok, '管理者は幹部の登録も消せる（なりすましのとき）');
   ok(api({ op: 'state', token: rg.token }).needLogin === true || api({ op: 'state', token: rg.token }).me == null, '登録を消すと、その端末はログアウトになる');
   ok(api({ op: 'register', memberId: id['前田 剛'], pin: 'maeda-pin-2' }).ok, '本人がもう一度登録できる');
   api({ op: 'bulkPerms', token: A, rows: [{ id: id['前田 剛'], perm: 'member' }] });
@@ -190,7 +190,7 @@ ok(Object.keys(gas.drive.files).length === 1 && gas.drive.folders[gas.props.getP
 r = api({ op: 'clipUpload', token: MORI2, mime: 'video/mp4', data: vid, thumb, recordedAt: at, code });
 ok(r.ok && r.again && r.clip.id === clip1 && Object.keys(gas.drive.files).length === 1, '同じ動画を送り直しても二重にならない');
 st = api({ op: 'state', token: ISHI });
-ok(st.clips.some((c) => c.id === clip1 && c.m === id['森 健太'] && c.nf === undefined), 'ほかの部員の一覧に出る（「審議」の数はスタッフだけ）');
+ok(st.clips.some((c) => c.id === clip1 && c.m === id['森 健太'] && c.nf === undefined), 'ほかの部員の一覧に出る（「審議」の数は幹部だけ）');
 r = api({ op: 'clips', token: ISHI });
 ok(r.ok && r.clips[0].id === clip1 && r.clips[0].th === thumb, '一覧はサムネイルつき');
 { // 一覧だけすぐ返す（nothumb）。サムネイルは clipThumbs で、見られるものの分だけ
@@ -203,7 +203,7 @@ ok(r.ok && r.clips[0].id === clip1 && r.clips[0].th === thumb, '一覧はサム�
 r = api({ op: 'clipVideo', token: G, id: clip1 });
 ok(r.ok && r.mime === 'video/mp4' && r.data === vid, '動画を見られる（見るだけの人も）');
 
-section('審議 → スタッフの確認');
+section('審議 → 幹部の確認');
 const MEP = 'https://fcm.googleapis.com/fcm/send/manager-device:APA91b-test', PEP = 'https://fcm.googleapis.com/fcm/send/player-device:APA91b-test';
 r = api({ op: 'pushRegister', token: MG, sub: { endpoint: MEP }, memberId: '', kinds: ['clipq', 'goal'] });
 ok(r.ok && r.push.kinds.join() === 'clipq', 'マネージャーは「動画の確認」の通知を受け取れる（選手でないので「今週あと○回」は無し）');
@@ -215,7 +215,7 @@ r = api({ op: 'clipFlag', token: ISHI, id: clip1, on: true });
 ok(r.ok && r.clip.mine, '部員が「審議」を押せる');
 ok(gas.push.sent.length === 1 && gas.push.sent[0].url === MEP && /審議/.test(api({ op: 'pushInbox', endpoint: MEP }).messages[0].title), '「審議」がつくと、マネージャー（動画の確認をオン）に通知が届く');
 st = api({ op: 'state', token: MG });
-ok(st.clipQueue === 1 && st.clips.find((c) => c.id === clip1).nf === 1, 'スタッフには確認が要る数と「審議」の数が出る');
+ok(st.clipQueue === 1 && st.clips.find((c) => c.id === clip1).nf === 1, '幹部には確認が要る数と「審議」の数が出る');
 ok(api({ op: 'clips', token: MG, queue: true }).clips.length === 1, '確認待ちの一覧');
 { const own = api({ op: 'state', token: MORI2 }).clips.find((c) => c.id === clip1); ok(own && own.nf === undefined && !own.mine && !gas.push.sent.some((x) => x.url === PEP), '審議は、動画を出した本人には伝わらない（数も通知も無い）'); }
 ok(api({ op: 'clipCancel', token: ISHI, id: clip1 }).error === 'forbidden', '部員は取り消せない');
@@ -230,10 +230,10 @@ const at2 = jst(2);
 gas.push.sent.length = 0;
 r = api({ op: 'clipUpload', token: MORI2, mime: 'video/mp4', data: vid, thumb, recordedAt: at2, code });
 ok(r.ok && r.pending && r.clip.st === 'pending' && !r.records.some((x) => x[0] === id['森 健太']), '撮り直しは確認待ち（まだ「実施した」にならない）');
-ok(gas.push.sent.length === 1 && gas.push.sent[0].url === MEP && /確認待ち/.test(api({ op: 'pushInbox', endpoint: MEP }).messages[0].title), '確認待ちの動画が届くと、スタッフに通知が届く');
-ok(api({ op: 'state', token: MG }).clipQueue === 1, 'スタッフの確認待ちに出る');
+ok(gas.push.sent.length === 1 && gas.push.sent[0].url === MEP && /確認待ち/.test(api({ op: 'pushInbox', endpoint: MEP }).messages[0].title), '確認待ちの動画が届くと、幹部に通知が届く');
+ok(api({ op: 'state', token: MG }).clipQueue === 1, '幹部の確認待ちに出る');
 r = api({ op: 'clipApprove', token: MG, id: r.clip.id });
-ok(r.ok && r.recorded && r.records.some((x) => x[0] === id['森 健太'] && x[2] === 1), 'スタッフが確認すると「実施した」になる');
+ok(r.ok && r.recorded && r.records.some((x) => x[0] === id['森 健太'] && x[2] === 1), '幹部が確認すると「実施した」になる');
 ok(api({ op: 'state', token: MG }).clipQueue === 0, '確認待ちがなくなる');
 ok(api({ op: 'saveRecords', token: A, date: r.clip.d, items: [{ memberId: id['森 健太'], done: false }] }).rejected[0].reason === 'from_video', '確認してついた「実施した」も動画の記録（記録の画面では外れない）');
 
@@ -519,7 +519,7 @@ section('免除の申し込み（選手が申し込み、主将・副主将が�
   ok(gas.push.sent.some((x) => /ishi-ex/.test(x.url)), '本人に「認められました」の通知が届く');
   ok(api({ op: 'exemptDecide', token: MORI2, id: q1, ok: false }).error === 'decided', '決まったものは、もう変えられない');
   const exm = api({ op: 'state', token: MG }).exempts.find((e) => e.id === ex1.id);
-  ok(exm && exm.req === 1 && exm.reason === 'けが', 'スタッフには、本人の申し込みから（副主将が認めた）とわかる');
+  ok(exm && exm.req === 1 && exm.reason === 'けが', '幹部には、本人の申し込みから（副主将が認めた）とわかる');
   ok(api({ op: 'deleteExempt', token: MG, id: ex1.id }).ok, 'マネージャーも、申し込みから決まった免除を取り消せる（認めたのが自分でなくても）');
   r = api({ op: 'exemptRequest', token: ISHI, from: day(10), to: day(12), reason: '試験', note: '前期の試験' });
   ok(api({ op: 'exemptCancel', token: MORI2, id: r.req.id }).error === 'not_found', 'ほかの人の申し込みは取り消せない');

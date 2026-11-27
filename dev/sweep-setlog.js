@@ -94,7 +94,7 @@ const CONF = [
     } catch (e) { errors.push(cf.n + ': ' + e.message); await shot('zz-error').catch(() => {}); }
     await c.close();
   }
-  // スタッフ（マネージャー）の画面
+  // 幹部（マネージャー）の画面
   for (const cf of [CONF[0], CONF[2]]) {
     const c = await browser.newContext({ viewport: { width: cf.w, height: cf.h }, deviceScaleFactor: 2, isMobile: true, hasTouch: true, reducedMotion: 'reduce' });
     await c.route(/fonts\.(googleapis|gstatic)\.com/, (r) => r.abort());

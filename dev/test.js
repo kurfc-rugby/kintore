@@ -481,7 +481,7 @@ const off = api({ op: 'saveExempt', token: A, memberId: 'ALL', from: '2026-11-10
 ok(off.ok, '管理者は部全体のオフ期間を登録できる');
 const pub = api({ op: 'state' }).exempts;
 ok(pub.length === 2 && pub.find((e) => e.memberId === someone.id).reason === '' && pub.find((e) => e.memberId === 'ALL').reason === '試験期間', 'ログインなしの画面では部員ごとの理由は見えない（オフの理由は見える）');
-ok(api({ op: 'state', token: MX }).exempts.find((e) => e.memberId === someone.id).note === '右足首', 'スタッフには理由とメモが見える');
+ok(api({ op: 'state', token: MX }).exempts.find((e) => e.memberId === someone.id).note === '右足首', '幹部には理由とメモが見える');
 ok(api({ op: 'deleteExempt', token: MX, id: off.exempt.id }).error === 'forbidden', 'マネージャーは部全体のオフを取り消せない');
 ok(api({ op: 'deleteExempt', token: MX, id: r.exempt.id }).ok && api({ op: 'state' }).exempts.length === 1, '自分が登録した免除は取り消せる');
 ok(gas.sheet('免除') && gas.sheet('免除').data.length === 3, '免除はシート「免除」に残る（取り消しも削除日時で残す）');
@@ -609,8 +609,8 @@ section('体重・体組成');
   let r = api({ op: 'saveBody', token: LD, rows: [{ memberId: ps[0].id, date: '2026-11-10', weight: '82.4', fat: '18', muscle: '', note: '朝' }, { memberId: ps[1].id, date: '2026-11-10', weight: '７５．０' }] });
   ok(r.ok && r.added === 2, 'FWリーダーが体重・体組成をまとめて入れられる（全角の数字も読む）');
   const pub = api({ op: 'state' }).body;
-  ok(pub.length === 2 && pub.find((b) => b[1] === ps[1].id)[3] === 75 && pub[0][6] === '', 'だれでも数値を見られる（メモはスタッフだけ）');
-  ok(api({ op: 'state', token: LD }).body.find((b) => b[1] === ps[0].id)[6] === '朝', 'スタッフにはメモも見える');
+  ok(pub.length === 2 && pub.find((b) => b[1] === ps[1].id)[3] === 75 && pub[0][6] === '', 'だれでも数値を見られる（メモは幹部だけ）');
+  ok(api({ op: 'state', token: LD }).body.find((b) => b[1] === ps[0].id)[6] === '朝', '幹部にはメモも見える');
   r = api({ op: 'saveBody', token: MX, rows: [{ memberId: ps[0].id, date: '2026-11-10', weight: '82.0' }] });
   ok(r.ok && r.updated === 1 && r.added === 0, '同じ人・同じ日は上書き');
   ok(api({ op: 'saveBody', token: MX, rows: [{ memberId: ps[0].id, date: '2026-11-10', weight: '500' }] }).error === 'bad_number', 'ありえない数は入れない');
@@ -619,7 +619,7 @@ section('体重・体組成');
   const b1 = api({ op: 'state', token: LD }).body.find((b) => b[1] === ps[1].id);
   ok(api({ op: 'deleteBody', token: MX, id: b1[0] }).error === 'forbidden', 'ほかの人が入れた記録は（管理者以外）消せない');
   const lb = api({ op: 'state', token: LD }).body, me = api({ op: 'state', token: LD }).me;
-  ok(lb.find((b) => b[1] === ps[1].id)[7] === me.id && api({ op: 'state' }).body[0][7] === '', 'スタッフには入れた人が分かる（「消す」を出し分けるため。一般には見せない）');
+  ok(lb.find((b) => b[1] === ps[1].id)[7] === me.id && api({ op: 'state' }).body[0][7] === '', '幹部には入れた人が分かる（「消す」を出し分けるため。一般には見せない）');
   ok(api({ op: 'deleteBody', token: LD, id: b1[0] }).ok && api({ op: 'state' }).body.length === 1, '自分が入れた記録は消せる');
 })();
 
@@ -645,7 +645,7 @@ section('暗証番号の再発行の依頼');
   let r = api({ op: 'pinRequest', memberId: ldId });
   ok(r.ok, 'ログイン画面から管理者に再発行を頼める（ログイン不要）');
   ok(api({ op: 'pinRequest', memberId: ldId }).error === 'already', '続けて何度も送れない');
-  ok(api({ op: 'pinRequest', memberId: id['近藤 蒼'] }).error === 'not_found', 'ログインする人（スタッフ）以外は頼めない');
+  ok(api({ op: 'pinRequest', memberId: id['近藤 蒼'] }).error === 'not_found', 'ログインする人（幹部）以外は頼めない');
   const reqs = api({ op: 'state', token: A }).pinRequests;
   ok(reqs.length === 1 && reqs[0].id === ldId, '管理者に依頼が届く');
   ok(api({ op: 'state', token: LD }).pinRequests === undefined, '管理者以外には出ない');
@@ -860,7 +860,7 @@ section('v2.9：エラーの記録・要望・目標体重・重さの目安・�
   ok(api({ op: 'saveBodyGoal', token: LD, memberId: K, weight: 900 }).error === 'bad_number', 'ありえない体重は断る');
   r = api({ op: 'saveBodyGoal', token: LD, memberId: K, weight: '８２．５', date: '2027-03-31' });
   let km = api({ op: 'state' }).members.find((m) => m.id === K);
-  ok(r.ok && km.goalW === 82.5 && km.goalD === '2027-03-31', 'スタッフが目標体重と期日を入れられ、だれでも数値を見られる（全角でもよい）');
+  ok(r.ok && km.goalW === 82.5 && km.goalD === '2027-03-31', '幹部が目標体重と期日を入れられ、だれでも数値を見られる（全角でもよい）');
   api({ op: 'saveBodyGoal', token: LD, memberId: K, weight: '' });
   ok(api({ op: 'state' }).members.find((m) => m.id === K).goalW === undefined, '空にすると目標体重を外せる');
   // 重さの目安

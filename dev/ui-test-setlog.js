@@ -255,7 +255,7 @@ const shot = async (p, name) => { if (SHOT) { require('fs').mkdirSync(SHOT, { re
   await p.click('.home-clips .cam-cta'); await p.waitForSelector('.cam'); await p.waitForTimeout(1200);
   await p.click('[data-act="cam-shoot"]'); await p.waitForSelector('[data-act="cam-send"]', { timeout: 8000 });
   await p.click('[data-act="cam-send"]'); await p.waitForSelector('#cam-meter', { timeout: 3000 });
-  ok(/スタッフが確認/.test(await p.locator('#cam-meter').innerText().catch(() => '')), '撮り直しは「確認待ち」と出る');
+  ok(/幹部が確認/.test(await p.locator('#cam-meter').innerText().catch(() => '')), '撮り直しは「確認待ち」と出る');
   await p.waitForSelector('.cam', { state: 'detached', timeout: 15000 }).catch(() => {});
 
   console.log('■ 送れないとき（電波なし）');
@@ -504,7 +504,7 @@ const shot = async (p, name) => { if (SHOT) { require('fs').mkdirSync(SHOT, { re
     await g4.evaluate((pid) => { localStorage.setItem('kintoreTest.self', JSON.stringify(pid)); location.hash = '#home'; location.reload(); }, myHash.split('/')[1]);
     await g4.waitForSelector('.board'); await g4.waitForTimeout(800);
     ok(await g4.locator('.selfcard').count() === 0 && await g4.evaluate(() => localStorage.getItem('kintoreTest.self')) === null, '選手でない人（マネージャー）には、端末に残っていた名前の「わたし」を出さない（消す）');
-    // 通知：スタッフには「動画の確認」、選手には出ない（通知の設定は Service Worker が要るので、使う設定にした別の画面で見る）
+    // 通知：幹部には「動画の確認」、選手には出ない（通知の設定は Service Worker が要るので、使う設定にした別の画面で見る）
     const pushKinds = async (who, pin) => {
       const cx = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 1, isMobile: true, hasTouch: true, reducedMotion: 'reduce' });
       await cx.route(/fonts\.(googleapis|gstatic)\.com/, (r) => r.abort());
