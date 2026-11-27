@@ -294,6 +294,11 @@ ok(api({ op: 'clipStart', token: ISHI, mime: 'video/mp4', thumb, recordedAt: at3
 {
   const m = api({ op: 'pushInbox', endpoint: NEP }).messages[0] || {};
   ok(/石川 大地 さんが動画を出しました/.test(m.title) && m.url === './#clips' && m.tag === 'clipnew-' + c3, '通知の中身：だれが出したか・押すと今日の動画（' + m.title + '）');
+  ok(m.title === '🎥 石川 大地 さんが動画を出しました', 'アイコンを決めていない人の通知の頭は、通知の種類の絵文字（' + m.title + '）');
+  const si = api({ op: 'setIcon', token: ISHI, kind: 'e', emoji: '🦁', color: '#1f3a68' });
+  ok(si.ok && gas.run('withReq', (f) => f.pushEmoji_(IS, '🎥')) === '🦁' && gas.run('withReq', (f) => f.withEmoji_(f.pushEmoji_(IS, '🎥'), 'x')) === '🦁 x', '絵文字のアイコンの人の通知の頭は、その人の絵文字');
+  ok(gas.run('withReq', (f) => f.pushEmoji_(id['森 健太'], '🎥')) === '🎥' && gas.run('withReq', (f) => f.pushEmoji_('', '⏰')) === '⏰', '写真・アイコンなし・人に関係ない通知は、種類の絵文字');
+  api({ op: 'setIcon', token: ISHI, kind: '' });
   ok(!api({ op: 'pushInbox', endpoint: N3EP }).messages.length, '本人の端末の受け取り箱は空');
   ok(!gas.push.sent.length, 'シートに書く前の送り直しでは、通知はもう来ない');
 }

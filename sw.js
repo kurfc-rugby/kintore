@@ -6,7 +6,7 @@
  *  通知（push）… 中身は来ないので、サーバー（pushInbox）に取りに行って表示する
  *  動画（Background Sync・Android）… 画面を閉じても、端末にしまった動画をサーバーに送る
  * 版を上げるときは VERSION と、index.html の ?v= を一緒に変える。 */
-const VERSION = '2.27.1-t6';
+const VERSION = '2.27.1-t7';
 try { importScripts('config.js?v=' + VERSION); } catch (e) { /* 読めなくても画面はしまっておいたもので動く */ }
 // テスト環境（KINTORE_STORE = 'kintoreTest'）は、本番としまう場所の名前を分ける（同じ github.io の中なので）
 const CPREFIX = (self.KINTORE_STORE || 'kintore') + '-';
@@ -88,7 +88,7 @@ self.addEventListener('push', (e) => {
       await self.registration.showNotification(m.title, { body: m.body || '', tag: m.tag || 'kintore', renotify: false, silent: true, icon: 'icons/icon-192.png', badge: 'icons/badge-96.png', lang: 'ja', data: { url: m.url || './' } });
       return;
     }
-    if (!msgs.length) msgs = [{ title: 'KURFC 筋トレ', body: '新しいお知らせがあります。開いて確かめてください。', url: './', tag: 'kintore' }];
+    if (!msgs.length) msgs = [{ title: '🔔 KURFC 筋トレ', body: '新しいお知らせがあります。開いて確かめてください。', url: './', tag: 'kintore' }];
     for (const m of msgs.slice(-3)) {
       await self.registration.showNotification(m.title, { body: m.body || '', tag: m.tag || undefined, renotify: !!m.tag, icon: 'icons/icon-192.png', badge: 'icons/badge-96.png', lang: 'ja', data: { url: m.url || './' } });
       if (m.tag !== 'kintore') lastShown = { m, at: Date.now() };
@@ -217,10 +217,10 @@ async function sendClips() {
     if (j && j.ok) {
       await clipTx(db, 'readwrite', (st) => st.delete(it.at));
       const day = it.at.slice(5, 7).replace(/^0/, '') + '/' + it.at.slice(8, 10).replace(/^0/, '');
-      await clipTell({ clip: 'sent', at: it.at, thumb: it.thumb, r: j, tm: tm }, { title: '動画を送りました', body: j.pending ? '幹部が確認するまで待ちです' : day + 'は「実施した」になりました' });
+      await clipTell({ clip: 'sent', at: it.at, thumb: it.thumb, r: j, tm: tm }, { title: '🎥 動画を送りました', body: j.pending ? '幹部が確認するまで待ちです' : day + 'は「実施した」になりました' });
     } else if (j && /^(bad_|too_|not_|forbidden)/.test(String(j.error || ''))) {
       await clipTx(db, 'readwrite', (st) => st.delete(it.at));
-      await clipTell({ clip: 'dropped', at: it.at, message: j.message }, { title: '動画を送れませんでした', body: j.message || '' });
+      await clipTell({ clip: 'dropped', at: it.at, message: j.message }, { title: '⚠️ 動画を送れませんでした', body: j.message || '' });
     } else {
       // 電波が無い・サーバーが混んでいる → あとでもう一度（ログインが切れたときは、開いたときに画面が送る）
       await clipTell({ clip: 'wait', at: it.at }, null);

@@ -3014,6 +3014,15 @@ function cleanEndpoint_(v) {
  * 通知を送る。rows＝宛先の行、msgOf(row)＝{title, body, url, tag}（null なら送らない）
  * ロックの外から呼んでよい（宛先の行の更新だけロックを取る）
  */
+/** 通知の頭の絵文字。その人のアイコンが絵文字なら、その絵文字（だれの通知かひと目でわかる）。
+ *  写真・まだ決めていない人・人に関係ない通知は、通知の種類の絵文字。iPhone でも Android でも文字として出る */
+function pushEmoji_(who, fallback) {
+  const m = who && typeof who === 'object' ? who : (who ? memberById_(String(who)) : null);
+  const ic = setlogOn_() && m && m.set && m.set.icon ? String(m.set.icon) : '';
+  if (ic.slice(0, 2) === 'e:') { const em = ic.slice(ic.indexOf(':', 2) + 1); if (em) return em; }
+  return fallback;
+}
+function withEmoji_(em, title) { return em ? em + ' ' + title : title; }
 function sendPush_(rows, msgOf, opt) {
   const light = !!(opt && opt.light); // 速さが大事な操作から：届いた記録（okAt）は書かない。届かない宛先があったときだけロックを取る
   const cache = CacheService.getScriptCache();
@@ -3103,7 +3112,7 @@ function opPushTest_(ctx) {
   if (n >= 5) throw err_('too_many', 'テストは10分に5回までです。');
   cache.put(ck, String(n + 1), 600);
   const m = r.memberId ? memberById_(r.memberId) : null;
-  const res = sendPush_([r], function () { return { title: 'KURFC 筋トレ', body: (m ? m.name + ' さん、' : '') + '通知のテストです。届いていればOKです。', url: './#settings', tag: 'test' }; });
+  const res = sendPush_([r], function () { return { title: withEmoji_('🔔', 'KURFC 筋トレ'), body: (m ? m.name + ' さん、' : '') + '通知のテストです。届いていればOKです。', url: './#settings', tag: 'test' }; });
   if (!res.sent) throw err_('push_failed', '通知を送れませんでした。いったんオフにして、もう一度オンにしてください。');
   return { ok: true };
 }
@@ -3141,7 +3150,7 @@ function notifyPinRequest_(m) {
     const admins = {};
     activeAdmins_().forEach(function (a) { admins[a.id] = 1; });
     const rows = pushTargets_('pinreq').filter(function (r) { return admins[r.staffId]; });
-    sendPush_(rows, function () { return { title: '暗証番号の再発行の依頼', body: m.name + ' さん（' + ENC.perm[m.perm] + '）から。設定から発行してください。', url: './#settings', tag: 'pinreq' }; });
+    sendPush_(rows, function () { return { title: withEmoji_(pushEmoji_(m, '🔑'), '暗証番号の再発行の依頼'), body: m.name + ' さん（' + ENC.perm[m.perm] + '）から。設定から発行してください。', url: './#settings', tag: 'pinreq' }; });
   } catch (x) { console.error(x); }
 }
 /** その人の今週の回数と必要な回数（免除の日数で減らす） */
@@ -3199,7 +3208,7 @@ function pushCheers_() {
     const o = by[r.memberId];
     const names = o.f.map(function (id) { const x = memberById_(id); return x ? x.name : ''; }).filter(Boolean);
     const em = Object.keys(o.c).map(function (k) { return (STAMP_EMOJI[k] || '') + (o.c[k] > 1 ? '×' + o.c[k] : ''); }).join(' ');
-    return { title: '応援が届きました ' + em, body: (names.length ? names.slice(0, 2).join('、') + (names.length > 2 ? 'ほか' + (names.length - 2) + '人' : '') + ' さんから' : 'だれかから') + 'スタンプが届いています。', url: './#member/' + r.memberId, tag: 'cheer' };
+    return { title: withEmoji_(o.f.length === 1 ? pushEmoji_(o.f[0], '📣') : '📣', '応援が届きました ' + em), body: (names.length ? names.slice(0, 2).join('、') + (names.length > 2 ? 'ほか' + (names.length - 2) + '人' : '') + ' さんから' : 'だれかから') + 'スタンプが届いています。', url: './#member/' + r.memberId, tag: 'cheer' };
   });
 }
 function pushGoal_(today, slot) {
@@ -3210,7 +3219,7 @@ function pushGoal_(today, slot) {
     const st = weekStatus_(m, ws);
     if (st.need === 0 || st.count >= st.need) return null;
     const left = st.need - st.count;
-    return { title: '今週あと' + left + '回', body: (slot === 'sun' ? '今日が今週の最後の日です。' : '日曜までに週' + st.need + '回。') + 'いま ' + st.count + '回です。' + (setlogOn_() ? '筋トレをしたら、今日の1本を撮って送ろう。' : ''), url: './#member/' + m.id, tag: 'goal' };
+    return { title: withEmoji_('⏰', '今週あと' + left + '回'), body: (slot === 'sun' ? '今日が今週の最後の日です。' : '日曜までに週' + st.need + '回。') + 'いま ' + st.count + '回です。' + (setlogOn_() ? '筋トレをしたら、今日の1本を撮って送ろう。' : ''), url: './#member/' + m.id, tag: 'goal' };
   });
 }
 /** 時間主導のトリガーを入れ直す（エディタから1回実行する） */
@@ -3297,7 +3306,7 @@ function notifyMilestones_(notes) {
       else if (top.kind === 'best') { title = '自己ベスト更新：' + top.n + '週連続'; body = '週' + top.goal + '回を' + top.n + '週続けて達成。いちばん長い連続を更新しました。'; }
       else { title = '自己ベストに並びました：' + top.n + '週連続'; body = '週' + top.goal + '回を' + top.n + '週続けて達成。来週も届けば自己ベスト更新です。'; }
       if (extra.length) body += '（' + extra.join('・') + 'も達成）';
-      return { title: title, body: body, url: './#member/' + r.memberId, tag: 'milestone' };
+      return { title: withEmoji_('🏆', title), body: body, url: './#member/' + r.memberId, tag: 'milestone' };
     });
   } catch (x) { console.error(x); }
 }
@@ -3309,7 +3318,7 @@ function notifyMenu_(w) {
     w.targets.split(',').forEach(function (id) { if (id) set[id] = 1; });
     const md = (function () { const a = w.date.split('-'); return (+a[1]) + '/' + (+a[2]) + '（' + '日月火水木金土'.charAt(dow_(w.date)) + '）'; })();
     sendPush_(pushTargets_('menu').filter(function (r) { return set[r.memberId]; }), function () {
-      return { title: '新しいメニュー：' + md, body: w.title + (w.positions ? '（' + w.positions.split(',').join('・') + '）' : w.group === 'ALL' ? '（全体）' : '（' + w.group + '）'), url: './#menus', tag: 'menu' };
+      return { title: withEmoji_('📋', '新しいメニュー：' + md), body: w.title + (w.positions ? '（' + w.positions.split(',').join('・') + '）' : w.group === 'ALL' ? '（全体）' : '（' + w.group + '）'), url: './#menus', tag: 'menu' };
     });
   } catch (x) { console.error(x); }
 }
@@ -3366,7 +3375,7 @@ function opFeedback_(ctx) {
     activeAdmins_().forEach(function (a) { admins[a.id] = 1; });
     const m = fromId ? memberById_(fromId) : null;
     sendPush_(pushTargets_('pinreq').filter(function (r) { return admins[r.staffId]; }), function () {
-      return { title: ENC.fbkind[kind] + 'が届きました', body: (m ? m.name + ' さん：' : '') + text.slice(0, 80), url: './#feedback', tag: 'feedback' };
+      return { title: withEmoji_(pushEmoji_(m, '📮'), ENC.fbkind[kind] + 'が届きました'), body: (m ? m.name + ' さん：' : '') + text.slice(0, 80), url: './#feedback', tag: 'feedback' };
     });
   } catch (x) { console.error(x); }
   return { ok: true };
@@ -3640,7 +3649,7 @@ function opRegister_(ctx) {
     me.perm = m.perm;
     log_(me, '部員の登録', m.name + '（' + deviceLabel_(ctx.req.deviceName) + '）');
     cache.put('regCount', String(n + 1), 3600);
-    notifyAdmins_(STAFF[m.perm] ? '幹部の登録' : '部員の登録', m.name + ' さん' + (STAFF[m.perm] ? '（' + ENC.perm[m.perm] + '）' : '') + 'が登録しました。本人でなければ、設定の「部員の登録」から消してください。', './#settings');
+    notifyAdmins_(withEmoji_(pushEmoji_(m, '👋'), STAFF[m.perm] ? '幹部の登録' : '部員の登録'), m.name + ' さん' + (STAFF[m.perm] ? '（' + ENC.perm[m.perm] + '）' : '') + 'が登録しました。本人でなければ、設定の「部員の登録」から消してください。', './#settings');
     return { ok: true, token: token, me: me };
   });
 }
@@ -4027,7 +4036,7 @@ function clipAddRow_(me, k, thumb, file, bytes, T, draft, presetId) {
   lap('day');
   if (canceledDay) {
     log_(me, '動画を出した', k.m.name + ' ' + k.date + '（確認待ち）'); // 「実施した」にしたときは、記録の追加の履歴が残るので書かない
-    notifyStaffClip_('確認待ちの動画が届きました', k.m.name + ' さんの ' + k.date.slice(5).replace('-', '/') + ' の動画（取り消された日に撮り直したもの）。確認すると「実施した」になります。');
+    notifyStaffClip_(withEmoji_(pushEmoji_(k.m && k.m.id, '⏳'), '確認待ちの動画が届きました'), k.m.name + ' さんの ' + k.date.slice(5).replace('-', '/') + ' の動画（取り消された日に撮り直したもの）。確認すると「実施した」になります。');
   }
   const out = { ok: true, clip: clipWire_(c, me), recorded: recorded, pending: canceledDay, records: recordsWire_(k.date, k.date) };
   lap('log');
@@ -4248,7 +4257,7 @@ function expireClips_() {
   done.forEach(function (c) {
     try {
       const rows = table_('push').rows.filter(function (r) { return r.staffId === c.memberId || r.memberId === c.memberId; });
-      sendPush_(rows, function () { return { title: '動画が届かなかったので取り消しました', body: c.date.slice(5).replace('-', '/') + ' の「実施した」を外しました。撮り直すと、確認待ちになります。', url: './#clips', tag: 'clipexp' }; });
+      sendPush_(rows, function () { return { title: withEmoji_('⚠️', '動画が届かなかったので取り消しました'), body: c.date.slice(5).replace('-', '/') + ' の「実施した」を外しました。撮り直すと、確認待ちになります。', url: './#clips', tag: 'clipexp' }; });
     } catch (x) { console.error(x); }
   });
   return done.length;
@@ -4361,7 +4370,7 @@ function opClipFlag_(ctx) {
     update_('clips', c);
     if (on && f.length === 1) {
       const m = memberById_(c.memberId);
-      notifyStaffClip_('審議の動画があります', (m ? m.name : '') + ' さんの ' + c.date.slice(5).replace('-', '/') + ' の動画に「審議」がつきました。動画を見て確認してください。', c.memberId);
+      notifyStaffClip_(withEmoji_(pushEmoji_(m, '⚖️'), '審議の動画があります'), (m ? m.name : '') + ' さんの ' + c.date.slice(5).replace('-', '/') + ' の動画に「審議」がつきました。動画を見て確認してください。', c.memberId);
     }
     return { ok: true, clip: clipWire_(c, me) };
   });
@@ -4385,7 +4394,7 @@ function notifyNewClip_(me, k, clipId) {
     const name = (k.m && k.m.name) || me.name || '';
     const hm = String(k.at || '').slice(11, 16);
     sendPush_(rows, function () {
-      return { title: name + ' さんが動画を出しました', body: '今日の1本' + (hm ? '（' + hm + '）' : '') + '。タップして見る', url: './#clips', tag: 'clipnew-' + clipId };
+      return { title: withEmoji_(pushEmoji_(me.id, '🎥'), name + ' さんが動画を出しました'), body: '今日の1本' + (hm ? '（' + hm + '）' : '') + '。タップして見る', url: './#clips', tag: 'clipnew-' + clipId };
     }, { light: true });
   } catch (x) { console.error(x); }
 }
@@ -4414,7 +4423,7 @@ function opClipCancel_(ctx) {
   if (!res.already) {
     try {
       const rows = table_('push').rows.filter(function (r) { return r.staffId === res.memberId || r.memberId === res.memberId; });
-      sendPush_(rows, function () { return { title: '動画が取り消されました', body: res.date.slice(5).replace('-', '/') + ' の動画' + (reason ? '（' + reason + '）' : '') + '。撮り直すと、確認待ちになります。', url: './#clips', tag: 'clipcancel' }; });
+      sendPush_(rows, function () { return { title: withEmoji_('⚠️', '動画が取り消されました'), body: res.date.slice(5).replace('-', '/') + ' の動画' + (reason ? '（' + reason + '）' : '') + '。撮り直すと、確認待ちになります。', url: './#clips', tag: 'clipcancel' }; });
     } catch (x) { console.error(x); }
   }
   return res;
@@ -4639,7 +4648,7 @@ function opExemptRequest_(ctx) {
     delete judges[me.id]; // 自分の申し込みは、自分には知らせない
     const rows = pushTargets_('exreq').filter(function (r) { return judges[r.staffId]; });
     const body = res.name + ' さん：' + res.req.from.slice(5).replace('-', '/') + '〜' + res.req.to.slice(5).replace('-', '/') + '（' + res.req.reason + '）';
-    sendPush_(rows, function () { return { title: '免除の申し込みが届きました', body: body, url: './#home', tag: 'exreq' }; });
+    sendPush_(rows, function () { return { title: withEmoji_(pushEmoji_(me.id, '📝'), '免除の申し込みが届きました'), body: body, url: './#home', tag: 'exreq' }; });
   } catch (x) { console.error(x); }
   delete res.name;
   return res;
@@ -4674,8 +4683,8 @@ function opExemptDecide_(ctx) {
     const rows = table_('push').rows.filter(function (x) { return x.staffId === q.m || x.memberId === q.m; });
     const span = q.from.slice(5).replace('-', '/') + '〜' + q.to.slice(5).replace('-', '/');
     sendPush_(rows, function () {
-      return ok ? { title: '免除が認められました', body: span + '（' + q.reason + '）は、週の目標の判定から外れます。', url: './#home', tag: 'exreq' }
-        : { title: '免除は認められませんでした', body: span + (q.ans ? '：' + q.ans : '') + '。わからないときは主将・副主将に聞いてください。', url: './#home', tag: 'exreq' };
+      return ok ? { title: withEmoji_('✅', '免除が認められました'), body: span + '（' + q.reason + '）は、週の目標の判定から外れます。', url: './#home', tag: 'exreq' }
+        : { title: withEmoji_('📝', '免除は認められませんでした'), body: span + (q.ans ? '：' + q.ans : '') + '。わからないときは主将・副主将に聞いてください。', url: './#home', tag: 'exreq' };
     });
   } catch (x) { console.error(x); }
   return res;
