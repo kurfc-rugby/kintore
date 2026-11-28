@@ -403,6 +403,10 @@ const shot = async (p, name) => { if (SHOT) { require('fs').mkdirSync(SHOT, { re
     await g4.click('form[data-form="mlogin"] button[type="submit"]'); await g4.waitForSelector('.board'); await g4.waitForTimeout(500);
     await g4.evaluate((h) => { location.hash = h; }, myHash); await g4.waitForTimeout(1500);
     ok(await g4.locator('.profile-t h1 img.av').count() === 1, 'ほかの人の画面にも写真のアイコンが出る（写真はあとから取る）');
+    // E-004：端末にしまった写真の控えが細工されていても、スクリプトは動かず、頭文字のアイコンになる
+    const nIc = await g4.evaluate(() => { const k = 'kintoreTest.icons'; const o = JSON.parse(localStorage.getItem(k) || '{}'); Object.keys(o).forEach((id) => { o[id].d = 'AAAA" onerror="window.__pwn=1" x="'; }); localStorage.setItem(k, JSON.stringify(o)); return Object.keys(o).length; });
+    await g4.reload(); await g4.waitForSelector('.profile-t'); await g4.waitForTimeout(1200);
+    ok(nIc >= 1 && !(await g4.evaluate(() => window.__pwn)) && await g4.locator('.profile-t h1 img.av').count() === 0 && await g4.locator('.profile-t h1 .av-i').count() === 1, '端末の写真の控えに細工した文字があっても、スクリプトは動かず頭文字のアイコンになる');
     ok(await g4.locator('[data-act="icon-edit"]').count() === 0 && await g4.locator('[data-act="icon-reset"]').count() === 1, 'マネージャーには「アイコンを元に戻す」だけが出る');
     await g4.click('[data-act="icon-reset"]'); await g4.waitForTimeout(1200);
     ok(await g4.locator('.profile-t h1 .av-i').count() === 1, '元に戻すと頭文字のアイコンになる');

@@ -584,6 +584,17 @@ section('アイコン（一人一人が決める）');
   ok(ic.ok && ic.icons[IS] === jpg && !ic.icons[MOi] && ic.vers[IS] === r.ic, 'ほかの人は写真をまとめて取れる（版も一緒に）');
   r = api({ op: 'setIcon', token: ISHI, kind: 'p', data: jpg });
   ok(gas.sheet('アイコン写真').data.filter((row) => row[0] === IS).length === 1, '写真を変えても行は増えない');
+  // E-004：写真のデータに細工した文字を足しても受け取らない。保存されるのは写真の中身から作り直したもの
+  ok(api({ op: 'setIcon', token: ISHI, kind: 'p', data: jpg + '" onerror="alert(1)' }).error === 'bad_icon', '写真のデータの後ろに細工した文字を足したものはだめ');
+  ok(api({ op: 'setIcon', token: ISHI, kind: 'p', data: jpg.slice(0, 40) + '"><script>x</script>' + jpg.slice(40) }).error === 'bad_icon', '写真のデータの途中にタグを入れたものはだめ');
+  ok(api({ op: 'setIcon', token: ISHI, kind: 'p', data: jpg.replace(/=+$/, '') + '\n' }).error === 'bad_icon', '改行などが入ったものもだめ');
+  r = api({ op: 'setIcon', token: ISHI, kind: 'p', data: jpg.replace(/=+$/, '') + '==' });
+  const saved = gas.sheet('アイコン写真').data.find((row) => row[0] === IS);
+  ok(r.ok && r.data === Buffer.from(jpg, 'base64').toString('base64') && saved && saved[1] === r.data, '保存されるのは、写真の中身から作り直したデータ');
+  saved[1] = jpg + '" onerror="alert(1)';
+  ok(!api({ op: 'icons', token: MORI2, ids: [IS] }).icons[IS], 'もしシートに細工したデータが入っていても、ほかの人には配らない');
+  r = api({ op: 'setIcon', token: ISHI, kind: 'p', data: jpg });
+  ok(r.ok && api({ op: 'icons', token: MORI2, ids: [IS] }).icons[IS] === jpg, '写真を決め直せば、また配られる');
   ok(api({ op: 'setIcon', token: ISHI, kind: 'p', data: Buffer.from('not a jpeg, just text that is long enough to pass the size check '.repeat(5)).toString('base64') }).error === 'bad_icon', 'JPEG でないものはだめ');
   ok(api({ op: 'setIcon', token: ISHI, kind: 'p', data: Buffer.concat([Buffer.from([0xFF, 0xD8]), Buffer.alloc(40 * 1024)]).toString('base64') }).error === 'bad_icon', '大きすぎる写真はだめ');
   ok(api({ op: 'resetIcon', token: MORI2, memberId: IS }).error === 'forbidden', '選手はほかの人のアイコンを戻せない');

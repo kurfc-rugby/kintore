@@ -4487,6 +4487,8 @@ function setupTestEnv() {
 // ---------------------------------------------------------------------------
 const ICON_COLORS = ['#8c1d2f', '#1b1b1b', '#1f3a68', '#2b7bb9', '#1f7a4d', '#b8860b', '#c2185b', '#6b7280'];
 const ICON_MAX_BYTES = 30 * 1024;
+// 写真のデータ（base64）の形。これ以外の文字が入ったものは受け取らない・配らない（画面の中にスクリプトを入れられないように）
+const ICON_B64_RE = /^[A-Za-z0-9+/]+={0,2}$/;
 function iconValue_(req) {
   const kind = String(req.kind || '');
   if (kind === '') return { val: '', data: '' };
@@ -4498,11 +4500,12 @@ function iconValue_(req) {
   }
   if (kind === 'p') {
     const data = String(req.data || '');
+    if (!ICON_B64_RE.test(data)) throw err_('bad_icon', '写真を読み取れませんでした。');
     let bytes;
     try { bytes = Utilities.base64Decode(data); } catch (x) { throw err_('bad_icon', '写真を読み取れませんでした。'); }
     if (bytes.length < 200 || bytes.length > ICON_MAX_BYTES) throw err_('bad_icon', '写真が大きすぎます。');
     if ((bytes[0] & 255) !== 0xFF || (bytes[1] & 255) !== 0xD8) throw err_('bad_icon', '写真（JPEG）だけ使えます。');
-    return { val: 'p:' + Date.now().toString(36), data: data };
+    return { val: 'p:' + Date.now().toString(36), data: Utilities.base64Encode(bytes) }; // 受け取った文字はそのまま使わず、写真の中身から作り直す
   }
   throw err_('bad_icon', 'アイコンの種類が違います。');
 }
@@ -4532,7 +4535,7 @@ function opIcons_(ctx) {
   const want = {};
   (Array.isArray(ctx.req.ids) ? ctx.req.ids : []).slice(0, 300).forEach(function (id) { want[String(id)] = 1; });
   const icons = {};
-  table_('icons').rows.forEach(function (r) { if (want[r.memberId] && r.data) icons[r.memberId] = r.data; });
+  table_('icons').rows.forEach(function (r) { if (want[r.memberId] && r.data && ICON_B64_RE.test(String(r.data))) icons[r.memberId] = r.data; });
   const vers = {};
   members_().forEach(function (m) { if (want[m.id] && m.set && m.set.icon) vers[m.id] = m.set.icon; });
   return { ok: true, icons: icons, vers: vers };

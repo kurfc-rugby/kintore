@@ -3,7 +3,7 @@
   'use strict';
   const L = window.KLogic;
   const API = window.KINTORE_API;
-  const VERSION = '2.27.1';
+  const VERSION = '2.27.2-t1';
   const WD = ['日', '月', '火', '水', '木', '金', '土'];
   const PERM = { admin: '管理者', manager: 'マネージャー', captain: '主将', leader: '副主将', member: '一般部員', guest: '見るだけ' };
   // 権限を選ぶ一覧の並び
@@ -3500,11 +3500,13 @@
   const ICON_COLORS = ['#8c1d2f', '#1b1b1b', '#1f3a68', '#2b7bb9', '#1f7a4d', '#b8860b', '#c2185b', '#6b7280'];
   const ICON_EMOJIS = ['🔥', '💪', '🏉', '⚡', '🌟', '😎', '🦁', '🐯', '🐻', '🐺', '🦍', '🦅', '🐉', '🦈', '🐗', '🐂', '🥩', '🍙', '👊', '🛡️', '⚔️', '🎯', '🚀', '👑', '💯', '🌊', '🌸', '🍀', '☀️', '🌙', '🎸', '🐶'];
   S.icons = store.get('icons', {});
+  // 写真のデータ（base64）は形を確かめてから画面に入れる（細工した文字で画面の中にスクリプトを入れられないように）
+  const b64ok = (s) => typeof s === 'string' && s.length > 0 && /^[A-Za-z0-9+/]+={0,2}$/.test(s);
   let iconWant = null;
   const iconsOn = () => !!(S.data && S.data.loginAll);
   function iconPhoto(m) {
     const c = S.icons[m.id];
-    if (c && c.v === m.ic) return c.d;
+    if (c && c.v === m.ic) return b64ok(c.d) ? c.d : '';
     if (!iconWant) { iconWant = new Set(); setTimeout(fetchIcons, 0); }
     iconWant.add(m.id);
     return '';
@@ -3514,7 +3516,7 @@
     if (!ids.length) return;
     try {
       const r = await api('icons', { ids: ids });
-      ids.forEach((id) => { const m = memberById(id); S.icons[id] = { v: (r.vers && r.vers[id]) || (m && m.ic) || '', d: (r.icons && r.icons[id]) || '' }; });
+      ids.forEach((id) => { const m = memberById(id); const d = r.icons && r.icons[id]; S.icons[id] = { v: (r.vers && r.vers[id]) || (m && m.ic) || '', d: b64ok(d) ? d : '' }; });
       saveIcons();
       if (!$('#cam-root .cam')) render();
     } catch (e) { /* 次に開いたときにもう一度 */ }
@@ -3532,7 +3534,7 @@
     const c = 'av' + (cls ? ' ' + cls : ''), ic = m.ic || '';
     if (ic.slice(0, 2) === 'p:') {
       const d = iconPhoto(m);
-      if (d) return '<img class="' + c + '" src="data:image/jpeg;base64,' + d + '" alt="" loading="lazy" decoding="async">';
+      if (b64ok(d)) return '<img class="' + c + '" src="data:image/jpeg;base64,' + d + '" alt="" loading="lazy" decoding="async">';
     }
     if (ic.slice(0, 2) === 'e:') {
       const i = ic.indexOf(':', 2), col = ic.slice(2, i), em = ic.slice(i + 1);
@@ -3639,7 +3641,7 @@
       try {
         const r = await api('setIcon', req);
         m.ic = r.ic || '';
-        if (r.data) S.icons[m.id] = { v: r.ic, d: r.data };
+        if (b64ok(r.data)) S.icons[m.id] = { v: r.ic, d: r.data };
         saveIcons();
         if (E.img && E.img.src) URL.revokeObjectURL(E.img.src);
         S.iced = null;
@@ -4317,7 +4319,7 @@
   };
   function thumbPaint(id) {
     const th = S.clipThumb[id];
-    if (!th) return;
+    if (!b64ok(th)) return;
     $$('#app .clip-card[data-id="' + id + '"] .clip-ph').forEach((ph) => { const img = document.createElement('img'); img.src = 'data:image/jpeg;base64,' + th; img.alt = ''; img.className = 'th-in'; ph.replaceWith(img); });
   }
   async function wantThumbs() {
@@ -4399,7 +4401,7 @@
   }
   const memberName = (id) => { const m = (S.data.members || []).find((x) => x.id === id); return m ? m.name : ''; };
   function clipCard(c, opt) {
-    const th = S.clipThumb[c.id];
+    const th = b64ok(S.clipThumb[c.id]) ? S.clipThumb[c.id] : '';
     const staff = !!(me() && can('anyStaff'));
     const tag = c.st === 'pending' ? '<span class="clip-tag wait">確認待ち</span>' : c.st === 'canceled' ? '<span class="clip-tag no">取り消し</span>' :
       c.nv ? '<span class="clip-tag wait">動画を送信中</span>' : (staff && c.nf ? '<span class="clip-tag flag">審議 ' + c.nf + '</span>' : '');
@@ -4514,7 +4516,7 @@
       acts.push('<button class="btn danger" data-act="clip-cancel-open" data-id="' + esc(c.id) + '">取り消す</button>');
     }
     openSheet(name + '・' + mdw(c.d) + ' ' + (c.at || '').slice(11, 16),
-      '<div class="clip-player"><video id="clip-v" playsinline muted loop autoplay' + (S.clipThumb[c.id] ? ' poster="data:image/jpeg;base64,' + S.clipThumb[c.id] + '"' : '') + '></video><p class="clip-load" id="clip-load"><span class="spin"></span>読み込んでいます…</p></div>' +
+      '<div class="clip-player"><video id="clip-v" playsinline muted loop autoplay' + (b64ok(S.clipThumb[c.id]) ? ' poster="data:image/jpeg;base64,' + S.clipThumb[c.id] + '"' : '') + '></video><p class="clip-load" id="clip-load"><span class="spin"></span>読み込んでいます…</p></div>' +
       (c.st === 'pending' ? '<p class="note">取り消された日に撮り直した動画です。幹部が確認すると「実施した」になります。</p>' : '') +
       (c.st === 'canceled' ? '<p class="note err">取り消されました' + (c.why ? '（' + esc(c.why) + '）' : '') + '。</p>' : '') +
       (c.st !== 'canceled' && !c.local ? stampBar(c.m, 'c:' + c.id) : '') +
