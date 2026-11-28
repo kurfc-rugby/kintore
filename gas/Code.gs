@@ -2342,15 +2342,25 @@ function restoreBackup_(tabName, names) {
       const d = data[n];
       let sh = ss.getSheetByName(n);
       if (!sh) sh = ss.insertSheet(n);
-      const lastR = sh.getLastRow(), lastC = Math.max(sh.getLastColumn(), d.head.length);
+      // 見出しは今のシート（アプリが使う列）を残し、バックアップの中身は見出しの名前で合わせて書く（D-005）。
+      // 古い版のバックアップに無い列は空、バックアップにしか無い列は右に残す
+      const def = Object.keys(DEF).map(function (k) { return DEF[k]; }).filter(function (x) { return x.name === n; })[0];
+      const lastC0 = sh.getLastColumn();
+      const head = (lastC0 ? sh.getRange(1, 1, 1, lastC0).getValues()[0] : []).map(function (h) { return String(h).trim(); });
+      while (head.length && !head[head.length - 1]) head.pop();
+      (def ? def.cols.map(function (c) { return c[1]; }) : []).concat(d.head).forEach(function (h) { if (h && head.indexOf(h) < 0) head.push(h); });
+      const at = head.map(function (h) { return d.head.indexOf(h); });
+      const lastR = sh.getLastRow(), lastC = Math.max(sh.getLastColumn(), head.length);
       if (lastR > 0) sh.getRange(1, 1, lastR, lastC).clearContent();
-      const rows = [d.head].concat(d.rows).map(function (r) { return r.map(function (x) { return backupCell_(x, ''); }); });
+      const rows = [head].concat(d.rows.map(function (r) { return at.map(function (j) { return j < 0 ? '' : backupCell_(r[j], ''); }); }));
       if (sh.getMaxRows() < rows.length) sh.insertRowsAfter(sh.getMaxRows(), rows.length - sh.getMaxRows() + 200);
-      const range = sh.getRange(1, 1, rows.length, d.head.length);
+      if (sh.getMaxColumns && sh.getMaxColumns() < head.length) sh.insertColumnsAfter(sh.getMaxColumns(), head.length - sh.getMaxColumns());
+      const range = sh.getRange(1, 1, rows.length, head.length);
       range.setNumberFormat('@');
       range.setValues(rows);
     });
     REQ_.tables = {}; bumpAllTables_();
+    try { prepareSheets_(); } catch (x) { console.error(x); } // 足りない列があれば足す（初期設定と同じ）
     log_(null, 'バックアップから戻した', tabName + '：' + list.join('、'));
     return { restored: list, safe: safe.name };
   });

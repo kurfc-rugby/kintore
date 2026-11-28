@@ -1064,6 +1064,20 @@ section('v2.21：見る人向けの作り置き・全期間の連続・目標回
   ok(rs.restored.join() === '実施記録' && JSON.stringify(gas.sheet('実施記録').data.slice(0, recRows + 1)) === keep && book.getSheetByName(today + ' 戻す前'), 'バックアップから戻せる（戻す前の状態も「戻す前」のタブに残す）');
   gas.forget(); gas.props.setProperty('DV', 'test2-' + Date.now());
   ok(api({ op: 'state' }).records.length === s4.records.length, '戻したあとも画面の記録は同じ');
+  { // D-005：古い版のバックアップ（「部員設定」に「アイコン」列が無い・今は無い列がある）から戻しても止まらない
+    const bk = book.getSheetByName(today).data;
+    const i0 = bk.findIndex((r) => r[0] === '■' && r[1] === '部員設定');
+    const n0 = +bk[i0][2], hd = bk[i0 + 1], ci = hd.indexOf('アイコン'), ni = hd.indexOf('名前（メモ）') >= 0 ? hd.indexOf('名前（メモ）') : 1;
+    const names0 = bk.slice(i0 + 2, i0 + 2 + n0).map((r) => r[ni]);
+    for (let i = i0 + 1; i <= i0 + 1 + n0; i++) { bk[i].splice(ci, 1); bk[i].splice(bk[i].length, 0, i === i0 + 1 ? 'むかしの列' : 'old-' + (i - i0)); }
+    const rs2 = gas.run('withReq', (f) => f.restoreBackup_(today, ['部員設定']));
+    gas.forget(); gas.props.setProperty('DV', 'test3-' + Date.now());
+    const ph = gas.sheet('部員設定').data[0].filter(Boolean);
+    const st5 = api({ op: 'state', token: A });
+    ok(rs2.restored.join() === '部員設定' && st5.ok && ph.includes('アイコン') && ph.includes('むかしの列') && ph.indexOf('むかしの列') > ph.indexOf('アイコン'), '古い版のバックアップから戻しても止まらない（今の列は残り、バックアップにしか無い列は右に残る）：' + (st5.ok ? 'ok' : st5.message));
+    const rowsNow = gas.sheet('部員設定').data.slice(1, 1 + n0), hn = gas.sheet('部員設定').data[0];
+    ok(rowsNow.map((r) => r[hn.indexOf(hd[ni] === undefined ? '名前（メモ）' : hd[ni])]).join() === names0.join() && rowsNow.every((r) => (r[hn.indexOf('アイコン')] || '') === ''), '中身は見出しの名前で合わせて戻る（バックアップに無い列は空）');
+  }
   // 1時間ごとの処理で毎週取り、2か月より古いタブは消える
   gas.props.setProperty('BACKUP_LAST', today);
   for (let i = 0; i < 10; i++) { gas.shiftDays(8); gas.run('pushHourly'); }
