@@ -794,14 +794,75 @@ function rosterInfo_() {
   }
   if (!info) {
     const tl = Date.now();
-    const list = rosterLib_().list(), pos = rosterLib_().positions();
+    try {
+      const list = rosterLib_().list(), pos = rosterLib_().positions();
+      info = { list: list, pos: pos, sig: sha256Hex_(JSON.stringify([list, pos])).slice(0, 16) };
+      rosterBakSave_(info);
+      if (prop_('ROSTER_DOWN')) rosterUp_();
+      try { cput_('k:roster', JSON.stringify(info), ROSTER_TTL); } catch (x) { /* 覚えられなくても動く */ }
+    } catch (x) {
+      // 名簿が読めない（会計アプリの見出し・共有・Google の障害など）：最後に読めた控えで動き、管理者に知らせる（F-026）
+      const bak = rosterBakLoad_();
+      if (!bak) throw x;
+      info = { list: bak.list, pos: bak.pos, sig: bak.sig, stale: bak.at };
+      rosterDown_(bak.at, x);
+      try { cput_('k:roster', JSON.stringify(info), ROSTER_STALE_TTL); } catch (y) { /* noop */ }
+    }
     if (REQ_) REQ_.lib = Date.now() - tl;
-    info = { list: list, pos: pos, sig: sha256Hex_(JSON.stringify([list, pos])).slice(0, 16) };
-    try { cput_('k:roster', JSON.stringify(info), ROSTER_TTL); } catch (x) { /* 覚えられなくても動く */ }
   }
   if (REQ_) REQ_.rinfo = info;
   return info;
 }
+// ---- 名簿の控え（F-026）：名簿が読めるたびに、変わっていればこのスプレッドシートの「名簿の控え」に残す ----
+const ROSTER_BAK_SHEET = '名簿の控え', ROSTER_STALE_TTL = 60; // 控えで動いているあいだは、1分ごとに名簿を読み直してみる
+function rosterBakSave_(info) {
+  try {
+    if (prop_('ROSTER_BAK_SIG') === info.sig) return;
+    const ss = ss_();
+    let sh = ss.getSheetByName(ROSTER_BAK_SHEET);
+    if (!sh) { sh = ss.insertSheet(ROSTER_BAK_SHEET); try { sh.hideSheet(); } catch (x) { /* 見えていても動く */ } }
+    const json = JSON.stringify({ list: info.list, pos: info.pos, sig: info.sig, at: now_() });
+    const parts = [];
+    for (let i = 0; i < json.length; i += 40000) parts.push(['j' + json.slice(i, i + 40000)]); // 頭に1文字つけて、「=」などで始まっても式にならないように
+    const last = sh.getLastRow();
+    if (last > 0) sh.getRange(1, 1, last, 1).clearContent();
+    sh.getRange(1, 1, parts.length, 1).setValues(parts);
+    PropertiesService.getScriptProperties().setProperty('ROSTER_BAK_SIG', info.sig);
+    if (REQ_ && REQ_.props) REQ_.props.ROSTER_BAK_SIG = info.sig;
+  } catch (x) { console.error(x); } // 控えを残せなくても、ふだんの動きは止めない
+}
+function rosterBakLoad_() {
+  try {
+    const sh = ss_().getSheetByName(ROSTER_BAK_SHEET);
+    const last = sh ? sh.getLastRow() : 0;
+    if (!last) return null;
+    const b = JSON.parse(sh.getRange(1, 1, last, 1).getValues().map(function (r) { return String(r[0]).slice(1); }).join(''));
+    return b && Array.isArray(b.list) && b.list.length ? b : null;
+  } catch (x) { console.error(x); return null; }
+}
+/** 名簿が読めない：管理者のホームに出す（ROSTER_DOWN）。「管理者へのお知らせ」の通知は1日1回まで */
+function rosterDown_(bakAt, x) {
+  try {
+    const p = PropertiesService.getScriptProperties();
+    let cur = null;
+    try { cur = JSON.parse(prop_('ROSTER_DOWN') || 'null'); } catch (y) { cur = null; }
+    const v = JSON.stringify({ since: cur && cur.since || now_(), at: bakAt, msg: String(x && x.message || x || '').slice(0, 160) });
+    p.setProperty('ROSTER_DOWN', v);
+    if (REQ_ && REQ_.props) REQ_.props.ROSTER_DOWN = v;
+    if (prop_('ROSTER_ALERT_DAY') !== today_()) {
+      p.setProperty('ROSTER_ALERT_DAY', today_());
+      if (REQ_ && REQ_.props) REQ_.props.ROSTER_ALERT_DAY = today_();
+      notifyAdmins_('⚠️ 名簿が読めません', '会計アプリの部員シートが読めないため、' + String(bakAt).slice(5, 16).replace('-', '/') + ' に読めた名簿で動いています。部員シートの見出しや共有を確かめてください。', './');
+    }
+  } catch (y) { console.error(y); }
+}
+function rosterUp_() {
+  try {
+    PropertiesService.getScriptProperties().deleteProperty('ROSTER_DOWN');
+    if (REQ_ && REQ_.props) delete REQ_.props.ROSTER_DOWN;
+  } catch (x) { console.error(x); }
+}
+function rosterDownInfo_() { try { return JSON.parse(prop_('ROSTER_DOWN') || 'null'); } catch (x) { return null; } }
 /** 筋トレアプリから名簿を書き換えたあとに呼ぶ */
 function rosterChanged_() {
   try { cdel_(['k:roster']); } catch (x) { /* noop */ }
@@ -1418,6 +1479,8 @@ function buildState_(ctx, today, pub) {
   base.templates = table_('templates').rows.filter(function (t) { return !t.deletedAt; }).map(templateWire_);
   if (admin) {
     if (setlogOn_()) base.newRegs = newRegs_();
+    const rdown = rosterDownInfo_();
+    if (rdown) base.rosterDown = rdown;
     base.pinRequests = pinRequests_(); base.feedbackOpen = table_('feedback').rows.filter(function (f) { return !f.doneAt; }).length;
     base.backup = backupInfo_();
   }

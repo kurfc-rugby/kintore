@@ -1107,6 +1107,18 @@ section('在籍を外すと、その人の通知の宛先も消える（A-006）
   ok(api({ op: 'setMemberActive', token: A, id: NID, active: false }).ok && !gas.sheet('通知の宛先').data.some((row) => row.includes(EPX)), '在籍を外すと、その人の通知の宛先も消える');
   ok(gas.sheet('通知の宛先').data.length - 1 === others - 1, 'ほかの人の通知の宛先は残る');
 }
+section('会計アプリの名簿が読めないあいだ、名簿の書き換えは理由がわかる文で断る（F-026）');
+{
+  api({ op: 'state', token: A });
+  const head = gas.masterSheet().data[0], k = head.indexOf('名前');
+  head[k] = '氏名'; gas.forget(); gas.libCache.clear();
+  const st = api({ op: 'state', token: A });
+  const sv = api({ op: 'saveMember', token: A, member: { id: id['村上 樹'], grade: '2年' } });
+  ok(st.ok && st.rosterDown, '読み込みは動き、管理者にお知らせが出る');
+  ok(!sv.ok && sv.error === 'roster' && /名前|名簿|列/.test(sv.message || ''), '名簿の書き換え（学年など）は、理由がわかる文で断る：' + (sv.message || sv.error));
+  head[k] = '名前'; gas.forget(); gas.libCache.clear();
+  ok(!api({ op: 'state', token: A }).rosterDown && api({ op: 'saveMember', token: A, member: { id: id['村上 樹'], grade: '3年' } }).ok, '元に戻すと、お知らせが消えて書き換えもできる');
+}
 section('シートのキャッシュ');
 {
   // 1時間ごとの処理が覚え直したあとは、管理者の state もシートを読まない（名簿・ログインは別に覚えている）

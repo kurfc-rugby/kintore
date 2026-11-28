@@ -3,7 +3,7 @@
   'use strict';
   const L = window.KLogic;
   const API = window.KINTORE_API;
-  const VERSION = '2.27.2-t5';
+  const VERSION = '2.27.2-t6';
   const WD = ['日', '月', '火', '水', '木', '金', '土'];
   const PERM = { admin: '管理者', manager: 'マネージャー', captain: '主将', leader: '副主将', member: '一般部員', guest: '見るだけ' };
   // 権限を選ぶ一覧の並び
@@ -715,7 +715,7 @@
     const ranked = rk.filter((r) => r.rank !== null);
     const prevWord = (S.kind === 'week' ? '前の週' : '前の月') + (pvTo !== pv.to ? 'の同じ時点' : '');
     const t = cur.team;
-    let h = pinReqBanner() + newRegBanner() + exReqBanner() + selfCard() + homeClips() + periodBar();
+    let h = rosterDownBanner() + pinReqBanner() + newRegBanner() + exReqBanner() + selfCard() + homeClips() + periodBar();
     h += '<section class="board" aria-label="部全体の状況"><svg class="board-streaks" viewBox="25 40 85 66" preserveAspectRatio="xMidYMid slice" aria-hidden="true"><use href="#jk-streaks"/></svg>' +
       '<div class="board-main"><div class="board-k">部全体の実施回数</div>' +
       '<div class="board-v"><span class="num" data-count="' + t.done + '">' + t.done + '</span><span class="unit">回</span></div>' +
@@ -1118,6 +1118,16 @@
     return '<a class="banner warn" href="#settings">' + icon('lock') + '<span>暗証番号の再発行の依頼が <b>' + list.length + '件</b>（' + list.map((x) => esc(x.name)).join('、') + '）</span>' + icon('next') + '</a>';
   }
 
+  /** 管理者：会計アプリの名簿が読めず、最後に読めた控えで動いているとき（F-026） */
+  function rosterDownBanner() {
+    const d = can('admin') ? S.data.rosterDown : null;
+    if (!d) return '';
+    const at = String(d.at || '');
+    return '<div class="banner warn draft rosterdown" role="alert">' + icon('alert') + '<span>会計アプリの名簿が読めません' +
+      '<small>' + (at ? mdw(at.slice(0, 10)) + ' ' + at.slice(11, 16) + ' に読めた名簿で動いています（部員はそのまま使えます）。' : '') +
+      '会計アプリの部員シートの見出し（名前・学年など）や共有を確かめてください。読めるようになると、このお知らせは自動で消えます。</small>' +
+      (d.msg ? '<small class="rd-msg">' + esc(d.msg) + '</small>' : '') + '</span></div>';
+  }
   /** 管理者：新しい登録（だれでも自分で登録できるので、本人か確かめてもらう。E-001） */
   function newRegBanner() {
     const list = can('admin') && loginAll() ? (S.data.newRegs || []) : [];

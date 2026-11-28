@@ -715,6 +715,25 @@ section('新しい登録は、管理者が「確認した」を押すまで管�
   ok(api({ op: 'regsAck', token: A, upto: s1.n - 1 }).ok && nr(A).length === 1, '画面に出ていた分までの「確認した」では、あとの登録は消えない');
   ok(api({ op: 'register', memberId: NB, pin: 'e001-pin-3', deviceName: 'Android' }).ok && nr(A).length === 2, '消したあと、もう一度登録されると、また出る');
 }
+section('会計アプリの名簿が読めなくても、最後に読めた名簿で動く（F-026）');
+{
+  const head = gas.masterSheet().data[0], k = head.indexOf('名前');
+  ok(gas.sheet('名簿の控え') && gas.sheet('名簿の控え').getLastRow() >= 1 && gas.props.getProperty('ROSTER_BAK_SIG'), '名簿が読めるあいだに「名簿の控え」が残っている');
+  ok(!api({ op: 'state', token: A }).rosterDown, 'ふだんは管理者のホームに「名簿が読めません」は出ない');
+  head[k] = '氏名'; gas.forget(); gas.libCache.clear(); // 会計アプリで見出しを変えた → 10分たって作り置きも切れた
+  const pub = api({ op: 'state' }), ping = api({ op: 'ping' });
+  ok(pub.ok && pub.people && pub.people.length > 5 && ping.ok, 'ログイン前の画面（名前の一覧）も ping も動く');
+  const li = api({ op: 'login', memberId: id['森 健太'], pin: 'mori-pin-1' });
+  const sm = api({ op: 'state', token: MORI2 });
+  ok(li.ok && sm.ok && sm.members.length > 5 && !sm.rosterDown, 'ログイン・読み込みが動く（部員には何も出ない）');
+  const at3 = jst(2);
+  const up = api({ op: 'clipUpload', token: ISHI, mime: 'video/mp4', data: Buffer.from('f026-video-' + 'z'.repeat(2000)).toString('base64'), thumb, recordedAt: at3, code: gas.run('withReq', (f) => f.clipCode_(at3.slice(0, 10))) });
+  ok(up.ok, '動画を出せる' + (up.ok ? '' : '：' + JSON.stringify(up).slice(0, 80)));
+  const sa = api({ op: 'state', token: A });
+  ok(sa.ok && sa.rosterDown && /^\d{4}-\d{2}-\d{2} /.test(sa.rosterDown.at) && /名前|名簿|列/.test(sa.rosterDown.msg || ''), '管理者のホームに「名簿が読めません」（いつの名簿で動いているか・理由）が出る');
+  head[k] = '名前'; gas.forget(); gas.libCache.clear(); // 見出しを元に戻した
+  ok(!api({ op: 'state', token: A }).rosterDown, '名簿が読めるようになると、お知らせは自動で消える');
+}
 section('シートのキャッシュ');
 ok(afChecks > 10 && !afBad.length, '書いたあとに一緒に返す最新の情報は、読み直したものと同じ（' + afChecks + '回）' + (afBad.length ? '：違い ' + afBad.slice(0, 6).join(' / ') : ''));
 ok(tcChecks > 20 && !tcBad.length, 'キャッシュから読んだ state は、シートから読んだものと同じ（' + tcChecks + '回）' + (tcBad.length ? '：違い ' + tcBad.slice(0, 5).join(' / ') : ''));

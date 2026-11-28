@@ -1670,3 +1670,6 @@ button.banner { width: 100%; border: 0; font: inherit; font-size: 13px; text-ali
 .banner.newregs .nr-list { font-weight: 400; }
 .banner.newregs.staff { background: var(--not-tint); color: var(--err-fg); }
 .banner.newregs .nr-staff { font-weight: 700; }
+.banner.rosterdown { background: var(--not-tint); color: var(--err-fg); }
+.banner.rosterdown span small { display: block; font-weight: 400; margin-top: 2px; }
+.banner.rosterdown .rd-msg { opacity: .8; font-size: 12px; }
