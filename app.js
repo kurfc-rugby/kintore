@@ -3,7 +3,7 @@
   'use strict';
   const L = window.KLogic;
   const API = window.KINTORE_API;
-  const VERSION = '2.27.2-t4';
+  const VERSION = '2.27.2-t5';
   const WD = ['日', '月', '火', '水', '木', '金', '土'];
   const PERM = { admin: '管理者', manager: 'マネージャー', captain: '主将', leader: '副主将', member: '一般部員', guest: '見るだけ' };
   // 権限を選ぶ一覧の並び
@@ -715,7 +715,7 @@
     const ranked = rk.filter((r) => r.rank !== null);
     const prevWord = (S.kind === 'week' ? '前の週' : '前の月') + (pvTo !== pv.to ? 'の同じ時点' : '');
     const t = cur.team;
-    let h = pinReqBanner() + exReqBanner() + selfCard() + homeClips() + periodBar();
+    let h = pinReqBanner() + newRegBanner() + exReqBanner() + selfCard() + homeClips() + periodBar();
     h += '<section class="board" aria-label="部全体の状況"><svg class="board-streaks" viewBox="25 40 85 66" preserveAspectRatio="xMidYMid slice" aria-hidden="true"><use href="#jk-streaks"/></svg>' +
       '<div class="board-main"><div class="board-k">部全体の実施回数</div>' +
       '<div class="board-v"><span class="num" data-count="' + t.done + '">' + t.done + '</span><span class="unit">回</span></div>' +
@@ -1116,6 +1116,19 @@
     const list = can('admin') ? (S.data.pinRequests || []) : [];
     if (!list.length) return '';
     return '<a class="banner warn" href="#settings">' + icon('lock') + '<span>暗証番号の再発行の依頼が <b>' + list.length + '件</b>（' + list.map((x) => esc(x.name)).join('、') + '）</span>' + icon('next') + '</a>';
+  }
+
+  /** 管理者：新しい登録（だれでも自分で登録できるので、本人か確かめてもらう。E-001） */
+  function newRegBanner() {
+    const list = can('admin') && loginAll() ? (S.data.newRegs || []) : [];
+    if (!list.length) return '';
+    const staff = list.some((x) => x.perm !== 'member');
+    const when = (at) => { const d = String(at).slice(0, 10); return mdw(d) + ' ' + String(at).slice(11, 16); };
+    return '<div class="banner warn draft newregs' + (staff ? ' staff' : '') + '" role="status">' + icon('alert') +
+      '<span>新しい登録が <b>' + list.length + '人</b>' +
+      '<small class="nr-list">' + list.map((x) => (x.perm !== 'member' ? '<b class="nr-staff">' : '<span>') + esc(x.name) + '（' + (x.perm !== 'member' ? esc(PERM[x.perm] || '') + '・' : '') + when(x.at) + (x.dev ? '・' + esc(x.dev) : '') + '）' + (x.perm !== 'member' ? '</b>' : '</span>')).join('、') + '</small>' +
+      '<small>本人の登録でなければ「部員の登録」から消してください。</small></span>' +
+      '<button type="button" class="btn small" data-act="regs-open">部員の登録を開く</button><button type="button" class="btn small primary" data-act="regs-ack" data-upto="' + (+list[list.length - 1].n || 0) + '">確認した</button></div>';
   }
 
   // ---------- ランキング ----------
@@ -5057,6 +5070,11 @@
     'clip-cancel-open': () => { const b = $('#clip-cancel'); if (b) { b.hidden = false; const i = $('input[name="reason"]', b); if (i) i.focus(); } },
     'clip-cancel-close': () => { const b = $('#clip-cancel'); if (b) b.hidden = true; },
     'regs-open': () => openRegs(),
+    'regs-ack': async (el) => {
+      el.disabled = true;
+      try { const r = await api('regsAck', { upto: el.dataset.upto }); S.data.newRegs = r.newRegs || []; render(); toast('確認しました'); }
+      catch (e) { el.disabled = false; toast(e.message || '確認できませんでした'); }
+    },
     'guests-open': () => openGuests(),
     unreg: async (el) => {
       const name = memberName(el.dataset.id);

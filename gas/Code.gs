@@ -244,6 +244,7 @@ function dispatch_(op, ctx) {
     case 'icons': return opIcons_(ctx);
     case 'resetIcon': return opResetIcon_(ctx);
     case 'unregister': return opUnregister_(ctx);
+    case 'regsAck': return opRegsAck_(ctx);
     case 'exemptRequest': return opExemptRequest_(ctx);
     case 'exemptDecide': return opExemptDecide_(ctx);
     case 'exemptCancel': return opExemptCancel_(ctx);
@@ -1416,6 +1417,7 @@ function buildState_(ctx, today, pub) {
   // 型は全員が見られる（作る・直す・消すのは管理者・主将・副主将だけ）
   base.templates = table_('templates').rows.filter(function (t) { return !t.deletedAt; }).map(templateWire_);
   if (admin) {
+    if (setlogOn_()) base.newRegs = newRegs_();
     base.pinRequests = pinRequests_(); base.feedbackOpen = table_('feedback').rows.filter(function (f) { return !f.doneAt; }).length;
     base.backup = backupInfo_();
   }
@@ -3682,9 +3684,46 @@ function opRegister_(ctx) {
     const me = meOf_(memberById_(m.id) || m);
     me.perm = m.perm;
     log_(me, '部員の登録', m.name + '（' + deviceLabel_(ctx.req.deviceName) + '）');
+    newRegAdd_(m, deviceLabel_(ctx.req.deviceName));
     cache.put('regCount', String(n + 1), 3600);
     notifyAdmins_(withEmoji_(pushEmoji_(m, '👋'), STAFF[m.perm] ? '幹部の登録' : '部員の登録'), m.name + ' さん' + (STAFF[m.perm] ? '（' + ENC.perm[m.perm] + '）' : '') + 'が登録しました。本人でなければ、設定の「部員の登録」から消してください。', './#settings');
     return { ok: true, token: token, me: me };
+  });
+}
+// ---- 新しい登録（E-001・E-002）：だれでも自分で登録できるので、管理者がホームで必ず気づけるようにする ----
+// 通知をオフにしていても、管理者が「確認した」を押すまで、管理者のホームに出し続ける
+const NEWREGS_KEY = 'NEWREGS', REGACK_KEY = 'REGACK', NEWREGS_MAX = 60;
+function newRegsRead_() { try { const a = JSON.parse(prop_(NEWREGS_KEY) || '[]'); return Array.isArray(a) ? a : []; } catch (x) { return []; } }
+function newRegAdd_(m, device) {
+  const list = newRegsRead_();
+  const n = list.reduce(function (a, r) { return Math.max(a, +r.n || 0); }, 0) + 1; // 通し番号（同じ秒に何人登録しても区別できるように）
+  const v = JSON.stringify(list.concat([{ n: n, id: m.id, at: now_(), dev: String(device || '').slice(0, 30) }]).slice(-NEWREGS_MAX));
+  PropertiesService.getScriptProperties().setProperty(NEWREGS_KEY, v);
+  if (REQ_ && REQ_.props) REQ_.props[NEWREGS_KEY] = v;
+}
+/** 管理者がまだ確認していない登録（いまも登録が残っている人だけ。同じ人は最後の1回） */
+function newRegs_() {
+  const ack = +(prop_(REGACK_KEY) || 0), last = {};
+  newRegsRead_().forEach(function (r) { if (r && r.id && (+r.n || 0) > ack) last[r.id] = r; });
+  return Object.keys(last).map(function (id) {
+    const m = memberById_(id), r = last[id];
+    return m && m.active && !m.gone && m.set && m.set.pinHash ? { n: +r.n, id: id, name: m.name, perm: m.perm, at: String(r.at), dev: String(r.dev || '') } : null;
+  }).filter(Boolean).sort(function (a, b) { return a.n - b.n; });
+}
+/** 管理者：新しい登録を「確認した」。画面に出ていた最後の番号まで（見たあとに来た登録は残す） */
+function opRegsAck_(ctx) {
+  const me = requireRole_(ctx, ['admin']);
+  const upto = String(ctx.req.upto == null ? '' : ctx.req.upto);
+  if (!/^\d{1,9}$/.test(upto)) throw err_('bad_input', '確認する登録の番号が正しくありません。');
+  return withLock_(function () {
+    const max = newRegsRead_().reduce(function (a, r) { return Math.max(a, +r.n || 0); }, 0);
+    const v = Math.min(+upto, max);
+    if (v > +(prop_(REGACK_KEY) || 0)) {
+      PropertiesService.getScriptProperties().setProperty(REGACK_KEY, String(v));
+      if (REQ_ && REQ_.props) REQ_.props[REGACK_KEY] = String(v);
+    }
+    log_(me, '新しい登録を確認', '');
+    return { ok: true, newRegs: newRegs_() };
   });
 }
 /** 管理者：部員の登録を消す（なりすましのとき）。本人はもう一度登録できる */

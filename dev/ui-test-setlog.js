@@ -285,6 +285,16 @@ const shot = async (p, name) => { if (SHOT) { require('fs').mkdirSync(SHOT, { re
   await p.click('form[data-form="mlogin"] button[type="submit"]'); await p.waitForTimeout(2000);
   ok(await p.locator('.login-gate').count() === 0 && /管理者/.test(await p.locator('.top').innerText()), '管理者は今までの暗証番号でログインできる');
   ok(await p.locator('.nav .shoot').count() === 1 && await p.locator('.nav a[href="#record"]').count() === 1, '選手でもある管理者の下のメニューは、「撮る」と「記録」の両方');
+  { // E-001：新しい登録は、管理者が「確認した」を押すまでホームに出る（通知をオフにしていても）
+    await p.evaluate(() => { location.hash = '#home'; }); await p.waitForTimeout(600);
+    const nrText = await p.locator('.banner.newregs').innerText().catch(() => '');
+    ok(/新しい登録が \d+人/.test(nrText) && /森 健太/.test(nrText) && await p.locator('.banner.newregs [data-act="regs-open"]').count() === 1, '管理者のホームに「新しい登録」が出る（名前・部員の登録を開くボタン）');
+    await shot(p, '11-newregs');
+    await p.click('.banner.newregs [data-act="regs-ack"]'); await p.waitForTimeout(1200);
+    ok(await p.locator('.banner.newregs').count() === 0, '「確認した」を押すと消える');
+    await p.reload(); await p.waitForSelector('.board'); await p.waitForTimeout(800);
+    ok(await p.locator('.banner.newregs').count() === 0, '読み直しても出ない（サーバーで覚えている）');
+  }
   await p.evaluate(() => { location.hash = '#settings'; }); await p.waitForTimeout(500);
   await p.click('[data-act="regs-open"]'); await p.waitForTimeout(400);
   ok(/森 健太[\s\S]*登録済み/.test(await p.locator('.sheet').innerText()), '「部員の登録」でだれが登録したかわかる');

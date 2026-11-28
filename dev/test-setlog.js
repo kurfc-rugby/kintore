@@ -695,6 +695,26 @@ section('登録を消す・在籍を外す・ほかの端末をログアウト�
   const rows0 = gas.sheet('通知の宛先').data.length;
   ok(rows0 > 1, 'ほかの人の通知の宛先は残る');
 }
+section('新しい登録は、管理者が「確認した」を押すまで管理者のホームに出る（E-001：削除で対応する）');
+{
+  const nr = (tok) => api({ op: 'state', token: tok }).newRegs;
+  let list = nr(A);
+  ok(Array.isArray(list) && list.length >= 1, 'これまでの登録が「新しい登録」として出ている（' + (list || []).length + '人）');
+  ok(nr(MORI2) === undefined && nr(G) === undefined, '管理者以外には出ない');
+  ok(api({ op: 'regsAck', token: MORI2, upto: 999999 }).error === 'forbidden', '管理者以外は「確認した」を押せない');
+  ok(api({ op: 'regsAck', token: A, upto: list[list.length - 1].n }).ok && nr(A).length === 0, '「確認した」を押すと消える');
+  gas.accountingEdit((sh) => { sh.data.push(['新規 副将', '2年', '副主将', true, sh.data.length * 10]); sh.data.push(['新規 部員', '1年', '部員', true, sh.data.length * 10]); });
+  const ps = api({ op: 'state' }).people;
+  const NS = ps.find((x) => x.name === '新規 副将').id, NB = ps.find((x) => x.name === '新規 部員').id;
+  ok(api({ op: 'register', memberId: NS, pin: 'e001-pin-1', deviceName: 'iPhone' }).ok && api({ op: 'register', memberId: NB, pin: 'e001-pin-2', deviceName: 'Android' }).ok, '2人が登録する');
+  list = nr(A);
+  const s1 = list.find((x) => x.id === NS), b1 = list.find((x) => x.id === NB);
+  ok(list.length === 2 && s1 && s1.perm === 'leader' && /iPhone/.test(s1.dev) && b1 && b1.perm === 'member' && /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(b1.at), '新しい登録に、名前・幹部か・時刻・端末が出る');
+  ok(api({ op: 'unregister', token: A, memberId: NB }).ok && nr(A).map((x) => x.id).join() === NS, '登録を消した人は「新しい登録」から外れる');
+  ok(api({ op: 'regsAck', token: A, upto: 'きのう' }).error === 'bad_input', '番号の形がおかしいと断る');
+  ok(api({ op: 'regsAck', token: A, upto: s1.n - 1 }).ok && nr(A).length === 1, '画面に出ていた分までの「確認した」では、あとの登録は消えない');
+  ok(api({ op: 'register', memberId: NB, pin: 'e001-pin-3', deviceName: 'Android' }).ok && nr(A).length === 2, '消したあと、もう一度登録されると、また出る');
+}
 section('シートのキャッシュ');
 ok(afChecks > 10 && !afBad.length, '書いたあとに一緒に返す最新の情報は、読み直したものと同じ（' + afChecks + '回）' + (afBad.length ? '：違い ' + afBad.slice(0, 6).join(' / ') : ''));
 ok(tcChecks > 20 && !tcBad.length, 'キャッシュから読んだ state は、シートから読んだものと同じ（' + tcChecks + '回）' + (tcBad.length ? '：違い ' + tcBad.slice(0, 5).join(' / ') : ''));

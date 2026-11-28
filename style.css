@@ -1664,3 +1664,9 @@ button.banner { width: 100%; border: 0; font: inherit; font-size: 13px; text-ali
 .guide.setup .ice .actions { position: sticky; bottom: -14px; margin: 0 -18px -14px; padding: 10px 18px 14px; background: var(--paper); border-top: 1px solid var(--line); }
 /* 動画の「審議」の説明（ボタンの下に小さく） */
 .clip-flag-note { text-wrap: pretty; margin: 6px 4px 0; font-size: 11.5px; line-height: 1.6; color: var(--sub); text-align: center; }
+
+/* 管理者：新しい登録（E-001） */
+.banner.newregs span small { display: block; font-weight: 400; margin-top: 2px; }
+.banner.newregs .nr-list { font-weight: 400; }
+.banner.newregs.staff { background: var(--not-tint); color: var(--err-fg); }
+.banner.newregs .nr-staff { font-weight: 700; }
