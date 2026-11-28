@@ -320,6 +320,24 @@ const ok = (c, label) => { if (c) { pass++; console.log('  ✓ ' + label); } els
   ok((await text('#copy-n')).includes('2日'), 'コピー先の日を選べる');
   await page.click('form[data-form="copy"] button[type="submit"]'); await page.waitForTimeout(1000);
   ok((await page.locator('.toast').allInnerTexts()).some((t) => t.includes('2日にコピー')), 'メニューを別の日にコピーできる');
+  { // C-019：型の削除で「やめる」を押しても消えない。「メニューは残す」で型だけ消える
+    await go('#menus'); await page.click('[data-act="menu-tab"][data-v="templates"]'); await page.waitForTimeout(300);
+    const tplCard = () => page.locator('[data-act="tpl-open"]', { hasText: '火曜の体幹' });
+    await tplCard().first().click(); await page.waitForSelector('.sheet [data-act="tpl-del"]');
+    await page.click('.sheet [data-act="tpl-del"]'); await page.waitForTimeout(400);
+    const ch = await text('.sheet');
+    ok(/どうしますか/.test(ch) && await count('.sheet [data-act="tpl-del-go"]') === 2 && /やめる/.test(ch) && /メニューも消す/.test(ch) && /メニューは残す/.test(ch), '繰り返しのある型を削除しようとすると、「メニューも消す／メニューは残す／やめる」から選ぶ');
+    await page.locator('.sheet button', { hasText: 'やめる' }).click(); await page.waitForTimeout(500);
+    ok(await tplCard().count() >= 1, '「やめる」を押すと、型は消えない');
+    await tplCard().first().click(); await page.waitForSelector('.sheet [data-act="tpl-del"]');
+    await page.click('.sheet [data-act="tpl-del"]'); await page.waitForTimeout(400);
+    await page.click('.sheet [data-act="tpl-del-go"][data-keep="1"]'); await page.waitForTimeout(1300);
+    const tt = (await page.locator('.toast').allInnerTexts()).join(' ');
+    await page.click('[data-act="menu-tab"][data-v="templates"]').catch(() => {}); await page.waitForTimeout(300);
+    const gone = await tplCard().count() === 0;
+    await page.click('[data-act="menu-tab"][data-v="upcoming"]'); await page.waitForTimeout(400);
+    ok(gone && /型を削除しました/.test(tt) && !/件も削除/.test(tt) && await page.locator('.menu-card', { hasText: '火曜の体幹' }).count() >= 1, '「メニューは残す」で型だけ消え、繰り返しのメニューは残る');
+  }
   await go('#archive'); await page.waitForSelector('.arch li');
   ok(await count('.arch li') >= 10, 'これまでのメニューを一覧できる（引き継ぎ）');
   await page.fill('.search', '体幹'); await page.waitForTimeout(500);
@@ -558,6 +576,18 @@ const ok = (c, label) => { if (c) { pass++; console.log('  ✓ ' + label); } els
     await q.click('form[data-form="template"] button[type="submit"]'); await q.waitForTimeout(1200);
     await q.click('[data-act="menu-tab"][data-v="upcoming"]'); await q.waitForTimeout(300);
     ok((await q.locator('.selfrec').innerText()).includes('自重サーキット'), 'メニュー画面の上に「自主トレのおすすめ」が出る');
+    { // C-019：繰り返しのない型は、ふつうの確認で「キャンセル」なら消えない
+      await q.click('[data-act="menu-tab"][data-v="templates"]'); await q.waitForTimeout(300);
+      await q.locator('[data-act="tpl-open"]', { hasText: '自重サーキット' }).first().click(); await q.waitForSelector('.sheet [data-act="tpl-del"]');
+      let msg = '';
+      q.removeAllListeners('dialog');
+      q.once('dialog', (d) => { msg = d.message(); d.dismiss(); });
+      await q.click('.sheet [data-act="tpl-del"]'); await q.waitForTimeout(800);
+      q.on('dialog', (d) => d.accept());
+      await q.keyboard.press('Escape'); await q.waitForTimeout(300);
+      ok(/削除しますか/.test(msg) && await q.locator('[data-act="tpl-open"]', { hasText: '自重サーキット' }).count() >= 1, '繰り返しのない型は「削除しますか？」の確認が出て、キャンセルなら消えない');
+      await q.click('[data-act="menu-tab"][data-v="upcoming"]'); await q.waitForTimeout(300);
+    }
     await q.click('.sr-card'); await q.waitForSelector('.sheet .detail');
     ok((await q.locator('.sheet-h h2').innerText()) === '自重サーキット', 'おすすめを押すと中身が見られる');
     await q.keyboard.press('Escape');

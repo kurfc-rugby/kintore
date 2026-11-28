@@ -3,7 +3,7 @@
   'use strict';
   const L = window.KLogic;
   const API = window.KINTORE_API;
-  const VERSION = '2.27.2-t7';
+  const VERSION = '2.27.2-t8';
   const WD = ['日', '月', '火', '水', '木', '金', '土'];
   const PERM = { admin: '管理者', manager: 'マネージャー', captain: '主将', leader: '副主将', member: '一般部員', guest: '見るだけ' };
   // 権限を選ぶ一覧の並び
@@ -505,6 +505,13 @@
     document.body.appendChild(box);
     tick(14);
     setTimeout(() => box.remove(), 2200);
+  }
+  /** 型を削除（keep：明日以降の繰り返しのメニューは残す） */
+  async function deleteTemplate(el, t, keep) {
+    await busy(el, async () => {
+      try { const r = await api('deleteTemplate', { id: t.id, keepMenus: keep }); closeSheet(); await loadState(); render(); toast('型を削除しました' + (r.removed ? '（メニュー ' + r.removed + '件も削除）' : '')); }
+      catch (e) { toast(e.message, 'err'); }
+    });
   }
   function toast(msg, kind) {
     const el = document.createElement('div');
@@ -4962,11 +4969,22 @@
     'tpl-del': async (el) => {
       const t = (S.data.templates || []).find((x) => x.id === el.dataset.id);
       if (!t) return;
-      const keep = t.repeat.length ? !confirm('「' + t.title + '」の型を削除します。\n明日以降の繰り返しのメニュー（手で直していないもの）も消しますか？\n\nOK：消す ／ キャンセル：メニューは残す') : true;
-      await busy(el, async () => {
-        try { const r = await api('deleteTemplate', { id: t.id, keepMenus: keep }); closeSheet(); await loadState(); render(); toast('型を削除しました' + (r.removed ? '（メニュー ' + r.removed + '件も削除）' : '')); }
-        catch (e) { toast(e.message, 'err'); }
-      });
+      // 繰り返しのない型：ふつうの確認（キャンセル＝やめる）。繰り返しのある型：メニューをどうするかを3つから選ぶ（C-019）
+      if (!t.repeat.length) {
+        if (!confirm('「' + t.title + '」の型を削除しますか？')) return;
+        await deleteTemplate(el, t, true);
+        return;
+      }
+      openSheet('型を削除',
+        '<p class="lead-line small">「' + esc(t.title) + '」の型を削除します。明日以降の繰り返しのメニュー（手で直していないもの）はどうしますか？</p>' +
+        '<div class="actions tpl-del-choice"><button type="button" class="btn" data-act="sheet-close">やめる</button>' +
+        '<button type="button" class="btn" data-act="tpl-del-go" data-id="' + esc(t.id) + '" data-keep="1">メニューは残す</button>' +
+        '<button type="button" class="btn danger" data-act="tpl-del-go" data-id="' + esc(t.id) + '" data-keep="0">メニューも消す</button></div>');
+    },
+    'tpl-del-go': async (el) => {
+      const t = (S.data.templates || []).find((x) => x.id === el.dataset.id);
+      if (!t) return;
+      await deleteTemplate(el, t, el.dataset.keep === '1');
     },
     'lib-add': (el) => {
       const f = el.closest('form'), x = LIB[+el.dataset.c][1][+el.dataset.i];
