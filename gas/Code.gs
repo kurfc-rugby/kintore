@@ -864,7 +864,8 @@ function memberById_(id) {
 function peopleRow_(m) {
   if (m.set) return m.set;
   const now = now_();
-  const row = { id: m.id, nameMemo: m.name, mode: m.mode, perm: m.perm, start: m.start, left: m.left,
+  // 名簿の役割（主将・副主将）から自動で付いた権限は書かない（書くと役割を外しても残る：A-013）
+  const row = { id: m.id, nameMemo: m.name, mode: m.mode, perm: m.autoLeader ? 'member' : m.perm, start: m.start, left: m.left,
     pinHash: '', pinSalt: '', mustChange: '0', failCount: '0', lockUntil: '', createdAt: now, updatedAt: '', pinReqAt: '' };
   insert_('people', [row]);
   m.set = row;

@@ -653,6 +653,26 @@ section('通知の宛先は、ログインしている本人で決める（E-003
   const to = gas.push.sent.map((x) => x.url);
   ok(r.ok && to.indexOf(OWN) >= 0 && to.indexOf(OLD) < 0 && to.indexOf(EVIL) < 0, '動画を取り消すと、通知は本人の端末にだけ届く（他人の端末には届かない）' + (r.ok ? '' : '：' + JSON.stringify(r).slice(0, 80)));
 }
+section('名簿の役割で自動で付いた主将・副主将は、部員設定に書かない（A-013：役割を外したら権限も外れる）');
+{
+  const setRole = (name, role) => gas.accountingEdit((sh) => { const k = sh.data.findIndex((x) => x[0] === name); sh.data[k][sh.data[0].indexOf('役割')] = role; });
+  const inPeople = (mid) => gas.sheet('部員設定').data.some((row) => row[0] === mid);
+  gas.accountingEdit((sh) => { sh.data.push(['副将 十一', '2年', '副主将', true, sh.data.length * 10]); }); // 名簿に新しく入った副主将（まだ部員設定の行がない）
+  const cand = api({ op: 'state', token: A }).members.find((m) => m.name === '副将 十一');
+  ok(!!cand && cand.player && !inPeople(cand.id), '名簿に新しく入った選手は、部員設定の行がまだない');
+  if (cand) {
+    const s0 = api({ op: 'state', token: A }).members.find((m) => m.id === cand.id);
+    ok(s0.perm === 'leader' && s0.autoL === 1, '名簿の役割が副主将なので、自動で副主将（リーダー）');
+    const rg = api({ op: 'register', memberId: cand.id, pin: 'a013-pin-1', deviceName: 'Android' });
+    ok(rg.ok && rg.me.perm === 'leader', '登録するとそのままリーダーとしてログインする');
+    const row = gas.sheet('部員設定').data.find((x) => x[0] === cand.id);
+    ok(row && row.indexOf('一般部員') >= 0 && row.indexOf('副主将') < 0 && row.indexOf('FW・BKリーダー') < 0, '登録で部員設定の行ができても、権限は「一般部員」と書く（自動の権限は書かない）');
+    setRole(cand.name, '部員');
+    const s1 = api({ op: 'state', token: A }).members.find((m) => m.id === cand.id);
+    const me1 = api({ op: 'state', token: rg.token });
+    ok(s1.perm === 'member' && !s1.autoL && me1.me.perm === 'member' && !me1.exJudge, '役割を「部員」に戻すと、権限も一般部員に戻る（免除を認める画面も出ない）');
+  }
+}
 section('シートのキャッシュ');
 ok(afChecks > 10 && !afBad.length, '書いたあとに一緒に返す最新の情報は、読み直したものと同じ（' + afChecks + '回）' + (afBad.length ? '：違い ' + afBad.slice(0, 6).join(' / ') : ''));
 ok(tcChecks > 20 && !tcBad.length, 'キャッシュから読んだ state は、シートから読んだものと同じ（' + tcChecks + '回）' + (tcBad.length ? '：違い ' + tcBad.slice(0, 5).join(' / ') : ''));
