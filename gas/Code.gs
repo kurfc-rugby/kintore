@@ -1576,6 +1576,9 @@ function opSaveRecordsWeek_(ctx) {
 /** 1日ぶんの記録（ロックの中で呼ぶ）。inserted … 新しく「実施した」になった行 */
 /** その日の本人の動画（取り消されていない・まだ消えていない）がある「実施した」（全員ログイン版）。
  *  記録の画面からは外さず、動画の取り消しで外す（動画と「実施した」が食いちがわないように）。3か月たって動画が消えたら、ふつうの記録にもどる */
+/** 動画で付いた「実施した」か（本人が動画を出して付いた・確認待ちの動画を「確認した」で付いた記録は、本人が付けた形で残る）。
+ *  マネージャー・管理者が記録画面で手で付けた記録は違う → 動画を取り消しても残す（A-001） */
+function recByVideo_(r) { return !!r && (r.createdBy === r.memberId || r.updatedBy === r.memberId); }
 function fromVideo_(r) {
   if (!r || r.status !== 'done' || !setlogOn_()) return false;
   return table_('clips').rows.some(function (c) { return c.memberId === r.memberId && c.date === r.date && c.status === 'ok' && !c.deletedAt; });
@@ -4394,7 +4397,7 @@ function expireClips_() {
       const others = all.some(function (x) { return x.id !== c.id && x.memberId === c.memberId && x.date === c.date && x.status === 'ok'; });
       if (!others) {
         const r = table_('records').rows.filter(function (x) { return x.memberId === c.memberId && x.date === c.date; })[0];
-        if (r) { insert_('trash', [trashRow_(r, sys, now)]); remove_('records', r); }
+        if (r && recByVideo_(r)) { insert_('trash', [trashRow_(r, sys, now)]); remove_('records', r); } // 手で付けた記録は残す（A-001）
       }
       const m = memberById_(c.memberId);
       log_(sys, '動画が届かず取り消した', (m ? m.name : c.memberId) + ' ' + c.date);
@@ -4559,14 +4562,15 @@ function opClipCancel_(ctx) {
     update_('clips', c);
     // その日のほかの動画が「実施した」のまま残っていなければ、記録を外す
     const others = table_('clips').rows.some(function (x) { return x.id !== c.id && x.memberId === c.memberId && x.date === c.date && x.status === 'ok'; });
-    let removed = false;
+    let removed = false, kept = false;
     if (!others) {
       const r = table_('records').rows.filter(function (x) { return x.memberId === c.memberId && x.date === c.date; })[0];
-      if (r) { insert_('trash', [trashRow_(r, me, now)]); remove_('records', r); removed = true; }
+      if (r && recByVideo_(r)) { insert_('trash', [trashRow_(r, me, now)]); remove_('records', r); removed = true; }
+      else if (r && r.status === 'done') kept = true; // 手で付けた「実施した」は残す
     }
     const m = memberById_(c.memberId);
     log_(me, '動画を取り消した', (m ? m.name : c.memberId) + ' ' + c.date + (reason ? '：' + reason : ''));
-    return { ok: true, clip: clipWire_(c, me), removed: removed, memberId: c.memberId, date: c.date, records: recordsWire_(c.date, c.date) };
+    return { ok: true, clip: clipWire_(c, me), removed: removed, kept: kept, memberId: c.memberId, date: c.date, records: recordsWire_(c.date, c.date) };
   });
   if (!res.already) {
     try {
@@ -4587,7 +4591,8 @@ function opClipApprove_(ctx) {
     if (c.status === 'pending') {
       c.status = 'ok';
       const m = memberById_(c.memberId);
-      const r = saveDay_({ id: me.id, name: me.name, perm: 'admin' }, c.date, [{ memberId: c.memberId, done: true }]);
+      // 記録は本人が動画で付けた形で残す（取り消したら外れるように。だれが確認したかは動画の checkedBy に残る：A-001）
+      const r = saveDay_({ id: c.memberId, name: m ? m.name : '', perm: 'admin' }, c.date, [{ memberId: c.memberId, done: true }]);
       recorded = r.saved + r.updated > 0;
       log_(me, '動画を確認した', (m ? m.name : '') + ' ' + c.date + '：実施した');
     }

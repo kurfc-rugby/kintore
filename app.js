@@ -3,7 +3,7 @@
   'use strict';
   const L = window.KLogic;
   const API = window.KINTORE_API;
-  const VERSION = '2.27.2-t8';
+  const VERSION = '2.27.2-t9';
   const WD = ['日', '月', '火', '水', '木', '金', '土'];
   const PERM = { admin: '管理者', manager: 'マネージャー', captain: '主将', leader: '副主将', member: '一般部員', guest: '見るだけ' };
   // 権限を選ぶ一覧の並び
@@ -5180,7 +5180,7 @@
         try {
           const r = await api('clipCancel', { id: f.id.value, reason: f.reason.value });
           clipUpdated(r.clip); if (r.records) { replaceDay(r.date, r.records); setData(S.data); }
-          S.clipCache = {}; closeSheet(); await loadState(); render(); toast('取り消しました。本人に知らせました');
+          S.clipCache = {}; closeSheet(); await loadState(); render(); toast('取り消しました。本人に知らせました' + (r.kept ? '（記録画面で付けた「実施した」は残っています）' : ''));
         } catch (e) { sheetErrorIn(f, e.message); }
       });
     },

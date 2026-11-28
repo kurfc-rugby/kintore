@@ -734,6 +734,33 @@ section('会計アプリの名簿が読めなくても、最後に読めた名�
   head[k] = '名前'; gas.forget(); gas.libCache.clear(); // 見出しを元に戻した
   ok(!api({ op: 'state', token: A }).rosterDown, '名簿が読めるようになると、お知らせは自動で消える');
 }
+section('動画を取り消しても、記録画面で手で付けた「実施した」は残る（A-001）');
+{
+  const ps = api({ op: 'state' }).people;
+  const NB = ps.find((x) => x.name === '新規 部員').id, NS = ps.find((x) => x.name === '新規 副将').id;
+  const TB = api({ op: 'login', memberId: NB, pin: 'e001-pin-3' }).token, TS = api({ op: 'login', memberId: NS, pin: 'e001-pin-1' }).token;
+  const vid2 = (k) => Buffer.from('a001-' + k + '-' + 'q'.repeat(2000)).toString('base64');
+  const up = (tok, k, at) => api({ op: 'clipUpload', token: tok, mime: 'video/mp4', data: vid2(k), thumb, recordedAt: at, code: gas.run('withReq', (f) => f.clipCode_(at.slice(0, 10))) });
+  const at1 = jst(4), day = at1.slice(0, 10);
+  const dayRec = (m) => api({ op: 'state', token: MG }).records.some((x) => x[0] === m && x[1] === day && x[2] === 1);
+  ok(api({ op: 'saveRecords', token: MG, date: day, items: [{ memberId: NB, done: true }] }).saved === 1, 'マネージャーが記録画面で「実施した」を付ける');
+  const u1 = up(TB, 1, at1);
+  let cc = u1.ok ? api({ op: 'clipCancel', token: MG, id: u1.clip.id, reason: '確認のため' }) : u1;
+  ok(cc.ok && !cc.removed && cc.kept && dayRec(NB), '同じ日に本人が出した動画を取り消しても、手で付けた「実施した」は残る（取り消しの返事で分かる）' + (cc.ok ? '' : '：' + JSON.stringify(cc).slice(0, 80)));
+  const u2 = up(TB, 2, jst(3));
+  cc = u2.ok ? api({ op: 'clipCancel', token: MG, id: u2.clip.id, reason: '確認待ちのまま取り消す' }) : u2;
+  ok(u2.ok && u2.pending && cc.ok && !cc.removed && dayRec(NB), '撮り直し（確認待ち）を取り消しても、手で付けた「実施した」は残る');
+  // 動画だけで付いた記録は、今までどおり外れる（確認して付いた記録も）
+  const v1 = up(TS, 1, at1);
+  ok(v1.ok && dayRec(NS), '動画で「実施した」が付く');
+  cc = api({ op: 'clipCancel', token: MG, id: v1.clip.id, reason: 'ジムではない' });
+  ok(cc.ok && cc.removed && !cc.kept && !dayRec(NS), '動画だけで付いた記録は、取り消すと外れる');
+  const v2 = up(TS, 2, jst(3));
+  const ap = v2.ok ? api({ op: 'clipApprove', token: MG, id: v2.clip.id }) : v2;
+  ok(v2.pending && ap.ok && ap.recorded && dayRec(NS), '撮り直しを幹部が確認すると「実施した」になる');
+  cc = api({ op: 'clipCancel', token: A, id: v2.clip.id, reason: 'やっぱり違う' });
+  ok(cc.ok && cc.removed && !dayRec(NS), '確認して付いた記録も、動画を取り消すと外れる（動画の記録として扱う）');
+}
 section('シートのキャッシュ');
 ok(afChecks > 10 && !afBad.length, '書いたあとに一緒に返す最新の情報は、読み直したものと同じ（' + afChecks + '回）' + (afBad.length ? '：違い ' + afBad.slice(0, 6).join(' / ') : ''));
 ok(tcChecks > 20 && !tcBad.length, 'キャッシュから読んだ state は、シートから読んだものと同じ（' + tcChecks + '回）' + (tcBad.length ? '：違い ' + tcBad.slice(0, 5).join(' / ') : ''));
