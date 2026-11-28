@@ -3,7 +3,7 @@
   'use strict';
   const L = window.KLogic;
   const API = window.KINTORE_API;
-  const VERSION = '2.27.2-t3';
+  const VERSION = '2.27.2-t4';
   const WD = ['日', '月', '火', '水', '木', '金', '土'];
   const PERM = { admin: '管理者', manager: 'マネージャー', captain: '主将', leader: '副主将', member: '一般部員', guest: '見るだけ' };
   // 権限を選ぶ一覧の並び
@@ -221,6 +221,10 @@
       PKS.again = false; if (S.route.name === 'settings') render(); // 保存できた内容に戻す
     } finally { PKS.busy = false; }
     if (PKS.again) { PKS.again = false; pushKindFlush(); }
+  }
+  /** この端末の通知の宛先（なければ ''） */
+  async function myEndpoint() {
+    try { const sub = PWA.reg && pushSupported() ? await PWA.reg.pushManager.getSubscription() : null; return sub ? sub.endpoint : ''; } catch (e) { return ''; }
   }
   /** 通知をオフにする（この端末の登録を消す） */
   async function pushOff(msg) {
@@ -4704,6 +4708,12 @@
     login: () => openLogin(),
     logout: async () => {
       if (!recLeaveOk()) return;
+      // この端末の通知の登録も外す（ログアウトしたあと、前の人あての通知が届かないように：A-006）
+      try {
+        const sub = PWA.reg && pushSupported() ? await PWA.reg.pushManager.getSubscription() : null;
+        if (sub) { await api('pushUnregister', { sub: { endpoint: sub.endpoint } }).catch(() => {}); await sub.unsubscribe().catch(() => {}); }
+        PUSH.endpoint = ''; store.del('pushKinds');
+      } catch (e) { /* 通知を使っていない端末 */ }
       try { await api('logout', {}); } catch (e) { /* 通信できなくても端末側は消す */ }
       const all = loginAll();
       S.token = ''; store.del('token'); pendingOldPin = '';
@@ -4796,7 +4806,7 @@
     'sess-out': async (el) => {
       if (el.dataset.armed !== '1') { el.dataset.armed = '1'; const t0 = el.textContent; el.textContent = 'もう一度押すとログアウト'; setTimeout(() => { if (el.isConnected) { el.dataset.armed = ''; el.textContent = t0; } }, 4000); return; }
       await busy(el, async () => {
-        try { const r = await api('logoutSession', { key: el.dataset.k }); toast(r.removed + '台の端末をログアウトしました'); openSessions(); }
+        try { const r = await api('logoutSession', { key: el.dataset.k, endpoint: await myEndpoint() }); toast(r.removed + '台の端末をログアウトしました'); openSessions(); }
         catch (e) { toast(e.message, 'err'); }
       });
     },
@@ -5153,7 +5163,7 @@
       if (f.newPin.value !== f.newPin2.value) { sheetError('新しい暗証番号の1回目と2回目が違います。'); return; }
       await busy(btn, async () => {
         try {
-          await api('changePin', { oldPin: f.oldPin.value, newPin: f.newPin.value });
+          await api('changePin', { oldPin: f.oldPin.value, newPin: f.newPin.value, endpoint: await myEndpoint() });
           pendingOldPin = ''; closeSheet(); await loadState(); render(); toast('暗証番号を変更しました');
           if (loginAll() && !store.get('setupDone', 0)) openSetup(afterLogin); else afterLogin();
         } catch (e) { sheetError(e.message); }

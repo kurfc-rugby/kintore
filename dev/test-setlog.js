@@ -673,6 +673,28 @@ section('名簿の役割で自動で付いた主将・副主将は、部員設�
     ok(s1.perm === 'member' && !s1.autoL && me1.me.perm === 'member' && !me1.exJudge, '役割を「部員」に戻すと、権限も一般部員に戻る（免除を認める画面も出ない）');
   }
 }
+section('登録を消す・在籍を外す・ほかの端末をログアウトすると、その人の通知の宛先も消える（A-006）');
+{
+  gas.accountingEdit((sh) => { sh.data.push(['通知 太郎', '1年', '部員', true, sh.data.length * 10]); });
+  const TA = api({ op: 'state', token: A }).members.find((m) => m.name === '通知 太郎').id;
+  const ep = (k) => 'https://fcm.googleapis.com/fcm/send/a006-' + k + ':APA91b-test';
+  const rowsOf = () => gas.sheet('通知の宛先').data.filter((row) => row.indexOf(TA) >= 0).map((row) => row.find((c) => /a006-/.test(String(c))));
+  let t1 = api({ op: 'register', memberId: TA, pin: 'a006-pin-1', deviceName: 'Android' }).token;
+  // なりすましの端末と、本人の端末（どちらも「通知 太郎」でログインして通知をオン）
+  ok(api({ op: 'pushRegister', token: t1, sub: { endpoint: ep('fake') }, memberId: TA, kinds: ['goal', 'cheer'] }).ok, 'なりすましの端末で通知をオン');
+  ok(rowsOf().length === 1, '通知の宛先ができる');
+  ok(api({ op: 'unregister', token: A, memberId: TA }).ok && rowsOf().length === 0, '管理者が登録を消すと、その人の通知の宛先も消える（なりすましの端末に本人あての通知が届かない）');
+  // 本人が登録し直し、2台で通知をオン → 暗証番号を変える（ほかの端末はログアウト）と、ほかの端末の宛先だけ消える
+  t1 = api({ op: 'register', memberId: TA, pin: 'a006-pin-2', deviceName: 'Android' }).token;
+  const t2 = api({ op: 'login', memberId: TA, pin: 'a006-pin-2' }).token;
+  api({ op: 'pushRegister', token: t1, sub: { endpoint: ep('one') }, memberId: TA, kinds: ['goal'] });
+  api({ op: 'pushRegister', token: t2, sub: { endpoint: ep('two') }, memberId: TA, kinds: ['goal'] });
+  ok(rowsOf().length === 2, '2台で通知をオン');
+  ok(api({ op: 'changePin', token: t1, oldPin: 'a006-pin-2', newPin: 'a006-pin-3', endpoint: ep('one') }).ok && rowsOf().join() === ep('one'), '暗証番号を変えると、ほかの端末の通知の宛先は消え、いま使っている端末の分は残る');
+  // 在籍を外す・卒業はテスト環境では名簿を変えられないので、dev/test.js で確かめる
+  const rows0 = gas.sheet('通知の宛先').data.length;
+  ok(rows0 > 1, 'ほかの人の通知の宛先は残る');
+}
 section('シートのキャッシュ');
 ok(afChecks > 10 && !afBad.length, '書いたあとに一緒に返す最新の情報は、読み直したものと同じ（' + afChecks + '回）' + (afBad.length ? '：違い ' + afBad.slice(0, 6).join(' / ') : ''));
 ok(tcChecks > 20 && !tcBad.length, 'キャッシュから読んだ state は、シートから読んだものと同じ（' + tcChecks + '回）' + (tcBad.length ? '：違い ' + tcBad.slice(0, 5).join(' / ') : ''));

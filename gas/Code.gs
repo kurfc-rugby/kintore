@@ -1209,6 +1209,7 @@ function opChangePin_(ctx) {
     s.mustChange = '0'; s.updatedAt = now_();
     update_('people', s);
     killSessions_(me.id, ctx.session.tokenHash);
+    dropPushOf_(me.id, ctx.req.endpoint);
     log_(me, '暗証番号を変更', '');
     return { ok: true, me: meOf_(m) };
   });
@@ -1886,7 +1887,7 @@ function opSetMemberActive_(ctx) {
     const s = peopleRow_(m);
     s.left = active ? '' : today_(); s.updatedAt = now_();
     update_('people', s);
-    if (!active) killSessions_(m.id, '');
+    if (!active) { killSessions_(m.id, ''); dropPushOf_(m.id, ''); }
     log_(me, active ? '部員を戻す' : '部員の在籍を外す', m.name + (active ? '' : '（過去の記録は残ります）'));
     REQ_.roster = null; REQ_.members = null;
     refreshFutureTargets_();
@@ -1939,6 +1940,7 @@ function opPromote_(ctx) {
       s.left = today_(); s.updatedAt = now_();
       update_('people', s);
       killSessions_(m.id, '');
+      dropPushOf_(m.id, '');
       grad++; gradNames.push(m.name);
     });
     log_(me, '進級', '学年を上げた ' + up + '人・卒業 ' + grad + '人' + (gradNames.length ? '（' + gradNames.join('、') + '）' : '') + '・そのまま ' + stay + '人');
@@ -2821,6 +2823,7 @@ function opLogoutSession_(ctx) {
     const gone = key === 'others' ? mine : mine.filter(function (r) { return key.length >= 16 && r.tokenHash.slice(0, 16) === key; });
     if (!gone.length) throw err_('not_found', 'その端末は見つかりません（もうログアウトしているかもしれません）。');
     removeMany_('sessions', gone);
+    if (key === 'others') dropPushOf_(me.id, ctx.req.endpoint); // 1台ずつのときは、どの通知の宛先か分からないので残す
     log_(me, 'ほかの端末をログアウト', gone.length + '台');
     return { ok: true, removed: gone.length };
   });
@@ -3161,6 +3164,16 @@ function pushSelfOk_(r) {
 function pushRowsOf_(id) {
   if (!id) return [];
   return table_('push').rows.filter(function (r) { return setlogOn_() ? r.staffId === id : (r.staffId === id || r.memberId === id); });
+}
+/** その人の通知の宛先を消す（登録を消した・在籍を外した・卒業・見るだけの人を消した・ほかの端末をログアウト：A-006）。
+ *  ログインは切れても宛先が残ると、本人あての通知（免除の返事・動画の取り消しの理由など）がその端末に届き続けるため。
+ *  keepEndpoint（いま使っている端末）は残す。ロックの中で呼ぶ */
+function dropPushOf_(id, keepEndpoint) {
+  if (!id) return 0;
+  const keep = String(keepEndpoint || '');
+  const gone = table_('push').rows.filter(function (r) { return (r.staffId === id || r.memberId === id) && !(keep && r.endpoint === keep); });
+  if (gone.length) removeMany_('push', gone);
+  return gone.length;
 }
 function pushTargets_(kind) {
   return table_('push').rows.filter(function (r) { return (',' + r.kinds + ',').indexOf(',' + kind + ',') >= 0; });
@@ -3686,6 +3699,7 @@ function opUnregister_(ctx) {
     s.pinHash = ''; s.pinSalt = ''; s.mustChange = '0'; s.failCount = '0'; s.lockUntil = ''; s.updatedAt = now_();
     update_('people', s);
     killSessions_(m.id, '');
+    dropPushOf_(m.id, '');
     log_(me, '部員の登録を消した', m.name);
     return { ok: true };
   });
@@ -3781,6 +3795,7 @@ function opGuestDelete_(ctx) {
     g.deletedAt = now_(); g.pinHash = ''; g.pinSalt = '';
     update_('guests', g);
     killSessions_(g.id, '');
+    dropPushOf_(g.id, '');
     log_(me, '見るだけの人を削除', g.name);
     return { ok: true };
   });

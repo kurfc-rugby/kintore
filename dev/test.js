@@ -1097,6 +1097,16 @@ for (const f of ['app.js', 'logic.js', 'sw.js', 'gas/Code.gs']) {
   ok(!dup.length, 'app.js：ボタンの動きの名前（data-act）が重なっていない' + (dup.length ? '（' + dup.join('、') + '）' : ''));
 }
 
+section('在籍を外すと、その人の通知の宛先も消える（A-006）');
+{
+  const nm = api({ op: 'saveMember', token: A, member: { name: '通知 外子', grade: '1年', position: 'HO' } });
+  const NID = nm.member && nm.member.id;
+  const EPX = 'https://fcm.googleapis.com/fcm/send/a006-active:APA91b-test';
+  ok(nm.ok && api({ op: 'pushRegister', sub: { endpoint: EPX }, memberId: NID, kinds: ['goal'] }).ok && gas.sheet('通知の宛先').data.some((row) => row.includes(EPX)), '通知をオンにする');
+  const others = gas.sheet('通知の宛先').data.length - 1;
+  ok(api({ op: 'setMemberActive', token: A, id: NID, active: false }).ok && !gas.sheet('通知の宛先').data.some((row) => row.includes(EPX)), '在籍を外すと、その人の通知の宛先も消える');
+  ok(gas.sheet('通知の宛先').data.length - 1 === others - 1, 'ほかの人の通知の宛先は残る');
+}
 section('シートのキャッシュ');
 {
   // 1時間ごとの処理が覚え直したあとは、管理者の state もシートを読まない（名簿・ログインは別に覚えている）

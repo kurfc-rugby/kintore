@@ -560,6 +560,32 @@ const shot = async (p, name) => { if (SHOT) { require('fs').mkdirSync(SHOT, { re
       ok(/ようこそ/.test(await py.locator('#guide-root').innerText().catch(() => '')), '初めての端末でログインすると、すぐに紹介（30秒）が出る');
       await cy.close();
     }
+    { // A-006：ログアウトすると、その端末の通知の登録も外れる（前の人あての通知が届かない）
+      const cl = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 1, isMobile: true, hasTouch: true, reducedMotion: 'reduce' });
+      await cl.route(/fonts\.(googleapis|gstatic)\.com/, (r) => r.abort());
+      await cl.addInitScript(() => {
+        const EP = 'https://fcm.googleapis.com/fcm/send/ui-logout-device';
+        const fake = { endpoint: EP, toJSON() { return { endpoint: EP, keys: {} }; }, unsubscribe: async () => { sessionStorage.setItem('unsub', '1'); window.__sub = null; return true; } };
+        window.__sub = sessionStorage.getItem('unsub') ? null : fake;
+        if (window.PushManager) { PushManager.prototype.getSubscription = async function () { return window.__sub || null; }; PushManager.prototype.subscribe = async function () { window.__sub = fake; return fake; }; }
+        if (!sessionStorage.getItem('x')) { sessionStorage.setItem('x', '1'); localStorage.setItem('kintoreTest.pushKinds', JSON.stringify(['goal', 'cheer'])); localStorage.setItem('kintoreTest.swdev', '1'); }
+      });
+      const pl = await cl.newPage(); pl.on('pageerror', (e) => errors.push(e.message));
+      await pl.goto(BASE); await pl.waitForSelector('.login-gate');
+      await pick(pl, '森 健太'); await pl.fill('form[data-form="mlogin"] input[name="pin"]', 'mori-pin-1');
+      await pl.click('form[data-form="mlogin"] button[type="submit"]'); await pl.waitForSelector('.board');
+      await pl.waitForTimeout(2500);
+      // 通知の宛先があるかを、森としてログインし直したトークンで「テスト通知」を送って確かめる（宛先がなければ not_found）
+      const reg = () => pl.evaluate(async () => { const post = (b) => fetch(self.KINTORE_API, { method: 'POST', body: JSON.stringify(b) }).then((x) => x.json()); const lg = await post({ op: 'login', memberId: (await post({ op: 'state' })).people.find((x) => x.name === '森 健太').id, pin: 'mori-pin-1' }); const r = await post({ op: 'pushTest', token: lg.token, endpoint: 'https://fcm.googleapis.com/fcm/send/ui-logout-device' }); await post({ op: 'logout', token: lg.token }); return r.error || (r.ok ? 'ok' : 'x'); });
+      await pl.evaluate(async () => { const token = JSON.parse(localStorage.getItem('kintoreTest.token')); await fetch(self.KINTORE_API, { method: 'POST', body: JSON.stringify({ op: 'pushRegister', token, sub: { endpoint: 'https://fcm.googleapis.com/fcm/send/ui-logout-device' }, kinds: ['goal', 'cheer'] }) }); }); // この端末で通知をオンにしてある
+      const before = await reg();
+      await pl.keyboard.press('Escape').catch(() => {}); await pl.click('#guide-root [data-act="guide-close"]', { timeout: 1500 }).catch(() => {});
+      await pl.evaluate(() => { location.hash = '#settings'; }); await pl.waitForTimeout(600);
+      await pl.click('[data-act="logout"]'); await pl.waitForSelector('.login-gate');
+      const after = await reg();
+      ok(before === 'ok' && after === 'not_found' && await pl.evaluate(() => !window.__sub && !localStorage.getItem('kintoreTest.pushKinds')), 'ログアウトすると、その端末の通知の登録も外れる（' + before + '→' + after + '）');
+      await cl.close();
+    }
     { // 紹介の版を上げたので、前に見た人（guided=1）にも1回だけもう一度出る。見たら2度目は出ない
       const cz = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 1, isMobile: true, hasTouch: true, reducedMotion: 'reduce' });
       await cz.route(/fonts\.(googleapis|gstatic)\.com/, (r) => r.abort());
