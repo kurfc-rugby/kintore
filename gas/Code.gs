@@ -3067,7 +3067,10 @@ function opPushRegister_(ctx) {
   requireView_(ctx);
   const sub = ctx.req.sub || {};
   const endpoint = cleanEndpoint_(sub.endpoint);
-  const memberId = String(ctx.req.memberId || '');
+  // setlog（全員ログイン）：だれあての通知を受け取るかは、画面から来た名前ではなく、ログインしている本人で決める（E-003）。
+  // 選手としてログインした人だけ。幹部で選手でない人・見るだけの人・ログインしていない人は、本人あての通知をひもづけない
+  const SL = setlogOn_();
+  const memberId = SL ? pushSelfId_(ctx.me) : String(ctx.req.memberId || '');
   const want = (Array.isArray(ctx.req.kinds) ? ctx.req.kinds : []).map(String).filter(function (k, i, a) { return PUSH_KINDS[k] && a.indexOf(k) === i; });
   return withLock_(function () {
     if (memberId) { const m = memberById_(memberId); if (!m || m.gone || !m.active) throw err_('not_found', '自分の名前をもう一度選んでください。'); }
@@ -3082,13 +3085,14 @@ function opPushRegister_(ctx) {
     const t = table_('push');
     let r = t.rows.filter(function (x) { return x.endpoint === endpoint; })[0];
     const now = now_();
-    const staffId = ctx.me ? ctx.me.id : (r ? r.staffId : '');
+    const staffId = SL ? (ctx.me ? ctx.me.id : '') : (ctx.me ? ctx.me.id : (r ? r.staffId : ''));
+    const owner = SL || forStaff ? staffId : ''; // setlog では、登録した本人をいつも残す（本人あての通知は、登録した本人の端末にだけ送る）
     if (r) {
-      Object.assign(r, { memberId: memberId, staffId: forStaff ? staffId : '', kinds: kinds.join(','), device: deviceLabel_(ctx.req.deviceName) || r.device, updatedAt: now });
+      Object.assign(r, { memberId: memberId, staffId: owner, kinds: kinds.join(','), device: deviceLabel_(ctx.req.deviceName) || r.device, updatedAt: now });
       update_('push', r);
     } else {
       if (t.rows.length >= PUSH_MAX) throw err_('too_many', '通知を受け取る端末が多すぎます。管理者に伝えてください。');
-      r = { id: newId_('p'), endpoint: endpoint, memberId: memberId, staffId: forStaff ? staffId : '', kinds: kinds.join(','),
+      r = { id: newId_('p'), endpoint: endpoint, memberId: memberId, staffId: owner, kinds: kinds.join(','),
         device: deviceLabel_(ctx.req.deviceName), createdAt: now, updatedAt: now, okAt: '', failCount: '0' };
       insert_('push', [r]);
     }
@@ -3140,6 +3144,22 @@ function opPushMove_(ctx) {
     update_('push', r);
     return { ok: true, moved: true };
   });
+}
+/** 選手としてログインしている本人の部員ID（それ以外は ''） */
+function pushSelfId_(me) {
+  if (!me || me.perm === 'guest') return '';
+  const m = memberById_(me.id);
+  return m && m.active && !m.gone && m.player ? m.id : '';
+}
+/** 本人あての通知（応援・今週あと○回・節目・メニュー）を、この宛先に送ってよいか。
+ *  setlog では、登録したのが本人（staffId）のものだけ。前の版で他人の名前で登録された行には送らない（E-003） */
+function pushSelfOk_(r) {
+  return !!r.memberId && (!setlogOn_() || r.staffId === r.memberId);
+}
+/** その人の端末（動画の取り消し・免除の結果）。setlog では、その人が自分で登録したものだけ（E-003） */
+function pushRowsOf_(id) {
+  if (!id) return [];
+  return table_('push').rows.filter(function (r) { return setlogOn_() ? r.staffId === id : (r.staffId === id || r.memberId === id); });
 }
 function pushTargets_(kind) {
   return table_('push').rows.filter(function (r) { return (',' + r.kinds + ',').indexOf(',' + kind + ',') >= 0; });
@@ -3204,7 +3224,7 @@ function pushCheers_() {
   });
   withLock_(function () { setSetting_('pushCheerAt', upto); });
   if (!Object.keys(by).length) return;
-  sendPush_(pushTargets_('cheer').filter(function (r) { return by[r.memberId]; }), function (r) {
+  sendPush_(pushTargets_('cheer').filter(function (r) { return by[r.memberId] && pushSelfOk_(r); }), function (r) {
     const o = by[r.memberId];
     const names = o.f.map(function (id) { const x = memberById_(id); return x ? x.name : ''; }).filter(Boolean);
     const em = Object.keys(o.c).map(function (k) { return (STAMP_EMOJI[k] || '') + (o.c[k] > 1 ? '×' + o.c[k] : ''); }).join(' ');
@@ -3213,7 +3233,7 @@ function pushCheers_() {
 }
 function pushGoal_(today, slot) {
   const ws = (function () { const w = dow_(today); return addDays_(today, w === 0 ? -6 : 1 - w); })();
-  sendPush_(pushTargets_('goal'), function (r) {
+  sendPush_(pushTargets_('goal').filter(pushSelfOk_), function (r) {
     const m = memberById_(r.memberId);
     if (!m || !m.active || m.gone || !m.player) return null;
     const st = weekStatus_(m, ws);
@@ -3296,7 +3316,7 @@ function notifyMilestones_(notes) {
   try {
     const by = {};
     notes.forEach(function (x) { (by[x.id] = by[x.id] || []).push(x); });
-    sendPush_(pushTargets_('milestone').filter(function (r) { return by[r.memberId]; }), function (r) {
+    sendPush_(pushTargets_('milestone').filter(function (r) { return by[r.memberId] && pushSelfOk_(r); }), function (r) {
       const list = by[r.memberId];
       const top = list.filter(function (x) { return x.kind === 'best' || x.kind === 'tie'; })[0] || list[0];
       const m = memberById_(r.memberId);
@@ -3317,7 +3337,7 @@ function notifyMenu_(w) {
     const set = {};
     w.targets.split(',').forEach(function (id) { if (id) set[id] = 1; });
     const md = (function () { const a = w.date.split('-'); return (+a[1]) + '/' + (+a[2]) + '（' + '日月火水木金土'.charAt(dow_(w.date)) + '）'; })();
-    sendPush_(pushTargets_('menu').filter(function (r) { return set[r.memberId]; }), function () {
+    sendPush_(pushTargets_('menu').filter(function (r) { return set[r.memberId] && pushSelfOk_(r); }), function () {
       return { title: withEmoji_('📋', '新しいメニュー：' + md), body: w.title + (w.positions ? '（' + w.positions.split(',').join('・') + '）' : w.group === 'ALL' ? '（全体）' : '（' + w.group + '）'), url: './#menus', tag: 'menu' };
     });
   } catch (x) { console.error(x); }
@@ -4256,7 +4276,7 @@ function expireClips_() {
   }, { keepRoster: true });
   done.forEach(function (c) {
     try {
-      const rows = table_('push').rows.filter(function (r) { return r.staffId === c.memberId || r.memberId === c.memberId; });
+      const rows = pushRowsOf_(c.memberId);
       sendPush_(rows, function () { return { title: withEmoji_('⚠️', '動画が届かなかったので取り消しました'), body: c.date.slice(5).replace('-', '/') + ' の「実施した」を外しました。撮り直すと、確認待ちになります。', url: './#clips', tag: 'clipexp' }; });
     } catch (x) { console.error(x); }
   });
@@ -4422,7 +4442,7 @@ function opClipCancel_(ctx) {
   });
   if (!res.already) {
     try {
-      const rows = table_('push').rows.filter(function (r) { return r.staffId === res.memberId || r.memberId === res.memberId; });
+      const rows = pushRowsOf_(res.memberId);
       sendPush_(rows, function () { return { title: withEmoji_('⚠️', '動画が取り消されました'), body: res.date.slice(5).replace('-', '/') + ' の動画' + (reason ? '（' + reason + '）' : '') + '。撮り直すと、確認待ちになります。', url: './#clips', tag: 'clipcancel' }; });
     } catch (x) { console.error(x); }
   }
@@ -4683,7 +4703,7 @@ function opExemptDecide_(ctx) {
   });
   try {
     const q = res.req;
-    const rows = table_('push').rows.filter(function (x) { return x.staffId === q.m || x.memberId === q.m; });
+    const rows = pushRowsOf_(q.m);
     const span = q.from.slice(5).replace('-', '/') + '〜' + q.to.slice(5).replace('-', '/');
     sendPush_(rows, function () {
       return ok ? { title: withEmoji_('✅', '免除が認められました'), body: span + '（' + q.reason + '）は、週の目標の判定から外れます。', url: './#home', tag: 'exreq' }

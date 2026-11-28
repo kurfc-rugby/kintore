@@ -630,6 +630,29 @@ section('動画のフォルダの名前');
   gas.run('renameClipFolder_');
   ok(/（3か月で消えます）$/.test(fo.name) && !/1か月/.test(fo.name), '前の「1か月で消えます」のフォルダは、1日1回の処理で「3か月」に直す');
 }
+section('通知の宛先は、ログインしている本人で決める（E-003：他人の名前で登録して、その人の通知を受け取れないように）');
+{
+  const IS = id['石川 大地'], MO = id['森 健太'];
+  const EVIL = 'https://fcm.googleapis.com/fcm/send/e003-evil:APA91b-test', OLD = 'https://fcm.googleapis.com/fcm/send/e003-old:APA91b-test', OWN = 'https://fcm.googleapis.com/fcm/send/e003-own:APA91b-test';
+  let r = api({ op: 'pushRegister', token: MORI2, sub: { endpoint: EVIL }, memberId: IS, kinds: ['goal', 'cheer', 'milestone', 'menu'] });
+  ok(r.ok && r.push.memberId === MO, '他人（石川）の名前を送っても、ログインしている本人（森）として登録される');
+  r = api({ op: 'pushRegister', token: G, sub: { endpoint: 'https://fcm.googleapis.com/fcm/send/e003-guest:APA91b-test' }, memberId: IS, kinds: ['goal', 'cheer'] });
+  ok(r.ok && r.push.memberId === '' && !r.push.kinds.length, '見るだけの人は、だれかの名前で本人あての通知を受け取れない');
+  // 前の版で、森が石川の名前で登録した行（宛先は石川、登録したのは森）が残っているとき
+  gas.run('withReq', (f) => f.insert_('push', [{ id: 'p-e003-old', endpoint: OLD, memberId: IS, staffId: MO, kinds: 'goal,cheer,milestone,menu', device: '', createdAt: '2026-11-01 10:00:00', updatedAt: '2026-11-01 10:00:00', okAt: '', failCount: '0' }]));
+  r = api({ op: 'pushRegister', token: ISHI, sub: { endpoint: OWN }, memberId: IS, kinds: ['goal', 'cheer'] });
+  ok(r.ok && r.push.memberId === IS, '本人（石川）は今までどおり自分の通知を登録できる');
+  const goalTo = gas.run('withReq', (f) => f.pushTargets_('goal').filter(f.pushSelfOk_).filter((x) => x.memberId === IS).map((x) => x.endpoint));
+  ok(goalTo.indexOf(OWN) >= 0 && goalTo.indexOf(OLD) < 0 && goalTo.indexOf(EVIL) < 0 && gas.run('withReq', (f) => f.pushTargets_('goal').some((x) => x.endpoint === OLD)), '「今週あと○回」などは、本人が登録した端末にだけ送る（前の版で他人が登録した行には送らない）');
+  const ofIs = gas.run('withReq', (f) => f.pushRowsOf_(IS).map((x) => x.endpoint));
+  ok(ofIs.indexOf(OWN) >= 0 && ofIs.indexOf(OLD) < 0 && ofIs.indexOf(EVIL) < 0, '動画の取り消し・免除の結果も、本人が登録した端末にだけ送る');
+  const at2 = jst(1);
+  const up = api({ op: 'clipUpload', token: ISHI, mime: 'video/mp4', data: Buffer.from('e003-video-' + 'y'.repeat(2000)).toString('base64'), thumb, recordedAt: at2, code: gas.run('withReq', (f) => f.clipCode_(at2.slice(0, 10))) });
+  gas.push.sent.length = 0;
+  r = up.ok ? api({ op: 'clipCancel', token: MG, id: up.clip.id, reason: '確認のため' }) : up;
+  const to = gas.push.sent.map((x) => x.url);
+  ok(r.ok && to.indexOf(OWN) >= 0 && to.indexOf(OLD) < 0 && to.indexOf(EVIL) < 0, '動画を取り消すと、通知は本人の端末にだけ届く（他人の端末には届かない）' + (r.ok ? '' : '：' + JSON.stringify(r).slice(0, 80)));
+}
 section('シートのキャッシュ');
 ok(afChecks > 10 && !afBad.length, '書いたあとに一緒に返す最新の情報は、読み直したものと同じ（' + afChecks + '回）' + (afBad.length ? '：違い ' + afBad.slice(0, 6).join(' / ') : ''));
 ok(tcChecks > 20 && !tcBad.length, 'キャッシュから読んだ state は、シートから読んだものと同じ（' + tcChecks + '回）' + (tcBad.length ? '：違い ' + tcBad.slice(0, 5).join(' / ') : ''));
